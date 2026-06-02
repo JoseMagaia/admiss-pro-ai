@@ -126,7 +126,7 @@ export async function applyDecision(lead: LeadRecord, decision: QualificationDec
 
   const { data: updated } = await db
     .from("leads")
-    .update(update)
+    .update(update as never)
     .eq("id", lead.id!)
     .select("*")
     .single();
