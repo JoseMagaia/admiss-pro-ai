@@ -33,6 +33,8 @@ export function detectHumanTakeover(message: string): boolean {
 export interface LeadRecord {
   id?: string;
   phone_number: string;
+  chatwoot_conversation_id?: string | null;
+  chatwoot_contact_id?: string | null;
   lead_name?: string | null;
   student_or_parent?: string | null;
   course_interest?: string | null;
