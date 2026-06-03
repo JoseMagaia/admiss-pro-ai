@@ -119,6 +119,48 @@ export type Database = {
         }
         Relationships: []
       }
+      chatwoot_workspaces: {
+        Row: {
+          chatwoot_account_id: string | null
+          chatwoot_api_token: string | null
+          chatwoot_inbox_id: string | null
+          chatwoot_url: string | null
+          created_at: string
+          enabled: boolean
+          id: string
+          is_default: boolean
+          name: string
+          updated_at: string
+          use_shared_ai: boolean
+        }
+        Insert: {
+          chatwoot_account_id?: string | null
+          chatwoot_api_token?: string | null
+          chatwoot_inbox_id?: string | null
+          chatwoot_url?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          is_default?: boolean
+          name: string
+          updated_at?: string
+          use_shared_ai?: boolean
+        }
+        Update: {
+          chatwoot_account_id?: string | null
+          chatwoot_api_token?: string | null
+          chatwoot_inbox_id?: string | null
+          chatwoot_url?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          is_default?: boolean
+          name?: string
+          updated_at?: string
+          use_shared_ai?: boolean
+        }
+        Relationships: []
+      }
       conversations: {
         Row: {
           assigned_agent: string | null
@@ -130,6 +172,7 @@ export type Database = {
           phone_number: string
           status: string
           updated_at: string
+          workspace_id: string | null
         }
         Insert: {
           assigned_agent?: string | null
@@ -141,6 +184,7 @@ export type Database = {
           phone_number: string
           status?: string
           updated_at?: string
+          workspace_id?: string | null
         }
         Update: {
           assigned_agent?: string | null
@@ -152,6 +196,7 @@ export type Database = {
           phone_number?: string
           status?: string
           updated_at?: string
+          workspace_id?: string | null
         }
         Relationships: [
           {
@@ -276,6 +321,7 @@ export type Database = {
           qualification_status: string
           student_or_parent: string | null
           updated_at: string
+          workspace_id: string | null
         }
         Insert: {
           academic_status?: string | null
@@ -296,6 +342,7 @@ export type Database = {
           qualification_status?: string
           student_or_parent?: string | null
           updated_at?: string
+          workspace_id?: string | null
         }
         Update: {
           academic_status?: string | null
@@ -316,6 +363,7 @@ export type Database = {
           qualification_status?: string
           student_or_parent?: string | null
           updated_at?: string
+          workspace_id?: string | null
         }
         Relationships: []
       }
@@ -367,6 +415,51 @@ export type Database = {
           id?: string
           system_prompt?: string
           version_number?: number
+        }
+        Relationships: []
+      }
+      scheduled_messages: {
+        Row: {
+          chatwoot_conversation_id: string | null
+          created_at: string
+          created_by: string | null
+          error: string | null
+          id: string
+          message_content: string
+          phone_number: string
+          scheduled_for: string
+          sent_at: string | null
+          status: string
+          updated_at: string
+          workspace_id: string | null
+        }
+        Insert: {
+          chatwoot_conversation_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          id?: string
+          message_content: string
+          phone_number: string
+          scheduled_for: string
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+          workspace_id?: string | null
+        }
+        Update: {
+          chatwoot_conversation_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          error?: string | null
+          id?: string
+          message_content?: string
+          phone_number?: string
+          scheduled_for?: string
+          sent_at?: string | null
+          status?: string
+          updated_at?: string
+          workspace_id?: string | null
         }
         Relationships: []
       }

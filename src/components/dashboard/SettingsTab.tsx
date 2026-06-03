@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog } from "lucide-react";
+import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CompanySettingsForm, ProgramSettingsForm, ChatwootSettingsForm } from "./settings/SettingsForms";
 import { AiPromptEditor } from "./settings/AiPromptEditor";
@@ -8,6 +8,7 @@ import { HttpActionsManager } from "./settings/HttpActionsManager";
 import { PromptTestingLab } from "./settings/PromptTestingLab";
 import { AiProviderSettings } from "./settings/AiProviderSettings";
 import { UserManagement } from "./settings/UserManagement";
+import { ChatwootWorkspaces } from "./settings/ChatwootWorkspaces";
 import { canAccessSettingsSection, type AppRole } from "@/lib/roles";
 
 const SECTIONS = [
@@ -17,6 +18,7 @@ const SECTIONS = [
   { id: "prompt", label: "AI Prompt", icon: Bot },
   { id: "variables", label: "AI Variables", icon: Variable },
   { id: "chatwoot", label: "Chatwoot", icon: Plug },
+  { id: "workspaces", label: "Workspaces", icon: Network },
   { id: "actions", label: "HTTP Actions", icon: Webhook },
   { id: "lab", label: "Prompt Lab", icon: FlaskConical },
   { id: "users", label: "Users", icon: UserCog },
@@ -61,6 +63,7 @@ export function SettingsTab({ role }: { role: AppRole | null }) {
         {activeSection === "prompt" && <AiPromptEditor />}
         {activeSection === "variables" && <AiVariablesEditor />}
         {activeSection === "chatwoot" && <ChatwootSettingsForm />}
+        {activeSection === "workspaces" && <ChatwootWorkspaces />}
         {activeSection === "actions" && <HttpActionsManager />}
         {activeSection === "lab" && <PromptTestingLab />}
         {activeSection === "users" && <UserManagement />}

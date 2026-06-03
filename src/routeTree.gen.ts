@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as ApiPublicProcessScheduledMessagesRouteImport } from './routes/api/public/process-scheduled-messages'
 import { Route as ApiPublicChatwootWebhookRouteImport } from './routes/api/public/chatwoot-webhook'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -46,6 +47,12 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiPublicProcessScheduledMessagesRoute =
+  ApiPublicProcessScheduledMessagesRouteImport.update({
+    id: '/api/public/process-scheduled-messages',
+    path: '/api/public/process-scheduled-messages',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicChatwootWebhookRoute =
   ApiPublicChatwootWebhookRouteImport.update({
     id: '/api/public/chatwoot-webhook',
@@ -60,6 +67,7 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
+  '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -68,6 +76,7 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
+  '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -78,6 +87,7 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
+  '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -88,6 +98,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/dashboard'
     | '/api/public/chatwoot-webhook'
+    | '/api/public/process-scheduled-messages'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -96,6 +107,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/dashboard'
     | '/api/public/chatwoot-webhook'
+    | '/api/public/process-scheduled-messages'
   id:
     | '__root__'
     | '/'
@@ -105,6 +117,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/_authenticated/dashboard'
     | '/api/public/chatwoot-webhook'
+    | '/api/public/process-scheduled-messages'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -114,6 +127,7 @@ export interface RootRouteChildren {
   FeaturesRoute: typeof FeaturesRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiPublicChatwootWebhookRoute: typeof ApiPublicChatwootWebhookRoute
+  ApiPublicProcessScheduledMessagesRoute: typeof ApiPublicProcessScheduledMessagesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -160,6 +174,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/process-scheduled-messages': {
+      id: '/api/public/process-scheduled-messages'
+      path: '/api/public/process-scheduled-messages'
+      fullPath: '/api/public/process-scheduled-messages'
+      preLoaderRoute: typeof ApiPublicProcessScheduledMessagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/chatwoot-webhook': {
       id: '/api/public/chatwoot-webhook'
       path: '/api/public/chatwoot-webhook'
@@ -188,6 +209,8 @@ const rootRouteChildren: RootRouteChildren = {
   FeaturesRoute: FeaturesRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiPublicChatwootWebhookRoute: ApiPublicChatwootWebhookRoute,
+  ApiPublicProcessScheduledMessagesRoute:
+    ApiPublicProcessScheduledMessagesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
