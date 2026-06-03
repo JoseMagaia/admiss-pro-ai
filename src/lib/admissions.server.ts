@@ -360,8 +360,13 @@ export async function processInboundMessage(params: {
     };
   }
 
-  // AI agent stops once the booking request is created.
-  if (lead.qualification_status === "BOOKING_REQUEST_CREATED" || stageBeyondAi(lead.qualification_status)) {
+  // AI agent normally stops once the booking request is created. But if a human
+  // agent has switched the AI back on (ai_resumed), it resumes replying to the
+  // next message in context per its defined role.
+  const aiResumed = (conv as Record<string, unknown> | null)?.ai_resumed === true;
+  const stageStop =
+    lead.qualification_status === "BOOKING_REQUEST_CREATED" || stageBeyondAi(lead.qualification_status);
+  if (stageStop && !aiResumed) {
     return {
       reply: "",
       stage: lead.qualification_status ?? "NEW_LEAD",

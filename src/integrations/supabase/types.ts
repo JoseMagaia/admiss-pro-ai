@@ -163,6 +163,7 @@ export type Database = {
       }
       conversations: {
         Row: {
+          ai_resumed: boolean
           assigned_agent: string | null
           chatwoot_conversation_id: string | null
           created_at: string
@@ -175,6 +176,7 @@ export type Database = {
           workspace_id: string | null
         }
         Insert: {
+          ai_resumed?: boolean
           assigned_agent?: string | null
           chatwoot_conversation_id?: string | null
           created_at?: string
@@ -187,6 +189,7 @@ export type Database = {
           workspace_id?: string | null
         }
         Update: {
+          ai_resumed?: boolean
           assigned_agent?: string | null
           chatwoot_conversation_id?: string | null
           created_at?: string

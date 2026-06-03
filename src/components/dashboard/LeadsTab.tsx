@@ -1,13 +1,24 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, UserCog, Bot } from "lucide-react";
+import { Search, UserCog, Bot, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { StageBadge } from "./StageBadge";
-import { listLeads, toggleHumanTakeover, listConversations } from "@/lib/dashboard.functions";
+import { listLeads, toggleHumanTakeover, listConversations, deleteLead } from "@/lib/dashboard.functions";
 import { LEAD_FILTERS, columnForStage } from "@/lib/pipeline";
+import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 interface Lead {
@@ -29,11 +40,15 @@ interface Conversation {
 
 export function LeadsTab() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const canDelete = profile.role === "super_admin" || profile.role === "admin";
   const leadsFn = useServerFn(listLeads);
   const convFn = useServerFn(listConversations);
   const takeoverFn = useServerFn(toggleHumanTakeover);
+  const deleteFn = useServerFn(deleteLead);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<Lead | null>(null);
 
   const { data } = useQuery({
     queryKey: ["leads"],
@@ -59,6 +74,24 @@ export function LeadsTab() {
       toast.success("Conversation updated");
     },
     onError: () => toast.error("Failed to update"),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteFn({ data: { id } }),
+    onSuccess: (res) => {
+      if ((res as { ok: boolean }).ok) {
+        qc.invalidateQueries({ queryKey: ["leads"] });
+        qc.invalidateQueries({ queryKey: ["conversations"] });
+        toast.success("Lead deleted — this number is now a fresh lead");
+      } else {
+        toast.error((res as { error?: string }).error ?? "Failed to delete");
+      }
+      setPendingDelete(null);
+    },
+    onError: () => {
+      toast.error("Failed to delete");
+      setPendingDelete(null);
+    },
   });
 
   const leads = (data?.leads ?? []) as Lead[];
@@ -118,6 +151,7 @@ export function LeadsTab() {
               <th className="px-4 py-3 font-semibold">Parent</th>
               <th className="px-4 py-3 font-semibold">Doc</th>
               <th className="px-4 py-3 font-semibold">Mode</th>
+              {canDelete && <th className="px-4 py-3 font-semibold text-right">Actions</th>}
             </tr>
           </thead>
           <tbody>
@@ -152,12 +186,25 @@ export function LeadsTab() {
                       {human ? "Human" : "AI"}
                     </Button>
                   </td>
+                  {canDelete && (
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => setPendingDelete(l)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </Button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">
+                <td colSpan={canDelete ? 10 : 9} className="px-4 py-12 text-center text-muted-foreground">
                   No leads found.
                 </td>
               </tr>
@@ -165,6 +212,29 @@ export function LeadsTab() {
           </tbody>
         </table>
       </div>
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this lead?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes {pendingDelete?.lead_name ?? pendingDelete?.phone_number} and all of their
+              conversation history, messages and bookings. The phone number will be treated as a fresh lead the next
+              time it messages. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={remove.isPending}
+              onClick={() => pendingDelete && remove.mutate(pendingDelete.id)}
+            >
+              {remove.isPending ? "Deleting…" : "Delete lead"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
