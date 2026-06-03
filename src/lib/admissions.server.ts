@@ -287,6 +287,7 @@ export async function processInboundMessage(params: {
     temperature: ctx.temperature,
     variables: ctx.variables,
     settings: ctx.settings,
+    provider: ctx.provider,
   });
 
   const updatedLead = await applyDecision(lead, decision);
