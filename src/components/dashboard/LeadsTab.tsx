@@ -186,12 +186,25 @@ export function LeadsTab() {
                       {human ? "Human" : "AI"}
                     </Button>
                   </td>
+                  {canDelete && (
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 gap-1 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => setPendingDelete(l)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </Button>
+                    </td>
+                  )}
                 </tr>
               );
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">
+                <td colSpan={canDelete ? 10 : 9} className="px-4 py-12 text-center text-muted-foreground">
                   No leads found.
                 </td>
               </tr>
