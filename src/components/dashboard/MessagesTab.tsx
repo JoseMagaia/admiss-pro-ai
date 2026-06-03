@@ -1,9 +1,40 @@
 import { useMemo, useState, useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, MessageSquare, Bot, User, UserCog } from "lucide-react";
+import {
+  Search,
+  MessageSquare,
+  Bot,
+  User,
+  UserCog,
+  Send,
+  Clock,
+  X,
+  Loader2,
+  Pause,
+  Play,
+} from "lucide-react";
+import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
-import { listMessages } from "@/lib/dashboard.functions";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  listMessages,
+  listConversations,
+  sendHumanMessage,
+  scheduleMessage,
+  listScheduledMessages,
+  cancelScheduledMessage,
+  toggleHumanTakeover,
+} from "@/lib/dashboard.functions";
 import { cn } from "@/lib/utils";
 
 interface Message {
@@ -14,20 +45,54 @@ interface Message {
   received_at: string;
 }
 
+interface Conversation {
+  phone_number: string;
+  human_takeover: boolean;
+  status: string;
+}
+
+interface Scheduled {
+  id: string;
+  phone_number: string;
+  message_content: string;
+  scheduled_for: string;
+  status: string;
+}
+
 export function MessagesTab() {
-  const fn = useServerFn(listMessages);
-  const { data } = useQuery({
-    queryKey: ["messages"],
-    queryFn: () => fn(),
+  const qc = useQueryClient();
+  const msgFn = useServerFn(listMessages);
+  const convFn = useServerFn(listConversations);
+  const schedFn = useServerFn(listScheduledMessages);
+  const sendFn = useServerFn(sendHumanMessage);
+  const scheduleFn = useServerFn(scheduleMessage);
+  const cancelFn = useServerFn(cancelScheduledMessage);
+  const takeoverFn = useServerFn(toggleHumanTakeover);
+
+  const { data: msgData } = useQuery({ queryKey: ["messages"], queryFn: () => msgFn(), refetchInterval: 5000 });
+  const { data: convData } = useQuery({
+    queryKey: ["conversations"],
+    queryFn: () => convFn(),
     refetchInterval: 5000,
   });
+  const { data: schedData } = useQuery({
+    queryKey: ["scheduled"],
+    queryFn: () => schedFn(),
+    refetchInterval: 10000,
+  });
+
   const [search, setSearch] = useState("");
   const [active, setActive] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const messages = (data?.messages ?? []) as Message[];
+  const messages = (msgData?.messages ?? []) as Message[];
+  const conversations = (convData?.conversations ?? []) as Conversation[];
+  const scheduled = (schedData?.scheduled ?? []) as Scheduled[];
 
-  const conversations = useMemo(() => {
+  const grouped = useMemo(() => {
     const map = new Map<string, Message[]>();
     for (const m of messages) {
       if (!map.has(m.phone_number)) map.set(m.phone_number, []);
@@ -38,71 +103,172 @@ export function MessagesTab() {
       .sort((a, b) => new Date(b.last.received_at).getTime() - new Date(a.last.received_at).getTime());
   }, [messages]);
 
-  const filteredConvs = conversations.filter((c) => c.phone.toLowerCase().includes(search.toLowerCase()));
+  const filteredConvs = grouped.filter((c) => c.phone.toLowerCase().includes(search.toLowerCase()));
 
   useEffect(() => {
     if (!active && filteredConvs.length) setActive(filteredConvs[0].phone);
   }, [filteredConvs, active]);
 
-  const activeMsgs = conversations.find((c) => c.phone === active)?.msgs ?? [];
+  const activeMsgs = grouped.find((c) => c.phone === active)?.msgs ?? [];
+  const activeConv = conversations.find((c) => c.phone_number === active);
+  const takeover = activeConv?.human_takeover ?? false;
+  const activeScheduled = scheduled.filter((s) => s.phone_number === active && s.status === "pending");
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeMsgs.length, active]);
 
+  const send = useMutation({
+    mutationFn: (message: string) => sendFn({ data: { phone: active!, message } }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error?: string };
+      if (res.ok) {
+        toast.success("Message sent");
+      } else {
+        toast.warning(res.error ?? "Sent but delivery may have failed");
+      }
+      setDraft("");
+      qc.invalidateQueries({ queryKey: ["messages"] });
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+    },
+    onError: () => toast.error("Failed to send"),
+  });
+
+  const schedule = useMutation({
+    mutationFn: (vars: { message: string; scheduledFor: string }) =>
+      scheduleFn({ data: { phone: active!, message: vars.message, scheduledFor: vars.scheduledFor } }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error?: string };
+      if (res.ok) {
+        toast.success("Message scheduled");
+        setScheduleOpen(false);
+        setDraft("");
+        setScheduleAt("");
+        qc.invalidateQueries({ queryKey: ["scheduled"] });
+      } else {
+        toast.error(res.error ?? "Failed to schedule");
+      }
+    },
+    onError: () => toast.error("Failed to schedule"),
+  });
+
+  const cancel = useMutation({
+    mutationFn: (id: string) => cancelFn({ data: { id } }),
+    onSuccess: () => {
+      toast.success("Scheduled message cancelled");
+      qc.invalidateQueries({ queryKey: ["scheduled"] });
+    },
+    onError: () => toast.error("Failed to cancel"),
+  });
+
+  const toggleTakeover = useMutation({
+    mutationFn: (enabled: boolean) => takeoverFn({ data: { phone: active!, enabled } }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+    },
+    onError: () => toast.error("Failed to update"),
+  });
+
+  function handleSend() {
+    const text = draft.trim();
+    if (!text || !active) return;
+    send.mutate(text);
+  }
+
   return (
-    <div className="grid h-[70vh] grid-cols-1 gap-4 md:grid-cols-[300px_1fr]">
+    <div className="grid h-[72vh] grid-cols-1 gap-4 md:grid-cols-[300px_1fr]">
       {/* List */}
       <div className="flex flex-col overflow-hidden rounded-2xl border bg-card shadow-card">
         <div className="border-b p-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
-            />
+            <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {filteredConvs.map((c) => (
-            <button
-              key={c.phone}
-              onClick={() => setActive(c.phone)}
-              className={cn(
-                "flex w-full flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors hover:bg-muted/40",
-                active === c.phone && "bg-primary/5",
-              )}
-            >
-              <span className="text-sm font-semibold">{c.phone}</span>
-              <span className="line-clamp-1 text-xs text-muted-foreground">{c.last.message_content}</span>
-            </button>
-          ))}
+          {filteredConvs.map((c) => {
+            const conv = conversations.find((x) => x.phone_number === c.phone);
+            return (
+              <button
+                key={c.phone}
+                onClick={() => setActive(c.phone)}
+                className={cn(
+                  "flex w-full flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors hover:bg-muted/40",
+                  active === c.phone && "bg-primary/5",
+                )}
+              >
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  {c.phone}
+                  {conv?.human_takeover && (
+                    <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-accent-foreground">
+                      Human
+                    </span>
+                  )}
+                </span>
+                <span className="line-clamp-1 text-xs text-muted-foreground">{c.last.message_content}</span>
+              </button>
+            );
+          })}
           {filteredConvs.length === 0 && (
             <p className="p-6 text-center text-sm text-muted-foreground">No conversations.</p>
           )}
         </div>
       </div>
 
-      {/* Timeline */}
+      {/* Timeline + composer */}
       <div className="flex flex-col overflow-hidden rounded-2xl border bg-card shadow-card">
         {active ? (
           <>
-            <div className="flex items-center gap-2 border-b px-4 py-3">
-              <MessageSquare className="h-4 w-4 text-primary" />
-              <span className="font-semibold">{active}</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
+              <span className="flex items-center gap-2 font-semibold">
+                <MessageSquare className="h-4 w-4 text-primary" />
+                {active}
+              </span>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                {takeover ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                AI {takeover ? "paused" : "active"}
+                <Switch
+                  checked={!takeover}
+                  onCheckedChange={(v) => toggleTakeover.mutate(!v)}
+                  disabled={toggleTakeover.isPending}
+                />
+              </label>
             </div>
+
+            {/* Scheduled banner */}
+            {activeScheduled.length > 0 && (
+              <div className="space-y-1 border-b bg-muted/30 px-4 py-2">
+                {activeScheduled.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="flex items-center gap-1.5 text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      <span className="line-clamp-1">{s.message_content}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      <span className="text-muted-foreground">{new Date(s.scheduled_for).toLocaleString()}</span>
+                      <button onClick={() => cancel.mutate(s.id)} className="text-destructive hover:opacity-70">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
               {activeMsgs.map((m) => {
                 const isLead = m.sender === "lead";
-                const isAgent = m.sender === "agent" || m.sender === "human";
+                const isHuman = m.sender === "agent" || m.sender === "human";
                 return (
                   <div key={m.id} className={cn("flex", isLead ? "justify-start" : "justify-end")}>
                     <div
                       className={cn(
                         "max-w-[75%] rounded-2xl px-4 py-2 text-sm",
-                        isLead ? "bg-muted text-foreground" : "bg-primary text-primary-foreground",
+                        isLead
+                          ? "bg-muted text-foreground"
+                          : isHuman
+                            ? "bg-accent text-accent-foreground"
+                            : "bg-primary text-primary-foreground",
                       )}
                     >
                       <div className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase opacity-70">
@@ -110,7 +276,7 @@ export function MessagesTab() {
                           <>
                             <User className="h-3 w-3" /> Student
                           </>
-                        ) : isAgent ? (
+                        ) : isHuman ? (
                           <>
                             <UserCog className="h-3 w-3" /> Agent
                           </>
@@ -130,13 +296,93 @@ export function MessagesTab() {
               })}
               <div ref={bottomRef} />
             </div>
+
+            {/* Composer */}
+            <div className="border-t p-3">
+              <Textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="Type a reply…  (⌘/Ctrl + Enter to send)"
+                rows={2}
+                className="resize-none"
+              />
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <p className="text-[11px] text-muted-foreground">
+                  Sending pauses the AI for this conversation.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setScheduleOpen(true)}
+                    disabled={!draft.trim()}
+                  >
+                    <Clock className="mr-1 h-4 w-4" /> Schedule
+                  </Button>
+                  <Button size="sm" onClick={handleSend} disabled={!draft.trim() || send.isPending}>
+                    {send.isPending ? (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="mr-1 h-4 w-4" />
+                    )}
+                    Send
+                  </Button>
+                </div>
+              </div>
+            </div>
           </>
         ) : (
-          <div className="flex flex-1 items-center justify-center text-muted-foreground">
-            Select a conversation
-          </div>
+          <div className="flex flex-1 items-center justify-center text-muted-foreground">Select a conversation</div>
         )}
       </div>
+
+      {/* Schedule dialog */}
+      <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Schedule message</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Message to send later…"
+              rows={3}
+            />
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Send at</label>
+              <Input type="datetime-local" value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setScheduleOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!draft.trim() || !scheduleAt) {
+                  toast.error("Enter a message and time");
+                  return;
+                }
+                schedule.mutate({
+                  message: draft.trim(),
+                  scheduledFor: new Date(scheduleAt).toISOString(),
+                });
+              }}
+              disabled={schedule.isPending}
+            >
+              {schedule.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Clock className="mr-1 h-4 w-4" />}
+              Schedule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
