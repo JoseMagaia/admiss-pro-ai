@@ -197,6 +197,14 @@ function safeParseDecision(content: string, currentStage: string): Qualification
   };
 }
 
+export interface ProviderConfig {
+  mode: "built_in" | "custom";
+  custom_provider?: string | null;
+  custom_base_url?: string | null;
+  custom_model?: string | null;
+  custom_api_key?: string | null;
+}
+
 export interface RunQualificationArgs {
   lead: LeadRecord;
   history: EngineMessage[];
@@ -206,6 +214,7 @@ export interface RunQualificationArgs {
   temperature: number;
   variables: Record<string, string>;
   settings: Record<string, unknown> | null;
+  provider?: ProviderConfig | null;
 }
 
 export interface RunQualificationResult {
@@ -215,8 +224,105 @@ export interface RunQualificationResult {
   error?: string;
 }
 
-export async function runQualification(args: RunQualificationArgs): Promise<RunQualificationResult> {
+interface ChatResult {
+  ok: boolean;
+  content: string;
+  error?: string;
+}
+
+// Built-in Lovable AI gateway (no user key required).
+async function callBuiltIn(model: string, temperature: number, system: string, user: string): Promise<ChatResult> {
   const apiKey = process.env.LOVABLE_API_KEY;
+  if (!apiKey) return { ok: false, content: "", error: "Missing LOVABLE_API_KEY" };
+  const res = await fetch(GATEWAY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
+    body: JSON.stringify({
+      model: model || "google/gemini-3-flash-preview",
+      temperature,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    let msg = `AI gateway error ${res.status}`;
+    if (res.status === 429) msg = "Rate limit reached. Please retry shortly.";
+    if (res.status === 402) msg = "AI credits exhausted. Add credits in workspace settings.";
+    return { ok: false, content: "", error: msg };
+  }
+  const data = await res.json();
+  return { ok: true, content: data?.choices?.[0]?.message?.content ?? "" };
+}
+
+// OpenAI-compatible providers (OpenAI, OpenRouter, Groq, DeepSeek, Mistral, Together, custom…).
+async function callOpenAiCompatible(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  temperature: number,
+  system: string,
+  user: string,
+): Promise<ChatResult> {
+  const url = baseUrl.replace(/\/+$/, "") + "/chat/completions";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model,
+      temperature,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    return { ok: false, content: "", error: `Provider error ${res.status}: ${text.slice(0, 300)}` };
+  }
+  const data = await res.json();
+  return { ok: true, content: data?.choices?.[0]?.message?.content ?? "" };
+}
+
+// Anthropic native messages API.
+async function callAnthropic(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  temperature: number,
+  system: string,
+  user: string,
+): Promise<ChatResult> {
+  const url = (baseUrl?.replace(/\/+$/, "") || "https://api.anthropic.com") + "/v1/messages";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 2048,
+      temperature,
+      system,
+      messages: [{ role: "user", content: user }],
+    }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    return { ok: false, content: "", error: `Anthropic error ${res.status}: ${text.slice(0, 300)}` };
+  }
+  const data = await res.json();
+  const content = Array.isArray(data?.content)
+    ? data.content.map((c: { text?: string }) => c?.text ?? "").join("")
+    : "";
+  return { ok: true, content };
+}
+
+export async function runQualification(args: RunQualificationArgs): Promise<RunQualificationResult> {
   const promptUsed = buildSystemPrompt({
     systemPrompt: args.systemPrompt,
     variables: args.variables,
@@ -225,72 +331,50 @@ export async function runQualification(args: RunQualificationArgs): Promise<RunQ
     history: args.history,
   });
 
-  if (!apiKey) {
-    return {
-      decision: {
-        reply: "Our assistant is temporarily unavailable. An admissions advisor will reply shortly.",
-        qualification_status: (args.lead.qualification_status as QualificationStage) || "NEW_LEAD",
-        updates: {},
-        create_booking: false,
-      },
-      promptUsed,
-      modelUsed: args.model,
-      error: "Missing LOVABLE_API_KEY",
-    };
-  }
+  const fallbackStage = (args.lead.qualification_status as QualificationStage) || "NEW_LEAD";
+  const fallback = (error: string, reply: string): RunQualificationResult => ({
+    decision: { reply, qualification_status: fallbackStage, updates: {}, create_booking: false },
+    promptUsed,
+    modelUsed: args.model,
+    error,
+  });
+
+  const temperature = args.temperature ?? 0.7;
+  const provider = args.provider;
+  const useCustom = provider?.mode === "custom";
+
+  let modelUsed = args.model;
+  let result: ChatResult;
 
   try {
-    const res = await fetch(GATEWAY_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Lovable-API-Key": apiKey,
-      },
-      body: JSON.stringify({
-        model: args.model || "google/gemini-3-flash-preview",
-        temperature: args.temperature ?? 0.7,
-        messages: [
-          { role: "system", content: promptUsed },
-          { role: "user", content: args.userMessage },
-        ],
-      }),
-    });
+    if (useCustom) {
+      const key = provider?.custom_api_key?.trim();
+      const customModel = provider?.custom_model?.trim();
+      const baseUrl = provider?.custom_base_url?.trim();
+      const providerName = (provider?.custom_provider ?? "").toLowerCase();
+      if (!key) return fallback("Custom AI provider is missing an API key.", "Our assistant is temporarily unavailable. An advisor will reply shortly.");
+      if (!customModel) return fallback("Custom AI provider is missing a model.", "Our assistant is temporarily unavailable. An advisor will reply shortly.");
+      modelUsed = customModel;
 
-    if (!res.ok) {
-      const status = res.status;
-      let msg = `AI gateway error ${status}`;
-      if (status === 429) msg = "Rate limit reached. Please retry shortly.";
-      if (status === 402) msg = "AI credits exhausted. Add credits in workspace settings.";
-      return {
-        decision: {
-          reply: "Thanks for reaching out! An advisor will get back to you shortly.",
-          qualification_status: (args.lead.qualification_status as QualificationStage) || "NEW_LEAD",
-          updates: {},
-          create_booking: false,
-        },
-        promptUsed,
-        modelUsed: args.model,
-        error: msg,
-      };
+      if (providerName === "anthropic") {
+        result = await callAnthropic(baseUrl || "https://api.anthropic.com", key, customModel, temperature, promptUsed, args.userMessage);
+      } else {
+        if (!baseUrl) return fallback("Custom AI provider is missing a base URL.", "Our assistant is temporarily unavailable. An advisor will reply shortly.");
+        result = await callOpenAiCompatible(baseUrl, key, customModel, temperature, promptUsed, args.userMessage);
+      }
+    } else {
+      result = await callBuiltIn(args.model, temperature, promptUsed, args.userMessage);
     }
-
-    const data = await res.json();
-    const content: string = data?.choices?.[0]?.message?.content ?? "";
-    const decision = safeParseDecision(content, args.lead.qualification_status || "NEW_LEAD");
-    return { decision, promptUsed, modelUsed: args.model };
   } catch (e) {
-    return {
-      decision: {
-        reply: "Thanks for reaching out! An advisor will get back to you shortly.",
-        qualification_status: (args.lead.qualification_status as QualificationStage) || "NEW_LEAD",
-        updates: {},
-        create_booking: false,
-      },
-      promptUsed,
-      modelUsed: args.model,
-      error: e instanceof Error ? e.message : "Unknown AI error",
-    };
+    return fallback(e instanceof Error ? e.message : "Unknown AI error", "Thanks for reaching out! An advisor will get back to you shortly.");
   }
+
+  if (!result.ok) {
+    return fallback(result.error ?? "AI request failed", "Thanks for reaching out! An advisor will get back to you shortly.");
+  }
+
+  const decision = safeParseDecision(result.content, fallbackStage);
+  return { decision, promptUsed, modelUsed };
 }
 
 export function fillTemplate(template: string, ctx: Record<string, unknown>): string {
