@@ -432,3 +432,160 @@ export const getDashboardStats = createServerFn({ method: "GET" }).handler(async
     messages: msgCount ?? 0,
   };
 });
+
+/* ----------------------- HUMAN MESSAGING ------------------------ */
+
+// Send a manual reply from an agent. Sending pauses the AI (human takeover).
+export const sendHumanMessage = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ phone: z.string().min(1).max(60), message: z.string().min(1).max(4000) }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(ANY_ROLE);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const { deliverHumanMessage } = await import("./admissions.server");
+    const db = await admin();
+    // Pause AI for this conversation when an agent steps in.
+    await db
+      .from("conversations")
+      .update({ human_takeover: true, status: "pending", assigned_agent: me.email ?? "Agent" } as never)
+      .eq("phone_number", data.phone);
+    const result = await deliverHumanMessage({ phone: data.phone, message: data.message });
+    return { ok: result.ok, error: result.error ?? null };
+  });
+
+export const listScheduledMessages = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { scheduled: [] };
+  const db = await admin();
+  const { data } = await db
+    .from("scheduled_messages")
+    .select("*")
+    .order("scheduled_for", { ascending: true })
+    .limit(500);
+  return { scheduled: data ?? [] };
+});
+
+export const scheduleMessage = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        phone: z.string().min(1).max(60),
+        message: z.string().min(1).max(4000),
+        scheduledFor: z.string().min(1),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(ANY_ROLE);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const when = new Date(data.scheduledFor);
+    if (isNaN(when.getTime())) return { ok: false, error: "Invalid date" };
+    if (when.getTime() < Date.now() - 60_000) return { ok: false, error: "Scheduled time must be in the future" };
+    const db = await admin();
+    const { error } = await db.from("scheduled_messages").insert({
+      phone_number: data.phone,
+      message_content: data.message,
+      scheduled_for: when.toISOString(),
+      status: "pending",
+      created_by: me.email ?? "Agent",
+    } as never);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+export const cancelScheduledMessage = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(ANY_ROLE);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { error } = await db
+      .from("scheduled_messages")
+      .update({ status: "cancelled" } as never)
+      .eq("id", data.id)
+      .eq("status", "pending");
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+/* ----------------------- CHATWOOT WORKSPACES -------------------- */
+
+export const listWorkspaces = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { workspaces: [] };
+  const db = await admin();
+  const { data } = await db
+    .from("chatwoot_workspaces")
+    .select("*")
+    .order("is_default", { ascending: false })
+    .order("created_at", { ascending: true });
+  // Never expose API tokens to the browser.
+  const workspaces = (data ?? []).map((w: Record<string, unknown>) => ({
+    ...w,
+    chatwoot_api_token: w.chatwoot_api_token ? "********" : null,
+  }));
+  return { workspaces };
+});
+
+const workspaceSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(200),
+  chatwoot_url: z.string().max(500).nullable().optional(),
+  chatwoot_account_id: z.string().max(100).nullable().optional(),
+  chatwoot_inbox_id: z.string().max(100).nullable().optional(),
+  chatwoot_api_token: z.string().max(500).nullable().optional(),
+  enabled: z.boolean().optional(),
+  is_default: z.boolean().optional(),
+  use_shared_ai: z.boolean().optional(),
+});
+
+export const upsertWorkspace = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => workspaceSchema.parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { id, ...rest } = data;
+    // Don't overwrite a stored token with the masked placeholder or empty value.
+    const token = rest.chatwoot_api_token;
+    if (token === "" || token === "********" || token === undefined) {
+      delete (rest as Record<string, unknown>).chatwoot_api_token;
+    }
+    // Ensure only one default workspace.
+    if (rest.is_default) {
+      await db
+        .from("chatwoot_workspaces")
+        .update({ is_default: false } as never)
+        .neq("id", id ?? "00000000-0000-0000-0000-000000000000");
+    }
+    if (id) {
+      const { error } = await db.from("chatwoot_workspaces").update(rest as never).eq("id", id);
+      return { ok: !error, error: error?.message ?? null };
+    }
+    const { error } = await db.from("chatwoot_workspaces").insert(rest as never);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+export const deleteWorkspace = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { error } = await db.from("chatwoot_workspaces").delete().eq("id", data.id);
+    return { ok: !error, error: error?.message ?? null };
+  });
