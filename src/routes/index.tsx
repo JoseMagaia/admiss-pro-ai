@@ -86,11 +86,16 @@ function Landing() {
             </span>
             <span className="font-display text-lg font-bold">Linkmoore</span>
           </div>
-          <Button asChild variant="secondary" size="sm">
-            <Link to="/dashboard">
-              Go to Dashboard <ArrowRight className="ml-1 h-4 w-4" />
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="sm" className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">
+              <Link to="/features">Features</Link>
+            </Button>
+            <Button asChild variant="secondary" size="sm">
+              <Link to="/auth">
+                Login <ArrowRight className="ml-1 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
         </nav>
       </header>
 
@@ -112,8 +117,8 @@ function Landing() {
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Button asChild size="lg" className="bg-gradient-accent text-accent-foreground hover:opacity-90">
-                <Link to="/dashboard">
-                  Go to Dashboard <ArrowRight className="ml-1 h-4 w-4" />
+                <Link to="/auth">
+                  Login <ArrowRight className="ml-1 h-4 w-4" />
                 </Link>
               </Button>
               <Button
@@ -122,7 +127,7 @@ function Landing() {
                 variant="outline"
                 className="border-primary-foreground/30 bg-transparent text-primary-foreground hover:bg-primary-foreground/10"
               >
-                <a href="#features">Explore features</a>
+                <Link to="/features">Explore features</Link>
               </Button>
             </div>
             <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-primary-foreground/70">
@@ -191,12 +196,12 @@ function Landing() {
           <Phone className="mx-auto h-10 w-10 text-accent" />
           <h2 className="mt-4 text-3xl font-bold sm:text-4xl">Ready to qualify smarter?</h2>
           <p className="mx-auto mt-3 max-w-xl text-primary-foreground/80">
-            Open the admissions dashboard to manage leads, conversations, bookings and your AI
+            Sign in to the admissions dashboard to manage leads, conversations, bookings and your AI
             assistant — all in one place.
           </p>
           <Button asChild size="lg" className="mt-8 bg-gradient-accent text-accent-foreground hover:opacity-90">
-            <Link to="/dashboard">
-              Go to Dashboard <ArrowRight className="ml-1 h-4 w-4" />
+            <Link to="/auth">
+              Login <ArrowRight className="ml-1 h-4 w-4" />
             </Link>
           </Button>
         </div>

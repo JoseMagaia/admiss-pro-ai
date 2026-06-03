@@ -1,14 +1,31 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import { ALL_ROLES, type AppRole } from "@/lib/roles";
 
 async function admin() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   return supabaseAdmin;
 }
 
+// Throws when the caller lacks an allowed role. Use inside write handlers.
+async function guard(allowed: AppRole[]) {
+  const { assertRole } = await import("@/integrations/supabase/role-guard.server");
+  return assertRole(allowed);
+}
+
+// Returns true when the caller is authenticated with any role. Use for reads.
+async function isAuthed(): Promise<boolean> {
+  const { getRequestUser } = await import("@/integrations/supabase/role-guard.server");
+  const u = await getRequestUser();
+  return Boolean(u?.role);
+}
+
+const ANY_ROLE = ALL_ROLES;
+
 /* ----------------------------- LEADS ----------------------------- */
 
 export const listLeads = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { leads: [], error: "Unauthorized" };
   const db = await admin();
   const { data, error } = await db.from("leads").select("*").order("updated_at", { ascending: false }).limit(1000);
   if (error) return { leads: [], error: error.message };
@@ -18,6 +35,11 @@ export const listLeads = createServerFn({ method: "GET" }).handler(async () => {
 export const updateLeadStage = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid(), stage: z.string().min(1) }).parse(d))
   .handler(async ({ data }) => {
+    try {
+      await guard(ANY_ROLE);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
     const db = await admin();
     const { error } = await db.from("leads").update({ qualification_status: data.stage } as never).eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
@@ -26,6 +48,11 @@ export const updateLeadStage = createServerFn({ method: "POST" })
 export const toggleHumanTakeover = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ phone: z.string().min(1), enabled: z.boolean() }).parse(d))
   .handler(async ({ data }) => {
+    try {
+      await guard(ANY_ROLE);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
     const db = await admin();
     const { error } = await db
       .from("conversations")
@@ -41,12 +68,14 @@ export const toggleHumanTakeover = createServerFn({ method: "POST" })
 /* ------------------------- CONVERSATIONS ------------------------- */
 
 export const listConversations = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { conversations: [] };
   const db = await admin();
   const { data } = await db.from("conversations").select("*").order("updated_at", { ascending: false }).limit(1000);
   return { conversations: data ?? [] };
 });
 
 export const listMessages = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { messages: [] };
   const db = await admin();
   const { data } = await db.from("whatsapp_messages").select("*").order("received_at", { ascending: true }).limit(1000);
   return { messages: data ?? [] };
@@ -55,6 +84,7 @@ export const listMessages = createServerFn({ method: "GET" }).handler(async () =
 /* -------------------------- APPOINTMENTS ------------------------- */
 
 export const listAppointments = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { appointments: [] };
   const db = await admin();
   const { data } = await db.from("appointments").select("*").order("created_at", { ascending: false }).limit(1000);
   return { appointments: data ?? [] };
@@ -71,6 +101,11 @@ export const updateAppointmentStatus = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    try {
+      await guard(ANY_ROLE);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
     const db = await admin();
     const update: Record<string, unknown> = { status: data.status };
     if (data.appointment_date !== undefined) update.appointment_date = data.appointment_date;
@@ -81,6 +116,7 @@ export const updateAppointmentStatus = createServerFn({ method: "POST" })
 /* ---------------------------- SETTINGS --------------------------- */
 
 export const getSettings = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { settings: null };
   const db = await admin();
   const { data } = await db.from("education_settings").select("*").limit(1).maybeSingle();
   return { settings: data ?? null };
@@ -103,11 +139,24 @@ const settingsSchema = z.object({
   chatwoot_api_token: z.string().max(500).nullable().optional(),
 });
 
+// Chatwoot fields are super-admin only; company/program fields allow admin too.
+const CHATWOOT_FIELDS = ["chatwoot_url", "chatwoot_account_id", "chatwoot_inbox_id", "chatwoot_api_token"];
+
 export const updateSettings = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => settingsSchema.parse(d))
   .handler(async ({ data }) => {
-    const db = await admin();
+    let me;
+    try {
+      me = await guard(["super_admin", "admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
     const { id, ...rest } = data;
+    // Admins cannot modify Chatwoot credentials.
+    if (me.role !== "super_admin") {
+      for (const f of CHATWOOT_FIELDS) delete (rest as Record<string, unknown>)[f];
+    }
+    const db = await admin();
     if (id) {
       const { error } = await db.from("education_settings").update(rest as never).eq("id", id);
       return { ok: !error, error: error?.message ?? null };
@@ -119,6 +168,7 @@ export const updateSettings = createServerFn({ method: "POST" })
 /* --------------------------- AI CONFIG --------------------------- */
 
 export const getAiConfig = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { config: null };
   const db = await admin();
   const { data } = await db
     .from("ai_configuration")
@@ -141,6 +191,11 @@ export const saveAiConfig = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
     const db = await admin();
     const { id, ...rest } = data;
     if (id) {
@@ -163,7 +218,43 @@ export const saveAiConfig = createServerFn({ method: "POST" })
     return { ok: true, version: nextVersion };
   });
 
+/* ------------------------- AI PROVIDER -------------------------- */
+
+export const saveAiProvider = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid().optional(),
+        provider_mode: z.enum(["built_in", "custom"]),
+        custom_provider: z.string().max(100).nullable().optional(),
+        custom_base_url: z.string().max(500).nullable().optional(),
+        custom_model: z.string().max(200).nullable().optional(),
+        custom_api_key: z.string().max(500).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { id, ...rest } = data;
+    // Don't overwrite a stored key with an empty value (the UI sends "" when unchanged).
+    if (rest.custom_api_key === "" || rest.custom_api_key === undefined) {
+      delete (rest as Record<string, unknown>).custom_api_key;
+    }
+    if (id) {
+      const { error } = await db.from("ai_configuration").update(rest as never).eq("id", id);
+      return { ok: !error, error: error?.message ?? null };
+    }
+    const { error } = await db.from("ai_configuration").insert(rest as never);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
 export const listPromptVersions = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { versions: [] };
   const db = await admin();
   const { data } = await db
     .from("prompt_versions")
@@ -176,6 +267,7 @@ export const listPromptVersions = createServerFn({ method: "GET" }).handler(asyn
 /* -------------------------- AI VARIABLES ------------------------- */
 
 export const listAiVariables = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { variables: [] };
   const db = await admin();
   const { data } = await db.from("ai_variables").select("*").order("variable_name", { ascending: true });
   return { variables: data ?? [] };
@@ -193,6 +285,11 @@ export const upsertAiVariable = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
     const db = await admin();
     const { id, ...rest } = data;
     if (id) {
@@ -206,6 +303,11 @@ export const upsertAiVariable = createServerFn({ method: "POST" })
 export const deleteAiVariable = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
     const db = await admin();
     const { error } = await db.from("ai_variables").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
@@ -214,6 +316,7 @@ export const deleteAiVariable = createServerFn({ method: "POST" })
 /* -------------------------- HTTP ACTIONS ------------------------- */
 
 export const listHttpActions = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { actions: [] };
   const db = await admin();
   const { data } = await db.from("http_actions").select("*").order("created_at", { ascending: false });
   return { actions: data ?? [] };
@@ -235,6 +338,11 @@ export const upsertHttpAction = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
     const db = await admin();
     const { id, ...rest } = data;
     if (id) {
@@ -248,6 +356,11 @@ export const upsertHttpAction = createServerFn({ method: "POST" })
 export const deleteHttpAction = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
     const db = await admin();
     const { error } = await db.from("http_actions").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
@@ -260,6 +373,11 @@ export const testPrompt = createServerFn({ method: "POST" })
     z.object({ message: z.string().min(1).max(4000), phone: z.string().max(60).optional() }).parse(d),
   )
   .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin", "admin"]);
+    } catch (e) {
+      return { promptUsed: "", modelUsed: "", memory: null, decision: null, error: (e as Error).message };
+    }
     const { loadAiContext, recentHistory } = await import("./admissions.server");
     const { runQualification } = await import("./ai-engine.server");
 
@@ -283,6 +401,7 @@ export const testPrompt = createServerFn({ method: "POST" })
       temperature: ctx.temperature,
       variables: ctx.variables,
       settings: ctx.settings,
+      provider: ctx.provider,
     });
 
     return {
@@ -297,6 +416,7 @@ export const testPrompt = createServerFn({ method: "POST" })
 /* --------------------------- DASHBOARD STATS --------------------- */
 
 export const getDashboardStats = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { leads: 0, qualified: 0, bookings: 0, messages: 0 };
   const db = await admin();
   const [{ count: leadsCount }, { count: qualifiedCount }, { count: bookingsCount }, { count: msgCount }] =
     await Promise.all([
