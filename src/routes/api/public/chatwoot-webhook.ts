@@ -78,6 +78,8 @@ export const Route = createFileRoute("/api/public/chatwoot-webhook")({
             message: content,
             chatwootConversationId: conversationId,
             chatwootContactId: contactId,
+            chatwootInboxId: inboxId,
+            chatwootAccountId: accountId,
           });
           return new Response(JSON.stringify({ ok: true, ...result }), {
             status: 200,
