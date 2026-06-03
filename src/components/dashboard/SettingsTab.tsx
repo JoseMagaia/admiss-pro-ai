@@ -63,6 +63,7 @@ export function SettingsTab({ role }: { role: AppRole | null }) {
         {activeSection === "prompt" && <AiPromptEditor />}
         {activeSection === "variables" && <AiVariablesEditor />}
         {activeSection === "chatwoot" && <ChatwootSettingsForm />}
+        {activeSection === "workspaces" && <ChatwootWorkspaces />}
         {activeSection === "actions" && <HttpActionsManager />}
         {activeSection === "lab" && <PromptTestingLab />}
         {activeSection === "users" && <UserManagement />}
