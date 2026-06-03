@@ -26,6 +26,7 @@ export const SETTINGS_ACCESS: Record<string, AppRole[]> = {
   prompt: ["super_admin"], // AI Prompt
   variables: ["super_admin"], // AI Variables
   chatwoot: ["super_admin"], // Chatwoot
+  workspaces: ["super_admin"], // Chatwoot workspaces (multi-inbox)
   actions: ["super_admin"], // HTTP Actions
   provider: ["super_admin"], // AI Provider (built-in vs own key)
   users: ["super_admin"], // User management
