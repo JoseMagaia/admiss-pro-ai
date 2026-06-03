@@ -76,6 +76,24 @@ export function LeadsTab() {
     onError: () => toast.error("Failed to update"),
   });
 
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteFn({ data: { id } }),
+    onSuccess: (res) => {
+      if ((res as { ok: boolean }).ok) {
+        qc.invalidateQueries({ queryKey: ["leads"] });
+        qc.invalidateQueries({ queryKey: ["conversations"] });
+        toast.success("Lead deleted — this number is now a fresh lead");
+      } else {
+        toast.error((res as { error?: string }).error ?? "Failed to delete");
+      }
+      setPendingDelete(null);
+    },
+    onError: () => {
+      toast.error("Failed to delete");
+      setPendingDelete(null);
+    },
+  });
+
   const leads = (data?.leads ?? []) as Lead[];
 
   const filtered = leads.filter((l) => {
