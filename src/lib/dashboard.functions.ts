@@ -481,7 +481,7 @@ export const sendHumanMessage = createServerFn({ method: "POST" })
     // Pause AI for this conversation when an agent steps in.
     await db
       .from("conversations")
-      .update({ human_takeover: true, status: "pending", assigned_agent: me.email ?? "Agent" } as never)
+      .update({ human_takeover: true, status: "pending", assigned_agent: me.email ?? "Agent", ai_resumed: false } as never)
       .eq("phone_number", data.phone);
     const result = await deliverHumanMessage({ phone: data.phone, message: data.message });
     return { ok: result.ok, error: result.error ?? null };
