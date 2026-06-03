@@ -40,6 +40,21 @@ export const Route = createFileRoute("/api/public/chatwoot-webhook")({
         const conversationId =
           conversation.id !== undefined ? String(conversation.id) : payload.conversation_id ? String(payload.conversation_id) : null;
 
+        const inboxObj = (payload.inbox as Record<string, unknown>) ?? {};
+        const accountObj = (payload.account as Record<string, unknown>) ?? {};
+        const inboxId =
+          inboxObj.id !== undefined
+            ? String(inboxObj.id)
+            : conversation.inbox_id !== undefined
+              ? String(conversation.inbox_id)
+              : null;
+        const accountId =
+          accountObj.id !== undefined
+            ? String(accountObj.id)
+            : payload.account_id !== undefined
+              ? String(payload.account_id)
+              : null;
+
         const phone =
           (sender.phone_number as string) ||
           (sender.identifier as string) ||
