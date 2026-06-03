@@ -37,7 +37,7 @@ export function UserManagement() {
   const deleteFn = useServerFn(deleteUser);
 
   const { data, isLoading } = useQuery({ queryKey: ["platform-users"], queryFn: () => listFn() });
-  const users = ((data?.users ?? []) as UserRow[]) ?? [];
+  const users = (data?.users ?? []) as UserRow[];
 
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
