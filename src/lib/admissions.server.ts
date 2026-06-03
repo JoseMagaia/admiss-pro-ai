@@ -28,6 +28,24 @@ export interface AiContext {
   provider: ProviderConfig | null;
 }
 
+export interface WorkspaceRow {
+  id: string;
+  name: string;
+  chatwoot_url: string | null;
+  chatwoot_account_id: string | null;
+  chatwoot_inbox_id: string | null;
+  chatwoot_api_token: string | null;
+  enabled: boolean;
+  is_default: boolean;
+  use_shared_ai: boolean;
+}
+
+export interface ChatwootCreds {
+  url: string;
+  accountId: string;
+  apiToken: string;
+}
+
 export async function loadAiContext(): Promise<AiContext> {
   const db = await admin();
   const [{ data: config }, { data: vars }, { data: settings }] = await Promise.all([
@@ -58,14 +76,80 @@ export async function loadAiContext(): Promise<AiContext> {
   };
 }
 
+/* --------------------------- WORKSPACES -------------------------- */
+
+// Find the workspace handling an incoming message. Priority:
+// 1. explicit workspace id (e.g. stored on the lead),
+// 2. matching Chatwoot inbox id,
+// 3. matching Chatwoot account id,
+// 4. the default workspace.
+export async function resolveWorkspace(params: {
+  workspaceId?: string | null;
+  inboxId?: string | null;
+  accountId?: string | null;
+}): Promise<WorkspaceRow | null> {
+  const db = await admin();
+  const { data } = await db.from("chatwoot_workspaces").select("*").eq("enabled", true);
+  const rows = (data as WorkspaceRow[]) ?? [];
+  if (rows.length === 0) return null;
+
+  if (params.workspaceId) {
+    const byId = rows.find((w) => w.id === params.workspaceId);
+    if (byId) return byId;
+  }
+  if (params.inboxId) {
+    const byInbox = rows.find((w) => w.chatwoot_inbox_id && String(w.chatwoot_inbox_id) === String(params.inboxId));
+    if (byInbox) return byInbox;
+  }
+  if (params.accountId) {
+    const byAccount = rows.find(
+      (w) => w.chatwoot_account_id && String(w.chatwoot_account_id) === String(params.accountId),
+    );
+    if (byAccount) return byAccount;
+  }
+  return rows.find((w) => w.is_default) ?? rows[0];
+}
+
+// Resolve usable Chatwoot credentials from a workspace, falling back to the
+// company-wide education_settings for backward compatibility.
+export async function resolveCreds(workspace: WorkspaceRow | null): Promise<ChatwootCreds | null> {
+  if (workspace?.chatwoot_url && workspace.chatwoot_account_id && workspace.chatwoot_api_token) {
+    return {
+      url: workspace.chatwoot_url,
+      accountId: workspace.chatwoot_account_id,
+      apiToken: workspace.chatwoot_api_token,
+    };
+  }
+  const db = await admin();
+  const { data: settings } = await db
+    .from("education_settings")
+    .select("chatwoot_url, chatwoot_account_id, chatwoot_api_token")
+    .limit(1)
+    .maybeSingle();
+  if (settings?.chatwoot_url && settings?.chatwoot_account_id && settings?.chatwoot_api_token) {
+    return {
+      url: String(settings.chatwoot_url),
+      accountId: String(settings.chatwoot_account_id),
+      apiToken: String(settings.chatwoot_api_token),
+    };
+  }
+  return null;
+}
+
 export async function getOrCreateLead(
   phone: string,
   chatwootConversationId?: string | null,
   chatwootContactId?: string | null,
+  workspaceId?: string | null,
 ): Promise<LeadRecord> {
   const db = await admin();
   const { data: existing } = await db.from("leads").select("*").eq("phone_number", phone).maybeSingle();
-  if (existing) return existing as LeadRecord;
+  if (existing) {
+    if (workspaceId && !(existing as Record<string, unknown>).workspace_id) {
+      await db.from("leads").update({ workspace_id: workspaceId } as never).eq("id", (existing as LeadRecord).id!);
+    }
+    return existing as LeadRecord;
+  }
 
   const { data: created } = await db
     .from("leads")
@@ -73,8 +157,9 @@ export async function getOrCreateLead(
       phone_number: phone,
       chatwoot_conversation_id: chatwootConversationId ?? null,
       chatwoot_contact_id: chatwootContactId ?? null,
+      workspace_id: workspaceId ?? null,
       qualification_status: "NEW_LEAD",
-    })
+    } as never)
     .select("*")
     .single();
 
@@ -174,33 +259,33 @@ export async function applyDecision(lead: LeadRecord, decision: QualificationDec
   return finalLead;
 }
 
-export async function sendChatwootReply(conversationId: string | null | undefined, message: string) {
-  if (!conversationId) return;
-  const db = await admin();
-  const { data: settings } = await db
-    .from("education_settings")
-    .select("chatwoot_url, chatwoot_account_id, chatwoot_api_token")
-    .limit(1)
-    .maybeSingle();
-
-  if (!settings?.chatwoot_url || !settings?.chatwoot_account_id || !settings?.chatwoot_api_token) {
+// Send a message to a WhatsApp contact through Chatwoot using the given
+// credentials (workspace-aware, with education_settings fallback).
+export async function sendChatwootReply(
+  creds: ChatwootCreds | null,
+  conversationId: string | null | undefined,
+  message: string,
+): Promise<boolean> {
+  if (!conversationId) return false;
+  if (!creds) {
     console.warn("Chatwoot not configured; reply not sent to WhatsApp.");
-    return;
+    return false;
   }
-
-  const base = String(settings.chatwoot_url).replace(/\/$/, "");
-  const url = `${base}/api/v1/accounts/${settings.chatwoot_account_id}/conversations/${conversationId}/messages`;
+  const base = String(creds.url).replace(/\/$/, "");
+  const url = `${base}/api/v1/accounts/${creds.accountId}/conversations/${conversationId}/messages`;
   try {
-    await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        api_access_token: String(settings.chatwoot_api_token),
+        api_access_token: creds.apiToken,
       },
       body: JSON.stringify({ content: message, message_type: "outgoing" }),
     });
+    return res.ok;
   } catch (e) {
     console.error("Chatwoot reply failed:", e);
+    return false;
   }
 }
 
@@ -216,9 +301,11 @@ export async function processInboundMessage(params: {
   message: string;
   chatwootConversationId?: string | null;
   chatwootContactId?: string | null;
+  chatwootInboxId?: string | null;
+  chatwootAccountId?: string | null;
 }): Promise<ProcessResult> {
   const db = await admin();
-  const { phone, message, chatwootConversationId, chatwootContactId } = params;
+  const { phone, message, chatwootConversationId, chatwootContactId, chatwootInboxId, chatwootAccountId } = params;
 
   // Log inbound message.
   await db.from("whatsapp_messages").insert({
@@ -229,7 +316,11 @@ export async function processInboundMessage(params: {
     processed: false,
   });
 
-  const lead = await getOrCreateLead(phone, chatwootConversationId, chatwootContactId);
+  // Resolve which Chatwoot workspace this conversation belongs to.
+  const workspace = await resolveWorkspace({ inboxId: chatwootInboxId, accountId: chatwootAccountId });
+  const creds = await resolveCreds(workspace);
+
+  const lead = await getOrCreateLead(phone, chatwootConversationId, chatwootContactId, workspace?.id ?? null);
 
   // Track / upsert conversation.
   const { data: conv } = await db
@@ -245,8 +336,11 @@ export async function processInboundMessage(params: {
       phone_number: phone,
       lead_id: lead.id,
       chatwoot_conversation_id: chatwootConversationId ?? null,
+      workspace_id: workspace?.id ?? null,
       status: "open",
-    });
+    } as never);
+  } else if (workspace?.id && !(conv as Record<string, unknown>).workspace_id) {
+    await db.from("conversations").update({ workspace_id: workspace.id } as never).eq("phone_number", phone);
   }
 
   // Human takeover detection.
@@ -311,7 +405,7 @@ export async function processInboundMessage(params: {
     .eq("processed", false);
 
   // Send reply back through Chatwoot.
-  await sendChatwootReply(chatwootConversationId ?? lead.chatwoot_conversation_id, decision.reply);
+  await sendChatwootReply(creds, chatwootConversationId ?? lead.chatwoot_conversation_id, decision.reply);
 
   return {
     reply: decision.reply,
@@ -319,6 +413,86 @@ export async function processInboundMessage(params: {
     humanTakeover: false,
     error,
   };
+}
+
+// Deliver a single manual/scheduled message to a contact and log it.
+export async function deliverHumanMessage(params: {
+  phone: string;
+  message: string;
+  scheduled?: boolean;
+}): Promise<{ ok: boolean; error?: string }> {
+  const db = await admin();
+  const { phone, message } = params;
+
+  const { data: lead } = await db
+    .from("leads")
+    .select("id, chatwoot_conversation_id, workspace_id")
+    .eq("phone_number", phone)
+    .maybeSingle();
+  const { data: conv } = await db
+    .from("conversations")
+    .select("chatwoot_conversation_id, workspace_id")
+    .eq("phone_number", phone)
+    .maybeSingle();
+
+  const workspaceId =
+    (conv as Record<string, unknown> | null)?.workspace_id ??
+    (lead as Record<string, unknown> | null)?.workspace_id ??
+    null;
+  const conversationId =
+    (conv as Record<string, unknown> | null)?.chatwoot_conversation_id ??
+    (lead as Record<string, unknown> | null)?.chatwoot_conversation_id ??
+    null;
+
+  const workspace = await resolveWorkspace({ workspaceId: workspaceId as string | null });
+  const creds = await resolveCreds(workspace);
+
+  const sent = await sendChatwootReply(creds, conversationId as string | null, message);
+
+  // Log the human message regardless of Chatwoot delivery so the timeline is complete.
+  await db.from("whatsapp_messages").insert({
+    phone_number: phone,
+    message_content: message,
+    sender: "human",
+    message_type: "text",
+    processed: true,
+  });
+
+  if (!sent) {
+    return { ok: false, error: "Could not deliver via Chatwoot. Message logged to the conversation." };
+  }
+  return { ok: true };
+}
+
+// Process all scheduled messages that are due. Called by the cron route.
+export async function processScheduledMessages(): Promise<{ processed: number }> {
+  const db = await admin();
+  const nowIso = new Date().toISOString();
+  const { data: due } = await db
+    .from("scheduled_messages")
+    .select("*")
+    .eq("status", "pending")
+    .lte("scheduled_for", nowIso)
+    .limit(50);
+
+  let processed = 0;
+  for (const row of (due as Array<Record<string, unknown>>) ?? []) {
+    const result = await deliverHumanMessage({
+      phone: String(row.phone_number),
+      message: String(row.message_content),
+      scheduled: true,
+    });
+    await db
+      .from("scheduled_messages")
+      .update({
+        status: result.ok ? "sent" : "failed",
+        sent_at: new Date().toISOString(),
+        error: result.ok ? null : result.error ?? "delivery failed",
+      } as never)
+      .eq("id", row.id as string);
+    processed += 1;
+  }
+  return { processed };
 }
 
 function stageBeyondAi(stage?: string | null): boolean {
