@@ -86,11 +86,16 @@ function Landing() {
             </span>
             <span className="font-display text-lg font-bold">Linkmoore</span>
           </div>
-          <Button asChild variant="secondary" size="sm">
-            <Link to="/dashboard">
-              Go to Dashboard <ArrowRight className="ml-1 h-4 w-4" />
-            </Link>
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="sm" className="text-primary-foreground hover:bg-primary-foreground/10 hover:text-primary-foreground">
+              <Link to="/features">Features</Link>
+            </Button>
+            <Button asChild variant="secondary" size="sm">
+              <Link to="/auth">
+                Login <ArrowRight className="ml-1 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
         </nav>
       </header>
 
