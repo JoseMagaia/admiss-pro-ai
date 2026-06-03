@@ -60,8 +60,37 @@ export const toggleHumanTakeover = createServerFn({ method: "POST" })
         human_takeover: data.enabled,
         status: data.enabled ? "pending" : "open",
         assigned_agent: data.enabled ? "Admissions Team" : null,
+        // When AI is switched back on (enabled=false), mark the conversation
+        // as resumed so the AI replies again even after the booking stop.
+        ai_resumed: !data.enabled,
       } as never)
       .eq("phone_number", data.phone);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+/* Delete a lead and all of its conversation history so the phone number is
+   treated as a brand-new lead the next time it messages. Admins only. */
+export const deleteLead = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin", "admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { data: lead } = await db.from("leads").select("phone_number").eq("id", data.id).maybeSingle();
+    const phone = (lead as { phone_number?: string } | null)?.phone_number;
+    if (!phone) return { ok: false, error: "Lead not found" };
+
+    // Remove all related records so the number starts fresh.
+    await Promise.all([
+      db.from("conversations").delete().eq("phone_number", phone),
+      db.from("whatsapp_messages").delete().eq("phone_number", phone),
+      db.from("appointments").delete().eq("phone_number", phone),
+      db.from("scheduled_messages").delete().eq("phone_number", phone),
+    ]);
+    const { error } = await db.from("leads").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
   });
 
