@@ -117,8 +117,8 @@ function Landing() {
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Button asChild size="lg" className="bg-gradient-accent text-accent-foreground hover:opacity-90">
-                <Link to="/dashboard">
-                  Go to Dashboard <ArrowRight className="ml-1 h-4 w-4" />
+                <Link to="/auth">
+                  Login <ArrowRight className="ml-1 h-4 w-4" />
                 </Link>
               </Button>
               <Button
@@ -127,7 +127,7 @@ function Landing() {
                 variant="outline"
                 className="border-primary-foreground/30 bg-transparent text-primary-foreground hover:bg-primary-foreground/10"
               >
-                <a href="#features">Explore features</a>
+                <Link to="/features">Explore features</Link>
               </Button>
             </div>
             <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-sm text-primary-foreground/70">
