@@ -40,11 +40,15 @@ interface Conversation {
 
 export function LeadsTab() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const canDelete = profile.role === "super_admin" || profile.role === "admin";
   const leadsFn = useServerFn(listLeads);
   const convFn = useServerFn(listConversations);
   const takeoverFn = useServerFn(toggleHumanTakeover);
+  const deleteFn = useServerFn(deleteLead);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<Lead | null>(null);
 
   const { data } = useQuery({
     queryKey: ["leads"],
