@@ -212,6 +212,29 @@ export function LeadsTab() {
           </tbody>
         </table>
       </div>
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this lead?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes {pendingDelete?.lead_name ?? pendingDelete?.phone_number} and all of their
+              conversation history, messages and bookings. The phone number will be treated as a fresh lead the next
+              time it messages. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={remove.isPending}
+              onClick={() => pendingDelete && remove.mutate(pendingDelete.id)}
+            >
+              {remove.isPending ? "Deleting…" : "Delete lead"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
