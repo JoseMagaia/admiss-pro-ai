@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as AuthRouteImport } from './routes/auth'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiPublicChatwootWebhookRouteImport } from './routes/api/public/chatwoot-webhook'
 
@@ -22,6 +23,11 @@ const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -38,12 +44,14 @@ const ApiPublicChatwootWebhookRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/dashboard': typeof DashboardRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/dashboard': typeof DashboardRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
@@ -51,6 +59,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
   '/dashboard': typeof DashboardRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
@@ -59,14 +68,21 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/auth'
     | '/dashboard'
     | '/sitemap.xml'
     | '/api/public/chatwoot-webhook'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/dashboard' | '/sitemap.xml' | '/api/public/chatwoot-webhook'
+  to:
+    | '/'
+    | '/auth'
+    | '/dashboard'
+    | '/sitemap.xml'
+    | '/api/public/chatwoot-webhook'
   id:
     | '__root__'
     | '/'
+    | '/auth'
     | '/dashboard'
     | '/sitemap.xml'
     | '/api/public/chatwoot-webhook'
@@ -74,6 +90,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthRoute: typeof AuthRoute
   DashboardRoute: typeof DashboardRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiPublicChatwootWebhookRoute: typeof ApiPublicChatwootWebhookRoute
@@ -95,6 +112,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -114,6 +138,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthRoute: AuthRoute,
   DashboardRoute: DashboardRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiPublicChatwootWebhookRoute: ApiPublicChatwootWebhookRoute,
@@ -121,3 +146,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
