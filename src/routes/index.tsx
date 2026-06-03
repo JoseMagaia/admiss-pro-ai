@@ -196,12 +196,12 @@ function Landing() {
           <Phone className="mx-auto h-10 w-10 text-accent" />
           <h2 className="mt-4 text-3xl font-bold sm:text-4xl">Ready to qualify smarter?</h2>
           <p className="mx-auto mt-3 max-w-xl text-primary-foreground/80">
-            Open the admissions dashboard to manage leads, conversations, bookings and your AI
+            Sign in to the admissions dashboard to manage leads, conversations, bookings and your AI
             assistant — all in one place.
           </p>
           <Button asChild size="lg" className="mt-8 bg-gradient-accent text-accent-foreground hover:opacity-90">
-            <Link to="/dashboard">
-              Go to Dashboard <ArrowRight className="ml-1 h-4 w-4" />
+            <Link to="/auth">
+              Login <ArrowRight className="ml-1 h-4 w-4" />
             </Link>
           </Button>
         </div>
