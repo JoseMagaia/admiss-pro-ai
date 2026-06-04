@@ -781,6 +781,30 @@ export function MeetingOutcomesTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirmation (super admin only) */}
+      <AlertDialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this meeting outcome?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the recorded outcome for{" "}
+              {pendingDelete?.lead_name ?? pendingDelete?.phone_number}. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={remove.isPending}
+              onClick={() => pendingDelete && remove.mutate(pendingDelete.id)}
+            >
+              {remove.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+
