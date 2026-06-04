@@ -921,6 +921,7 @@ const meetingOutcomeSchema = z.object({
   next_action: z.string().max(100).nullable().optional(),
   follow_up_date: z.string().max(40).nullable().optional(),
   internal_notes: z.string().max(5000).nullable().optional(),
+  workspace_id: z.string().uuid().nullable().optional(),
 });
 
 export const saveMeetingOutcome = createServerFn({ method: "POST" })
