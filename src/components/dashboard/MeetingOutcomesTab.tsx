@@ -153,7 +153,7 @@ export function MeetingOutcomesTab() {
   });
 
   const leads = (leadsData?.leads ?? []) as Lead[];
-  const workspaces = (workspacesData?.workspaces ?? []) as Workspace[];
+  const workspaces = (workspacesData?.workspaces ?? []) as unknown as Workspace[];
   const outcomes = (outcomesData?.outcomes ?? []) as OutcomeRow[];
   const selectedLead = useMemo(() => leads.find((l) => l.id === form.leadId), [leads, form.leadId]);
 
