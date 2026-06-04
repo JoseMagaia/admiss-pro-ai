@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { format } from "date-fns";
@@ -16,6 +16,7 @@ import {
   Loader2,
   Pencil,
   Zap,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -47,12 +48,25 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   listLeads,
   listWorkspaces,
   listMeetingOutcomes,
   saveMeetingOutcome,
   updateMeetingOutcome,
+  deleteMeetingOutcome,
+  processDueWorkflows,
   getMeetingOutcomeStats,
 } from "@/lib/dashboard.functions";
 import {
@@ -114,12 +128,36 @@ const EMPTY_FORM = {
 
 export function MeetingOutcomesTab() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const isSuperAdmin = profile.role === "super_admin";
   const leadsFn = useServerFn(listLeads);
   const workspacesFn = useServerFn(listWorkspaces);
   const outcomesFn = useServerFn(listMeetingOutcomes);
   const statsFn = useServerFn(getMeetingOutcomeStats);
   const saveFn = useServerFn(saveMeetingOutcome);
   const updateFn = useServerFn(updateMeetingOutcome);
+  const deleteFn = useServerFn(deleteMeetingOutcome);
+  const processFn = useServerFn(processDueWorkflows);
+
+  // Tracks pending "fire the workflow when the countdown ends" timers so they are
+  // cleared on unmount.
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => timersRef.current.forEach(clearTimeout), []);
+
+  // Schedule the workflow processor to run just after the 1-minute edit window
+  // ends, so the follow-up fires the moment the countdown reaches zero. The cron
+  // job is the fallback if the page is closed before then.
+  function scheduleWorkflowFire() {
+    const t = setTimeout(() => {
+      processFn()
+        .catch(() => {})
+        .finally(() => qc.invalidateQueries({ queryKey: ["messages"] }));
+    }, EDIT_WINDOW_MS + 3000);
+    timersRef.current.push(t);
+  }
+
+  const [pendingDelete, setPendingDelete] = useState<OutcomeRow | null>(null);
+
 
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [workspaceId, setWorkspaceId] = useState<string>("");
@@ -185,11 +223,12 @@ export function MeetingOutcomesTab() {
       }
       const wf =
         r.workflowStatus === "enrolled"
-          ? "Follow-up workflow activated — first message sent."
+          ? "Follow-up scheduled — the first message sends when the 1-minute edit window ends."
           : r.workflowStatus === "already_enrolled"
             ? "Lead already in this workflow."
             : "No matching active workflow found — create it in Orchestration.";
       toast.success(`Outcome saved. ${wf}`);
+      if (r.workflowStatus === "enrolled") scheduleWorkflowFire();
       setForm({ ...EMPTY_FORM });
       setFollowUp(undefined);
       qc.invalidateQueries({ queryKey: ["meeting-outcomes"] });
@@ -224,12 +263,32 @@ export function MeetingOutcomesTab() {
         return;
       }
       toast.success("Outcome updated.");
+      scheduleWorkflowFire();
       setEditRow(null);
       qc.invalidateQueries({ queryKey: ["meeting-outcomes"] });
       qc.invalidateQueries({ queryKey: ["meeting-outcome-stats"] });
       qc.invalidateQueries({ queryKey: ["leads"] });
     },
     onError: () => toast.error("Failed to update outcome"),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteFn({ data: { id } }),
+    onSuccess: (res) => {
+      const r = res as { ok: boolean; error?: string };
+      if (!r.ok) {
+        toast.error(r.error ?? "Failed to delete outcome");
+        return;
+      }
+      toast.success("Meeting outcome deleted.");
+      setPendingDelete(null);
+      qc.invalidateQueries({ queryKey: ["meeting-outcomes"] });
+      qc.invalidateQueries({ queryKey: ["meeting-outcome-stats"] });
+    },
+    onError: () => {
+      toast.error("Failed to delete outcome");
+      setPendingDelete(null);
+    },
   });
 
   function openEdit(o: OutcomeRow) {
@@ -257,19 +316,22 @@ export function MeetingOutcomesTab() {
   return (
     <div className="space-y-6">
       {/* Widget */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
+      <div className="grid grid-cols-3 gap-2.5 lg:grid-cols-6">
         {WIDGETS.map((w) => (
-          <div key={w.key} className="rounded-2xl border bg-card p-4 shadow-card">
-            <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${w.color}`}>
-              <w.icon className="h-5 w-5" />
-            </span>
-            <p className="mt-3 font-display text-2xl font-bold">
-              {stats ? (stats as Record<string, number>)[w.key] ?? 0 : "—"}
-            </p>
-            <p className="text-xs text-muted-foreground">{w.label}</p>
+          <div key={w.key} className="rounded-xl border bg-card p-3 shadow-card">
+            <div className="flex items-center gap-2">
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${w.color}`}>
+                <w.icon className="h-4 w-4" />
+              </span>
+              <p className="font-display text-xl font-bold leading-none">
+                {stats ? (stats as Record<string, number>)[w.key] ?? 0 : "—"}
+              </p>
+            </div>
+            <p className="mt-1.5 text-[11px] leading-tight text-muted-foreground">{w.label}</p>
           </div>
         ))}
       </div>
+
 
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
         {/* Form */}
@@ -507,7 +569,9 @@ export function MeetingOutcomesTab() {
                   <th className="px-4 py-3 font-semibold">Follow-Up</th>
                   <th className="px-4 py-3 font-semibold">Workflow</th>
                   <th className="px-4 py-3 text-right font-semibold">Edit</th>
+                  {isSuperAdmin && <th className="px-4 py-3 text-right font-semibold">Delete</th>}
                 </tr>
+
               </thead>
               <tbody>
                 {outcomes.map((o) => {
@@ -548,16 +612,29 @@ export function MeetingOutcomesTab() {
                           <span className="text-xs text-muted-foreground">Locked</span>
                         )}
                       </td>
+                      {isSuperAdmin && (
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => setPendingDelete(o)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
                 {outcomes.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={isSuperAdmin ? 9 : 8} className="px-4 py-12 text-center text-muted-foreground">
                       No meeting outcomes recorded yet.
                     </td>
                   </tr>
                 )}
+
               </tbody>
             </table>
           </div>
@@ -704,6 +781,30 @@ export function MeetingOutcomesTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirmation (super admin only) */}
+      <AlertDialog open={!!pendingDelete} onOpenChange={(o) => !o && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this meeting outcome?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the recorded outcome for{" "}
+              {pendingDelete?.lead_name ?? pendingDelete?.phone_number}. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={remove.isPending}
+              onClick={() => pendingDelete && remove.mutate(pendingDelete.id)}
+            >
+              {remove.isPending ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
+

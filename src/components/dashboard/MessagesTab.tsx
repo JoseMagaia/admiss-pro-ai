@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,8 @@ import {
   listScheduledMessages,
   cancelScheduledMessage,
   toggleHumanTakeover,
+  listWorkflowStates,
+  pauseLeadWorkflow,
 } from "@/lib/dashboard.functions";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +66,8 @@ interface Scheduled {
 
 export function MessagesTab() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const canPause = profile.role === "super_admin" || profile.role === "admin";
   const msgFn = useServerFn(listMessages);
   const convFn = useServerFn(listConversations);
   const schedFn = useServerFn(listScheduledMessages);
@@ -70,6 +75,8 @@ export function MessagesTab() {
   const scheduleFn = useServerFn(scheduleMessage);
   const cancelFn = useServerFn(cancelScheduledMessage);
   const takeoverFn = useServerFn(toggleHumanTakeover);
+  const statesFn = useServerFn(listWorkflowStates);
+  const pauseFn = useServerFn(pauseLeadWorkflow);
 
   const { data: msgData } = useQuery({ queryKey: ["messages"], queryFn: () => msgFn(), refetchInterval: 5000 });
   const { data: convData } = useQuery({
@@ -81,6 +88,12 @@ export function MessagesTab() {
     queryKey: ["scheduled"],
     queryFn: () => schedFn(),
     refetchInterval: 10000,
+  });
+  const { data: statesData } = useQuery({
+    queryKey: ["workflow-states"],
+    queryFn: () => statesFn(),
+    refetchInterval: 8000,
+    enabled: canPause,
   });
 
   const [search, setSearch] = useState("");
@@ -119,6 +132,10 @@ export function MessagesTab() {
   const activeConv = conversations.find((c) => c.phone_number === active);
   const takeover = activeConv?.human_takeover ?? false;
   const activeScheduled = scheduled.filter((s) => s.phone_number === active && s.status === "pending");
+  const workflowState =
+    (statesData?.states ?? []).find(
+      (s: { phone_number: string }) => s.phone_number === active,
+    )?.status as "active" | "paused" | undefined;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -175,6 +192,19 @@ export function MessagesTab() {
     onError: () => toast.error("Failed to update"),
   });
 
+  const pauseWorkflow = useMutation({
+    mutationFn: (paused: boolean) => pauseFn({ data: { phone: active!, paused } }),
+    onSuccess: (res, paused) => {
+      if ((res as { ok: boolean }).ok) {
+        qc.invalidateQueries({ queryKey: ["workflow-states"] });
+        toast.success(paused ? "Workflow paused for this lead" : "Workflow resumed");
+      } else {
+        toast.error((res as { error?: string }).error ?? "Failed to update workflow");
+      }
+    },
+    onError: () => toast.error("Failed to update workflow"),
+  });
+
   function handleSend() {
     const text = draft.trim();
     if (!text || !active) return;
@@ -182,7 +212,7 @@ export function MessagesTab() {
   }
 
   return (
-    <div className="grid h-[78vh] grid-cols-1 gap-4 md:h-[72vh] md:grid-cols-[300px_1fr]">
+    <div className="grid h-[82vh] grid-cols-1 gap-4 md:h-[80vh] md:grid-cols-[300px_1fr]">
       {/* List */}
       <div
         className={cn(
@@ -247,16 +277,35 @@ export function MessagesTab() {
                 <MessageSquare className="hidden h-4 w-4 text-primary md:block" />
                 <span className="truncate">{active}</span>
               </span>
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                {takeover ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                AI {takeover ? "paused" : "active"}
-                <Switch
-                  checked={!takeover}
-                  onCheckedChange={(v) => toggleTakeover.mutate(!v)}
-                  disabled={toggleTakeover.isPending}
-                />
-              </label>
+              <div className="flex items-center gap-3">
+                {canPause && workflowState && (
+                  <Button
+                    size="sm"
+                    variant={workflowState === "paused" ? "default" : "outline"}
+                    className="h-7 gap-1 px-2 text-xs"
+                    disabled={pauseWorkflow.isPending}
+                    onClick={() => pauseWorkflow.mutate(workflowState !== "paused")}
+                  >
+                    {workflowState === "paused" ? (
+                      <Play className="h-3.5 w-3.5" />
+                    ) : (
+                      <Pause className="h-3.5 w-3.5" />
+                    )}
+                    {workflowState === "paused" ? "Resume workflow" : "Pause workflow"}
+                  </Button>
+                )}
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {takeover ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                  AI {takeover ? "paused" : "active"}
+                  <Switch
+                    checked={!takeover}
+                    onCheckedChange={(v) => toggleTakeover.mutate(!v)}
+                    disabled={toggleTakeover.isPending}
+                  />
+                </label>
+              </div>
             </div>
+
 
             {/* Scheduled banner */}
             {activeScheduled.length > 0 && (

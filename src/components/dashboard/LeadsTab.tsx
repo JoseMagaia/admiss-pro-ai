@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, UserCog, Bot, Trash2 } from "lucide-react";
+import { Search, UserCog, Bot, Trash2, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { StageBadge } from "./StageBadge";
-import { listLeads, toggleHumanTakeover, listConversations, deleteLead } from "@/lib/dashboard.functions";
+import {
+  listLeads,
+  toggleHumanTakeover,
+  listConversations,
+  deleteLead,
+  listWorkflowStates,
+  pauseLeadWorkflow,
+} from "@/lib/dashboard.functions";
 import { LEAD_FILTERS, columnForStage } from "@/lib/pipeline";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
@@ -42,10 +49,13 @@ export function LeadsTab() {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const canDelete = profile.role === "super_admin" || profile.role === "admin";
+  const canPause = profile.role === "super_admin" || profile.role === "admin";
   const leadsFn = useServerFn(listLeads);
   const convFn = useServerFn(listConversations);
   const takeoverFn = useServerFn(toggleHumanTakeover);
   const deleteFn = useServerFn(deleteLead);
+  const statesFn = useServerFn(listWorkflowStates);
+  const pauseFn = useServerFn(pauseLeadWorkflow);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Lead | null>(null);
@@ -60,12 +70,26 @@ export function LeadsTab() {
     queryFn: () => convFn(),
     refetchInterval: 5000,
   });
+  const { data: statesData } = useQuery({
+    queryKey: ["workflow-states"],
+    queryFn: () => statesFn(),
+    refetchInterval: 8000,
+    enabled: canPause,
+  });
 
   const takeoverMap = useMemo(() => {
     const m = new Map<string, boolean>();
     for (const c of (convData?.conversations ?? []) as Conversation[]) m.set(c.phone_number, c.human_takeover);
     return m;
   }, [convData]);
+
+  const workflowMap = useMemo(() => {
+    const m = new Map<string, "active" | "paused">();
+    for (const s of (statesData?.states ?? []) as Array<{ phone_number: string; status: "active" | "paused" }>) {
+      m.set(s.phone_number, s.status);
+    }
+    return m;
+  }, [statesData]);
 
   const takeover = useMutation({
     mutationFn: (vars: { phone: string; enabled: boolean }) => takeoverFn({ data: vars }),
@@ -74,6 +98,19 @@ export function LeadsTab() {
       toast.success("Conversation updated");
     },
     onError: () => toast.error("Failed to update"),
+  });
+
+  const pause = useMutation({
+    mutationFn: (vars: { phone: string; paused: boolean }) => pauseFn({ data: vars }),
+    onSuccess: (res, vars) => {
+      if ((res as { ok: boolean }).ok) {
+        qc.invalidateQueries({ queryKey: ["workflow-states"] });
+        toast.success(vars.paused ? "Workflow paused for this lead" : "Workflow resumed");
+      } else {
+        toast.error((res as { error?: string }).error ?? "Failed to update workflow");
+      }
+    },
+    onError: () => toast.error("Failed to update workflow"),
   });
 
   const remove = useMutation({
@@ -151,6 +188,7 @@ export function LeadsTab() {
               <th className="px-4 py-3 font-semibold">Parent</th>
               <th className="px-4 py-3 font-semibold">Doc</th>
               <th className="px-4 py-3 font-semibold">Mode</th>
+              {canPause && <th className="px-4 py-3 font-semibold">Workflow</th>}
               {canDelete && <th className="px-4 py-3 font-semibold text-right">Actions</th>}
             </tr>
           </thead>
@@ -186,6 +224,27 @@ export function LeadsTab() {
                       {human ? "Human" : "AI"}
                     </Button>
                   </td>
+                  {canPause && (
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const wf = workflowMap.get(l.phone_number);
+                        if (!wf) return <span className="text-xs text-muted-foreground">—</span>;
+                        const paused = wf === "paused";
+                        return (
+                          <Button
+                            size="sm"
+                            variant={paused ? "default" : "outline"}
+                            className="h-7 gap-1 px-2 text-xs"
+                            disabled={pause.isPending}
+                            onClick={() => pause.mutate({ phone: l.phone_number, paused: !paused })}
+                          >
+                            {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                            {paused ? "Resume" : "Pause"}
+                          </Button>
+                        );
+                      })()}
+                    </td>
+                  )}
                   {canDelete && (
                     <td className="px-4 py-3 text-right">
                       <Button
@@ -204,7 +263,7 @@ export function LeadsTab() {
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={canDelete ? 10 : 9} className="px-4 py-12 text-center text-muted-foreground">
+                <td colSpan={9 + (canPause ? 1 : 0) + (canDelete ? 1 : 0)} className="px-4 py-12 text-center text-muted-foreground">
                   No leads found.
                 </td>
               </tr>

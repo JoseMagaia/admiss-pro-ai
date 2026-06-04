@@ -8,6 +8,7 @@ import {
   KanbanSquare,
   Workflow as WorkflowIcon,
   ClipboardCheck,
+  Contact as ContactIcon,
   Settings as SettingsIcon,
   ArrowLeft,
   LogOut,
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
 import { LeadsTab } from "@/components/dashboard/LeadsTab";
 import { MessagesTab } from "@/components/dashboard/MessagesTab";
+import { ContactsTab } from "@/components/dashboard/ContactsTab";
 import { BookingsTab } from "@/components/dashboard/BookingsTab";
 import { PipelineTab } from "@/components/dashboard/PipelineTab";
 import { OrchestrationTab } from "@/components/dashboard/OrchestrationTab";
@@ -40,6 +42,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 const ALL_TABS = [
   { id: "leads", label: "Leads", icon: Users },
   { id: "messages", label: "Messages", icon: MessageSquare },
+  { id: "contacts", label: "Contacts", icon: ContactIcon },
   { id: "bookings", label: "Bookings", icon: Calendar },
   { id: "pipeline", label: "Pipeline", icon: KanbanSquare },
   { id: "meeting_outcomes", label: "Meeting Outcomes", icon: ClipboardCheck },
@@ -153,6 +156,7 @@ function Dashboard() {
           <div className="mt-6">
             {activeTab === "leads" && <LeadsTab />}
             {activeTab === "messages" && <MessagesTab />}
+            {activeTab === "contacts" && <ContactsTab />}
             {activeTab === "bookings" && <BookingsTab />}
             {activeTab === "pipeline" && <PipelineTab />}
             {activeTab === "meeting_outcomes" && <MeetingOutcomesTab />}
