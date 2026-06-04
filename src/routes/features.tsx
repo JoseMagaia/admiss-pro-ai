@@ -28,7 +28,9 @@ export const Route = createFileRoute("/features")({
           "24/7 WhatsApp lead qualification, scholarship screening, document collection and automated booking preparation.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://agents.linkmoore.com/features" },
     ],
+    links: [{ rel: "canonical", href: "https://agents.linkmoore.com/features" }],
   }),
   component: Features,
 });

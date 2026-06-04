@@ -29,7 +29,9 @@ export const Route = createFileRoute("/")({
           "Qualify, screen and onboard international students automatically over WhatsApp with an AI admissions assistant.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://agents.linkmoore.com/" },
     ],
+    links: [{ rel: "canonical", href: "https://agents.linkmoore.com/" }],
   }),
   component: Landing,
 });
