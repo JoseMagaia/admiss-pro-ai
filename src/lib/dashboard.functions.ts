@@ -632,14 +632,45 @@ async function isSuper(): Promise<boolean> {
 export const listResponderAgents = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isSuper())) return { agents: [] };
   const db = await admin();
+  const { DEFAULT_AGENT_ID } = await import("./orchestration");
+
+  // Synthesize the built-in default qualification agent so it appears and can be
+  // routed alongside custom responder agents. It is managed in AI Settings.
+  const { data: cfg } = await db
+    .from("ai_configuration")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const c = cfg as Record<string, unknown> | null;
+  const defaultAgent = {
+    id: DEFAULT_AGENT_ID,
+    name: "Default Qualification Agent",
+    description: "The main admissions agent configured in AI Settings.",
+    workspace_id: null,
+    system_prompt: String(c?.system_prompt ?? ""),
+    model: String(c?.model ?? "google/gemini-3-flash-preview"),
+    temperature: Number(c?.temperature ?? 0.7),
+    provider_mode: "inherit",
+    custom_provider: null,
+    custom_base_url: null,
+    custom_model: null,
+    custom_api_key: null,
+    inherit_variables: true,
+    enabled: true,
+    is_default: true,
+  };
+
   const { data } = await db.from("responder_agents").select("*").order("created_at", { ascending: true });
   // Never expose stored API keys to the browser.
   const agents = (data ?? []).map((a: Record<string, unknown>) => ({
     ...a,
+    is_default: false,
     custom_api_key: a.custom_api_key ? "********" : null,
   }));
-  return { agents };
+  return { agents: [defaultAgent, ...agents] };
 });
+
 
 const responderAgentSchema = z.object({
   id: z.string().uuid().optional(),
