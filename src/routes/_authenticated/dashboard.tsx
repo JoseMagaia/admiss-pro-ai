@@ -156,6 +156,7 @@ function Dashboard() {
           <div className="mt-6">
             {activeTab === "leads" && <LeadsTab />}
             {activeTab === "messages" && <MessagesTab />}
+            {activeTab === "contacts" && <ContactsTab />}
             {activeTab === "bookings" && <BookingsTab />}
             {activeTab === "pipeline" && <PipelineTab />}
             {activeTab === "meeting_outcomes" && <MeetingOutcomesTab />}
