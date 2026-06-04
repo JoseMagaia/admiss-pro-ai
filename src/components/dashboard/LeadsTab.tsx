@@ -188,6 +188,7 @@ export function LeadsTab() {
               <th className="px-4 py-3 font-semibold">Parent</th>
               <th className="px-4 py-3 font-semibold">Doc</th>
               <th className="px-4 py-3 font-semibold">Mode</th>
+              {canPause && <th className="px-4 py-3 font-semibold">Workflow</th>}
               {canDelete && <th className="px-4 py-3 font-semibold text-right">Actions</th>}
             </tr>
           </thead>
