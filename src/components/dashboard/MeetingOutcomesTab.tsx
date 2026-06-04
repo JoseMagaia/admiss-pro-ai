@@ -263,6 +263,7 @@ export function MeetingOutcomesTab() {
         return;
       }
       toast.success("Outcome updated.");
+      scheduleWorkflowFire();
       setEditRow(null);
       qc.invalidateQueries({ queryKey: ["meeting-outcomes"] });
       qc.invalidateQueries({ queryKey: ["meeting-outcome-stats"] });
