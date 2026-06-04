@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Trash2, Workflow as WorkflowIcon, Power, Sparkles } from "lucide-react";
+import { Plus, Trash2, Workflow as WorkflowIcon, Power } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { triggerTypeLabel } from "@/lib/orchestration";
@@ -10,7 +10,6 @@ import {
   deleteWorkflow,
   listResponderAgents,
   listWorkspaces,
-  seedMeetingOutcomeWorkflows,
 } from "@/lib/dashboard.functions";
 import { WorkflowBuilder, type WorkflowRow } from "./WorkflowBuilder";
 
