@@ -132,6 +132,10 @@ export function MessagesTab() {
   const activeConv = conversations.find((c) => c.phone_number === active);
   const takeover = activeConv?.human_takeover ?? false;
   const activeScheduled = scheduled.filter((s) => s.phone_number === active && s.status === "pending");
+  const workflowState =
+    (statesData?.states ?? []).find(
+      (s: { phone_number: string }) => s.phone_number === active,
+    )?.status as "active" | "paused" | undefined;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
