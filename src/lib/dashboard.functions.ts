@@ -1056,11 +1056,18 @@ export const updateMeetingOutcome = createServerFn({ method: "POST" })
     const db = await admin();
     const { data: existing } = await db
       .from("meeting_outcomes")
-      .select("id, lead_id, outcome, created_at")
+      .select("id, lead_id, phone_number, outcome, workflow_triggered, created_at")
       .eq("id", data.id)
       .maybeSingle();
     const row = existing as
-      | { id: string; lead_id: string | null; outcome: string; created_at: string }
+      | {
+          id: string;
+          lead_id: string | null;
+          phone_number: string;
+          outcome: string;
+          workflow_triggered: string | null;
+          created_at: string;
+        }
       | null;
     if (!row) return { ok: false, error: "Outcome not found" };
 
