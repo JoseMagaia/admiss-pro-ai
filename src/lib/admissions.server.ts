@@ -967,3 +967,65 @@ export async function enrollLeadInWorkflowByName(params: {
   } as never);
   return { status: "enrolled", workflowId: target.id as string };
 }
+
+/* ===================== MEETING OUTCOME WORKFLOW TEMPLATES ===================== */
+
+import { UNIT_SECONDS } from "./orchestration";
+import { MEETING_OUTCOME_TEMPLATES, type TemplateStep } from "./meeting-outcomes";
+
+// Build a visual-builder-compatible graph from a list of template steps.
+function buildTemplateGraph(steps: TemplateStep[]) {
+  const nodes: Array<Record<string, unknown>> = [
+    { id: "trigger", type: "trigger", position: { x: 80, y: 20 }, data: { label: "Trigger" } },
+  ];
+  const edges: Array<Record<string, unknown>> = [];
+  let prev = "trigger";
+  steps.forEach((s, i) => {
+    const id = `m${i + 1}`;
+    nodes.push({
+      id,
+      type: "message",
+      position: { x: 80, y: 140 + i * 130 },
+      data: {
+        content: s.content,
+        delayValue: s.delayValue,
+        delayUnit: s.delayUnit,
+        // keep delayMinutes for backward-compatible readers
+        delayMinutes: Math.round((s.delayValue * (UNIT_SECONDS[s.delayUnit] ?? 60)) / 60),
+        index: i,
+      },
+    });
+    edges.push({ id: `e-${prev}-${id}`, source: prev, target: id });
+    prev = id;
+  });
+  return { nodes, edges };
+}
+
+// Create any missing Meeting Outcome follow-up workflow templates (idempotent).
+// Existing workflows with the same name are left untouched so user edits persist.
+export async function ensureMeetingOutcomeWorkflows(): Promise<{ created: number }> {
+  const db = await admin();
+  const { data: rows } = await db.from("workflows").select("name");
+  const existing = new Set(
+    ((rows as Array<{ name: string }>) ?? []).map((r) => String(r.name ?? "").trim().toLowerCase()),
+  );
+
+  let created = 0;
+  for (const tpl of MEETING_OUTCOME_TEMPLATES) {
+    if (existing.has(tpl.name.trim().toLowerCase())) continue;
+    await db.from("workflows").insert({
+      name: tpl.name,
+      description: tpl.description,
+      workspace_id: null,
+      agent_id: DEFAULT_AGENT_ID,
+      trigger_type: "manual",
+      trigger_segment: "manual",
+      trigger_config: {},
+      enabled: true,
+      graph: buildTemplateGraph(tpl.steps),
+    } as never);
+    created += 1;
+  }
+  return { created };
+}
+
