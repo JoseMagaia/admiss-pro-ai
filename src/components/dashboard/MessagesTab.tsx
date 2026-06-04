@@ -89,6 +89,7 @@ export function MessagesTab() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   const messages = (msgData?.messages ?? []) as Message[];
   const conversations = (convData?.conversations ?? []) as Conversation[];
