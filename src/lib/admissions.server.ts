@@ -935,6 +935,10 @@ export async function enrollLeadInWorkflowByName(params: {
   workflowName: string;
   phone: string;
   leadId?: string | null;
+  /** Workspace (Chatwoot connection) to send the messages through. */
+  workspaceId?: string | null;
+  /** When true, the first message is sent right away instead of waiting for the cron. */
+  sendNow?: boolean;
 }): Promise<{ status: "enrolled" | "already_enrolled" | "no_workflow" | "no_steps"; workflowId?: string }> {
   const db = await admin();
   const { data: rows } = await db.from("workflows").select("*").eq("enabled", true);
@@ -947,6 +951,19 @@ export async function enrollLeadInWorkflowByName(params: {
   const steps = orderedSteps(target.graph);
   if (steps.length === 0) return { status: "no_workflow", workflowId: target.id as string };
 
+  // Route messages through the selected workspace for this lead going forward.
+  if (params.workspaceId) {
+    await db
+      .from("leads")
+      .update({ workspace_id: params.workspaceId } as never)
+      .eq("phone_number", params.phone);
+    await db
+      .from("conversations")
+      .update({ workspace_id: params.workspaceId } as never)
+      .eq("phone_number", params.phone);
+  }
+  const workspaceId = params.workspaceId ?? (target.workspace_id as string) ?? null;
+
   const { data: existing } = await db
     .from("workflow_enrollments")
     .select("id")
@@ -956,6 +973,39 @@ export async function enrollLeadInWorkflowByName(params: {
   if (existing) return { status: "already_enrolled", workflowId: target.id as string };
 
   const firstDelayMs = steps[0]?.delayMs ?? 0;
+
+  // Immediate activation: send the first message now and advance the sequence so
+  // the lead starts receiving the follow-up the moment the outcome is recorded.
+  if (params.sendNow) {
+    await sendWorkflowMessage(params.phone, steps[0].content, workspaceId);
+    const nextStep = 1;
+    if (nextStep >= steps.length) {
+      await db.from("workflow_enrollments").insert({
+        workflow_id: target.id,
+        lead_id: params.leadId ?? null,
+        phone_number: params.phone,
+        current_step: nextStep,
+        status: "completed",
+        reacted: false,
+        next_run_at: null,
+        last_step_at: new Date().toISOString(),
+      } as never);
+    } else {
+      const nextDelayMs = steps[nextStep]?.delayMs ?? 0;
+      await db.from("workflow_enrollments").insert({
+        workflow_id: target.id,
+        lead_id: params.leadId ?? null,
+        phone_number: params.phone,
+        current_step: nextStep,
+        status: "active",
+        reacted: false,
+        next_run_at: new Date(Date.now() + nextDelayMs).toISOString(),
+        last_step_at: new Date().toISOString(),
+      } as never);
+    }
+    return { status: "enrolled", workflowId: target.id as string };
+  }
+
   await db.from("workflow_enrollments").insert({
     workflow_id: target.id,
     lead_id: params.leadId ?? null,

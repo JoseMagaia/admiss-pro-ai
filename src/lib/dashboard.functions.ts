@@ -921,6 +921,7 @@ const meetingOutcomeSchema = z.object({
   next_action: z.string().max(100).nullable().optional(),
   follow_up_date: z.string().max(40).nullable().optional(),
   internal_notes: z.string().max(5000).nullable().optional(),
+  workspace_id: z.string().uuid().nullable().optional(),
 });
 
 export const saveMeetingOutcome = createServerFn({ method: "POST" })
@@ -958,6 +959,8 @@ export const saveMeetingOutcome = createServerFn({ method: "POST" })
         workflowName: mapping.workflow,
         phone: leadRow.phone_number,
         leadId: leadRow.id,
+        workspaceId: data.workspace_id ?? null,
+        sendNow: true,
       });
       workflowStatus = res.status;
     } catch (e) {
@@ -1016,6 +1019,95 @@ export const saveMeetingOutcome = createServerFn({ method: "POST" })
 
     return { ok: true, error: null, workflowStatus, stage: mapping.stage };
   });
+
+// Window (ms) during which a recorded outcome can still be edited after submission.
+const OUTCOME_EDIT_WINDOW_MS = 60_000;
+
+const updateMeetingOutcomeSchema = z.object({
+  id: z.string().uuid(),
+  outcome: z.enum([
+    "ready_to_pay",
+    "parent_discussion",
+    "financial_delay",
+    "future_applicant",
+    "not_qualified",
+  ]),
+  commitment_level: z.enum(["high", "medium", "low"]).nullable().optional(),
+  main_obstacle: z.string().max(100).nullable().optional(),
+  next_action: z.string().max(100).nullable().optional(),
+  follow_up_date: z.string().max(40).nullable().optional(),
+  internal_notes: z.string().max(5000).nullable().optional(),
+});
+
+export const updateMeetingOutcome = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => updateMeetingOutcomeSchema.parse(d))
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(MEETING_ROLES);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+
+    const db = await admin();
+    const { data: existing } = await db
+      .from("meeting_outcomes")
+      .select("id, lead_id, outcome, created_at")
+      .eq("id", data.id)
+      .maybeSingle();
+    const row = existing as
+      | { id: string; lead_id: string | null; outcome: string; created_at: string }
+      | null;
+    if (!row) return { ok: false, error: "Outcome not found" };
+
+    // Enforce the 1-minute edit window.
+    const age = Date.now() - new Date(row.created_at).getTime();
+    if (age > OUTCOME_EDIT_WINDOW_MS) {
+      return { ok: false, error: "This outcome can no longer be edited (1 minute window passed)." };
+    }
+
+    const { findOutcome } = await import("./meeting-outcomes");
+    const mapping = findOutcome(data.outcome);
+    if (!mapping) return { ok: false, error: "Unknown outcome" };
+
+    const { error: updErr } = await db
+      .from("meeting_outcomes")
+      .update({
+        outcome: data.outcome,
+        commitment_level: data.commitment_level ?? null,
+        main_obstacle: data.main_obstacle ?? null,
+        next_action: data.next_action ?? null,
+        follow_up_date: data.follow_up_date || null,
+        internal_notes: data.internal_notes ?? null,
+        workflow_triggered: mapping.workflow,
+      } as never)
+      .eq("id", data.id);
+    if (updErr) return { ok: false, error: updErr.message };
+
+    // Keep the lead stage in sync with the (possibly changed) outcome.
+    if (row.lead_id) {
+      await db
+        .from("leads")
+        .update({ qualification_status: mapping.stage } as never)
+        .eq("id", row.lead_id);
+    }
+
+    await db.from("audit_logs").insert({
+      actor_email: me.email ?? null,
+      actor_role: me.role ?? null,
+      action: "meeting_outcome_edited",
+      entity_type: "meeting_outcome",
+      entity_id: data.id,
+      details: {
+        previous_outcome: row.outcome,
+        outcome: data.outcome,
+        new_stage: mapping.stage,
+      },
+    } as never);
+
+    return { ok: true, error: null };
+  });
+
 
 export const getMeetingOutcomeStats = createServerFn({ method: "GET" }).handler(async () => {
   const empty = {
