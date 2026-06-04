@@ -35,11 +35,11 @@ export function WorkflowManager() {
   const { data: wsData } = useQuery({ queryKey: ["workspaces"], queryFn: () => wsFn() });
 
   const workflows = (data?.workflows ?? []) as unknown as WorkflowRow[];
-  const agents = ((agentsData?.agents ?? []) as Array<{ id: string; name: string }>).map((a) => ({
+  const agents = ((agentsData?.agents ?? []) as unknown as Array<{ id: string; name: string }>).map((a) => ({
     id: a.id,
     name: a.name,
   }));
-  const workspaces = ((wsData?.workspaces ?? []) as Array<{ id: string; name: string }>).map((w) => ({
+  const workspaces = ((wsData?.workspaces ?? []) as unknown as Array<{ id: string; name: string }>).map((w) => ({
     id: w.id,
     name: w.name,
   }));
