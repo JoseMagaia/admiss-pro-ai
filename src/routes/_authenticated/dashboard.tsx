@@ -42,6 +42,7 @@ const ALL_TABS = [
   { id: "messages", label: "Messages", icon: MessageSquare },
   { id: "bookings", label: "Bookings", icon: Calendar },
   { id: "pipeline", label: "Pipeline", icon: KanbanSquare },
+  { id: "meeting_outcomes", label: "Meeting Outcomes", icon: ClipboardCheck },
   { id: "orchestration", label: "Orchestration", icon: WorkflowIcon },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ] as const;
