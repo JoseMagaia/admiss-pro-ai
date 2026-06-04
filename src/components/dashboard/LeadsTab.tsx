@@ -224,6 +224,27 @@ export function LeadsTab() {
                       {human ? "Human" : "AI"}
                     </Button>
                   </td>
+                  {canPause && (
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const wf = workflowMap.get(l.phone_number);
+                        if (!wf) return <span className="text-xs text-muted-foreground">—</span>;
+                        const paused = wf === "paused";
+                        return (
+                          <Button
+                            size="sm"
+                            variant={paused ? "default" : "outline"}
+                            className="h-7 gap-1 px-2 text-xs"
+                            disabled={pause.isPending}
+                            onClick={() => pause.mutate({ phone: l.phone_number, paused: !paused })}
+                          >
+                            {paused ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}
+                            {paused ? "Resume" : "Pause"}
+                          </Button>
+                        );
+                      })()}
+                    </td>
+                  )}
                   {canDelete && (
                     <td className="px-4 py-3 text-right">
                       <Button
