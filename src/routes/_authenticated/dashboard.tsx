@@ -8,6 +8,7 @@ import {
   KanbanSquare,
   Workflow as WorkflowIcon,
   ClipboardCheck,
+  Contact as ContactIcon,
   Settings as SettingsIcon,
   ArrowLeft,
   LogOut,
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
 import { LeadsTab } from "@/components/dashboard/LeadsTab";
 import { MessagesTab } from "@/components/dashboard/MessagesTab";
+import { ContactsTab } from "@/components/dashboard/ContactsTab";
 import { BookingsTab } from "@/components/dashboard/BookingsTab";
 import { PipelineTab } from "@/components/dashboard/PipelineTab";
 import { OrchestrationTab } from "@/components/dashboard/OrchestrationTab";
