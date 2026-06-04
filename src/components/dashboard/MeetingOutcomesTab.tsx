@@ -271,6 +271,25 @@ export function MeetingOutcomesTab() {
     onError: () => toast.error("Failed to update outcome"),
   });
 
+  const remove = useMutation({
+    mutationFn: (id: string) => deleteFn({ data: { id } }),
+    onSuccess: (res) => {
+      const r = res as { ok: boolean; error?: string };
+      if (!r.ok) {
+        toast.error(r.error ?? "Failed to delete outcome");
+        return;
+      }
+      toast.success("Meeting outcome deleted.");
+      setPendingDelete(null);
+      qc.invalidateQueries({ queryKey: ["meeting-outcomes"] });
+      qc.invalidateQueries({ queryKey: ["meeting-outcome-stats"] });
+    },
+    onError: () => {
+      toast.error("Failed to delete outcome");
+      setPendingDelete(null);
+    },
+  });
+
   function openEdit(o: OutcomeRow) {
     setEditRow(o);
     setEditForm({
