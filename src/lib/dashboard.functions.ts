@@ -723,6 +723,10 @@ export const deleteResponderAgent = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
+    const { DEFAULT_AGENT_ID } = await import("./orchestration");
+    if (data.id === DEFAULT_AGENT_ID) {
+      return { ok: false, error: "The default agent cannot be deleted." };
+    }
     const db = await admin();
     const { error } = await db.from("responder_agents").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
