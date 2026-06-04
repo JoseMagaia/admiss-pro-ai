@@ -57,23 +57,7 @@ export function WorkflowManager() {
     onError: () => toast.error("Failed to delete"),
   });
 
-  const seed = useMutation({
-    mutationFn: () => seedFn(),
-    onSuccess: (r) => {
-      const res = r as { ok: boolean; created?: number; error?: string };
-      if (!res.ok) {
-        toast.error(res.error ?? "Failed to generate templates");
-        return;
-      }
-      toast.success(
-        res.created && res.created > 0
-          ? `Created ${res.created} meeting-outcome template${res.created === 1 ? "" : "s"}.`
-          : "All meeting-outcome templates already exist.",
-      );
-      qc.invalidateQueries({ queryKey: ["workflows"] });
-    },
-    onError: () => toast.error("Failed to generate templates"),
-  });
+
 
   if (editing) {
     return (
