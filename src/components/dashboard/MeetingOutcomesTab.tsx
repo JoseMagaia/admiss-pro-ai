@@ -506,34 +506,54 @@ export function MeetingOutcomesTab() {
                   <th className="px-4 py-3 font-semibold">Next Action</th>
                   <th className="px-4 py-3 font-semibold">Follow-Up</th>
                   <th className="px-4 py-3 font-semibold">Workflow</th>
+                  <th className="px-4 py-3 text-right font-semibold">Edit</th>
                 </tr>
               </thead>
               <tbody>
-                {outcomes.map((o) => (
-                  <tr key={o.id} className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{o.lead_name ?? "—"}</div>
-                      <div className="text-xs text-muted-foreground">{o.phone_number}</div>
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {format(new Date(o.meeting_date), "MMM d, yyyy")}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                        {outcomeLabel(o.outcome)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 capitalize text-muted-foreground">{o.commitment_level ?? "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {labelFromList(NEXT_ACTIONS, o.next_action)}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">{o.follow_up_date ?? "—"}</td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">{o.workflow_triggered ?? "—"}</td>
-                  </tr>
-                ))}
+                {outcomes.map((o) => {
+                  const remaining = editableFor(o);
+                  const editable = remaining > 0;
+                  return (
+                    <tr key={o.id} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-4 py-3">
+                        <div className="font-medium">{o.lead_name ?? "—"}</div>
+                        <div className="text-xs text-muted-foreground">{o.phone_number}</div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {format(new Date(o.meeting_date), "MMM d, yyyy")}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                          {outcomeLabel(o.outcome)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 capitalize text-muted-foreground">{o.commitment_level ?? "—"}</td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {labelFromList(NEXT_ACTIONS, o.next_action)}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{o.follow_up_date ?? "—"}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{o.workflow_triggered ?? "—"}</td>
+                      <td className="px-4 py-3 text-right">
+                        {editable ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1 text-primary"
+                            onClick={() => openEdit(o)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            {Math.ceil(remaining / 1000)}s
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Locked</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
                 {outcomes.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                       No meeting outcomes recorded yet.
                     </td>
                   </tr>
@@ -543,6 +563,147 @@ export function MeetingOutcomesTab() {
           </div>
         </div>
       </div>
+
+      {/* Edit dialog (available within 1 minute of submission) */}
+      <Dialog open={!!editRow} onOpenChange={(open) => !open && setEditRow(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Meeting Outcome</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="rounded-lg bg-muted/40 px-3 py-2 text-sm">
+              <div className="font-medium">{editRow?.lead_name ?? "—"}</div>
+              <div className="text-xs text-muted-foreground">{editRow?.phone_number}</div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Outcome</Label>
+              <Select
+                value={editForm.outcome}
+                onValueChange={(v) => setEditForm((f) => ({ ...f, outcome: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select outcome" />
+                </SelectTrigger>
+                <SelectContent>
+                  {MEETING_OUTCOMES.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Commitment Level</Label>
+              <Select
+                value={editForm.commitment}
+                onValueChange={(v) => setEditForm((f) => ({ ...f, commitment: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select level" />
+                </SelectTrigger>
+                <SelectContent>
+                  {COMMITMENT_LEVELS.map((c) => (
+                    <SelectItem key={c.value} value={c.value}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Main Obstacle</Label>
+              <Select
+                value={editForm.obstacle}
+                onValueChange={(v) => setEditForm((f) => ({ ...f, obstacle: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select obstacle" />
+                </SelectTrigger>
+                <SelectContent>
+                  {MAIN_OBSTACLES.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Next Expected Action</Label>
+              <Select
+                value={editForm.nextAction}
+                onValueChange={(v) => setEditForm((f) => ({ ...f, nextAction: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select action" />
+                </SelectTrigger>
+                <SelectContent>
+                  {NEXT_ACTIONS.map((a) => (
+                    <SelectItem key={a.value} value={a.value}>
+                      {a.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Follow-Up Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start text-left font-normal",
+                      !editFollowUp && "text-muted-foreground",
+                    )}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {editFollowUp ? format(editFollowUp, "PPP") : <span>Pick a date</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={editFollowUp}
+                    onSelect={setEditFollowUp}
+                    initialFocus
+                    className={cn("p-3 pointer-events-auto")}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Internal Notes</Label>
+              <Textarea
+                value={editForm.notes}
+                onChange={(e) => setEditForm((f) => ({ ...f, notes: e.target.value }))}
+                placeholder="Update context, commitments, objections…"
+                rows={3}
+                maxLength={5000}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditRow(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!editForm.outcome || update.isPending}
+              onClick={() => update.mutate()}
+            >
+              {update.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
