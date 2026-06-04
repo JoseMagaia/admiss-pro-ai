@@ -143,9 +143,6 @@ export function WorkflowManager() {
         <Button variant="outline" onClick={() => setEditing({ ...EMPTY_WORKFLOW })}>
           <Plus className="mr-1 h-4 w-4" /> New Workflow
         </Button>
-        <Button variant="ghost" disabled={seed.isPending} onClick={() => seed.mutate()}>
-          <Sparkles className="mr-1 h-4 w-4" /> Generate Meeting Outcome Templates
-        </Button>
       </div>
     </div>
   );
