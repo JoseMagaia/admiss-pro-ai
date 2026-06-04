@@ -366,8 +366,35 @@ export function MeetingOutcomesTab() {
                 </SelectContent>
               </Select>
               {mappedWorkflow && (
-                <p className="text-xs text-muted-foreground">→ Triggers: {mappedWorkflow}</p>
+                <div className="flex items-start gap-1.5 rounded-lg bg-primary/5 px-2.5 py-2 text-xs text-primary">
+                  <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Matched workflow template: <strong>{mappedWorkflow}</strong>. It activates
+                    immediately for the selected lead on save.
+                  </span>
+                </div>
               )}
+            </div>
+
+            {/* Workspace (Chatwoot connection) to send through */}
+            <div className="space-y-1.5">
+              <Label>Send Through Workspace</Label>
+              <Select value={workspaceId} onValueChange={setWorkspaceId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Default workspace" />
+                </SelectTrigger>
+                <SelectContent>
+                  {workspaces.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name ?? "Unnamed"}
+                      {w.is_default ? " (default)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                The follow-up messages are sent through this Chatwoot connection.
+              </p>
             </div>
 
             <div className="space-y-1.5">
