@@ -360,7 +360,21 @@ export async function processInboundMessage(params: {
     };
   }
 
-  // AI agent normally stops once the booking request is created. But if a human
+  // Workflow reaction routing: if the lead is enrolled in an active orchestration
+  // workflow that has a responder agent, the lead reacting hands the conversation
+  // to that responder agent and stops the outbound sequence.
+  const responderReply = await tryWorkflowResponder({
+    phone,
+    message,
+    lead,
+    conversationId: chatwootConversationId ?? lead.chatwoot_conversation_id ?? null,
+    creds,
+  });
+  if (responderReply !== null) {
+    return { reply: responderReply, stage: lead.qualification_status ?? "NEW_LEAD", humanTakeover: false };
+  }
+
+
   // agent has switched the AI back on (ai_resumed), it resumes replying to the
   // next message in context per its defined role.
   const aiResumed = (conv as Record<string, unknown> | null)?.ai_resumed === true;
