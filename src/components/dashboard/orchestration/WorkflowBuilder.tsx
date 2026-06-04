@@ -191,6 +191,20 @@ export function WorkflowBuilder({
 
   const onConnect = useCallback((c: Connection) => setEdges((eds) => addEdge(c, eds)), [setEdges]);
 
+  const [templateChoice, setTemplateChoice] = useState("");
+
+  const applyTemplate = (tmpl: OutcomeWorkflowTemplate) => {
+    setName(tmpl.name);
+    setDescription(tmpl.description);
+    // Meeting-outcome templates are enrolled manually on form submission.
+    setTriggerType("manual");
+    const { nodes: tn, edges: te } = graphFromTemplate(tmpl.steps);
+    setNodes(tn);
+    setEdges(te);
+    setSelectedId(null);
+    toast.success(`Loaded "${tmpl.name}" template`);
+  };
+
   const messageCount = nodes.filter((n) => n.type === "message").length;
 
   const addMessage = () => {
