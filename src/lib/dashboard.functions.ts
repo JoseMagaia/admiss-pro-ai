@@ -949,8 +949,11 @@ export const saveMeetingOutcome = createServerFn({ method: "POST" })
     const leadRow = lead as { id: string; phone_number: string; lead_name: string | null } | null;
     if (!leadRow) return { ok: false, error: "Lead not found" };
 
-    // 1. Trigger the corresponding follow-up workflow (best-effort). Ensure the
-    // editable template workflows exist first so submission always has a target.
+    // 1. Enroll the lead into the corresponding follow-up workflow (best-effort).
+    // The first message is deferred until the 1-minute edit window ends so staff
+    // can correct the outcome before anything is sent. The pending enrollment is
+    // advanced by the workflow processor (triggered client-side at the end of the
+    // countdown and by the cron job as a fallback).
     const { enrollLeadInWorkflowByName, ensureMeetingOutcomeWorkflows } = await import("./admissions.server");
     let workflowStatus = "no_workflow";
     try {
@@ -960,7 +963,8 @@ export const saveMeetingOutcome = createServerFn({ method: "POST" })
         phone: leadRow.phone_number,
         leadId: leadRow.id,
         workspaceId: data.workspace_id ?? null,
-        sendNow: true,
+        sendNow: false,
+        startDelayMs: OUTCOME_EDIT_WINDOW_MS,
       });
       workflowStatus = res.status;
     } catch (e) {
