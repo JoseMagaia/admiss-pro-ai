@@ -286,6 +286,32 @@ export function WorkflowBuilder({
 
   return (
     <div className="space-y-4">
+      <div className="rounded-xl border border-dashed bg-muted/30 p-3">
+        <Label className="text-xs">Start from a Meeting Outcome template</Label>
+        <div className="mt-1.5 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <select
+            value={templateChoice}
+            onChange={(e) => {
+              const val = e.target.value;
+              setTemplateChoice(val);
+              const tmpl = MEETING_OUTCOME_TEMPLATES.find((t) => t.name === val);
+              if (tmpl) applyTemplate(tmpl);
+            }}
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm sm:max-w-sm"
+          >
+            <option value="">Select a template…</option>
+            {MEETING_OUTCOME_TEMPLATES.map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-muted-foreground">
+            Auto-fills the name, description and message sequence with ideal intervals. You can edit everything before
+            saving.
+          </p>
+        </div>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="space-y-1.5">
           <Label>Workflow Name</Label>
