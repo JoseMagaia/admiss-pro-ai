@@ -6,6 +6,7 @@ import {
   MessageSquare,
   Calendar,
   KanbanSquare,
+  Workflow as WorkflowIcon,
   Settings as SettingsIcon,
   ArrowLeft,
   LogOut,
@@ -17,6 +18,7 @@ import { LeadsTab } from "@/components/dashboard/LeadsTab";
 import { MessagesTab } from "@/components/dashboard/MessagesTab";
 import { BookingsTab } from "@/components/dashboard/BookingsTab";
 import { PipelineTab } from "@/components/dashboard/PipelineTab";
+import { OrchestrationTab } from "@/components/dashboard/OrchestrationTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
