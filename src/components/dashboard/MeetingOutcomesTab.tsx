@@ -128,12 +128,36 @@ const EMPTY_FORM = {
 
 export function MeetingOutcomesTab() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const isSuperAdmin = profile.role === "super_admin";
   const leadsFn = useServerFn(listLeads);
   const workspacesFn = useServerFn(listWorkspaces);
   const outcomesFn = useServerFn(listMeetingOutcomes);
   const statsFn = useServerFn(getMeetingOutcomeStats);
   const saveFn = useServerFn(saveMeetingOutcome);
   const updateFn = useServerFn(updateMeetingOutcome);
+  const deleteFn = useServerFn(deleteMeetingOutcome);
+  const processFn = useServerFn(processDueWorkflows);
+
+  // Tracks pending "fire the workflow when the countdown ends" timers so they are
+  // cleared on unmount.
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => timersRef.current.forEach(clearTimeout), []);
+
+  // Schedule the workflow processor to run just after the 1-minute edit window
+  // ends, so the follow-up fires the moment the countdown reaches zero. The cron
+  // job is the fallback if the page is closed before then.
+  function scheduleWorkflowFire() {
+    const t = setTimeout(() => {
+      processFn()
+        .catch(() => {})
+        .finally(() => qc.invalidateQueries({ queryKey: ["messages"] }));
+    }, EDIT_WINDOW_MS + 3000);
+    timersRef.current.push(t);
+  }
+
+  const [pendingDelete, setPendingDelete] = useState<OutcomeRow | null>(null);
+
 
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [workspaceId, setWorkspaceId] = useState<string>("");
