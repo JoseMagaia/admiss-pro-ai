@@ -593,7 +593,9 @@ export function orderedSteps(graph: unknown): WorkflowStep[] {
 }
 
 
-// Send an outbound workflow message on the lead's conversation.
+// Send an outbound workflow message on the lead's conversation. The message
+// content may contain {{lead_name}} / {{course_interest}} / {{country_interest}}
+// / {{phone_number}} placeholders, filled from the lead record before sending.
 async function sendWorkflowMessage(phone: string, message: string, workflowWorkspaceId: string | null) {
   const db = await admin();
   const { data: conv } = await db
@@ -603,33 +605,42 @@ async function sendWorkflowMessage(phone: string, message: string, workflowWorks
     .maybeSingle();
   const { data: lead } = await db
     .from("leads")
-    .select("chatwoot_conversation_id, workspace_id")
+    .select("chatwoot_conversation_id, workspace_id, lead_name, course_interest, country_interest")
     .eq("phone_number", phone)
     .maybeSingle();
 
+  const leadRow = (lead as Record<string, unknown> | null) ?? {};
+  const filled = fillTemplate(message, {
+    lead_name: leadRow.lead_name ?? "",
+    course_interest: leadRow.course_interest ?? "",
+    country_interest: leadRow.country_interest ?? "",
+    phone_number: phone,
+  });
+
   const workspaceId =
     (conv as Record<string, unknown> | null)?.workspace_id ??
-    (lead as Record<string, unknown> | null)?.workspace_id ??
+    leadRow.workspace_id ??
     workflowWorkspaceId ??
     null;
   const conversationId =
     (conv as Record<string, unknown> | null)?.chatwoot_conversation_id ??
-    (lead as Record<string, unknown> | null)?.chatwoot_conversation_id ??
+    leadRow.chatwoot_conversation_id ??
     null;
 
   const workspace = await resolveWorkspace({ workspaceId: workspaceId as string | null });
   const creds = await resolveCreds(workspace);
-  const sent = await sendChatwootReply(creds, conversationId as string | null, message);
+  const sent = await sendChatwootReply(creds, conversationId as string | null, filled);
 
   await db.from("whatsapp_messages").insert({
     phone_number: phone,
-    message_content: message,
+    message_content: filled,
     sender: "workflow",
     message_type: "text",
     processed: true,
   });
   return sent;
 }
+
 
 // Build the effective AI context for a responder agent (provider, variables, model).
 async function loadResponderContext(agent: Record<string, unknown>): Promise<AiContext> {
