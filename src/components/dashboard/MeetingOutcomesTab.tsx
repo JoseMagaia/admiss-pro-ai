@@ -612,16 +612,29 @@ export function MeetingOutcomesTab() {
                           <span className="text-xs text-muted-foreground">Locked</span>
                         )}
                       </td>
+                      {isSuperAdmin && (
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => setPendingDelete(o)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
                 {outcomes.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
+                    <td colSpan={isSuperAdmin ? 9 : 8} className="px-4 py-12 text-center text-muted-foreground">
                       No meeting outcomes recorded yet.
                     </td>
                   </tr>
                 )}
+
               </tbody>
             </table>
           </div>
