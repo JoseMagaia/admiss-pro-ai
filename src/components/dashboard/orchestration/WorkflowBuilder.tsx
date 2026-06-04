@@ -111,6 +111,37 @@ function defaultGraph(): { nodes: Node[]; edges: Edge[] } {
   };
 }
 
+function graphFromTemplate(steps: TemplateStep[]): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = [
+    { id: "trigger", type: "trigger", position: { x: 80, y: 20 }, data: { label: "Trigger" } },
+  ];
+  const edges: Edge[] = [];
+  let prevId = "trigger";
+  steps.forEach((step, i) => {
+    const id = `m${i}_${Date.now()}`;
+    nodes.push({
+      id,
+      type: "message",
+      position: { x: 80, y: 20 + (i + 1) * 120 },
+      data: {
+        content: step.content,
+        delayValue: step.delayValue,
+        delayUnit: step.delayUnit,
+        index: i,
+      },
+    });
+    edges.push({
+      id: `e_${prevId}_${id}`,
+      source: prevId,
+      target: id,
+      sourceHandle: null,
+      targetHandle: null,
+    });
+    prevId = id;
+  });
+  return { nodes, edges };
+}
+
 export function WorkflowBuilder({
   initial,
   agents,
