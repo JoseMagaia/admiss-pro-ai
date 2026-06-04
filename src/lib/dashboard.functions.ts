@@ -874,10 +874,12 @@ export const saveMeetingOutcome = createServerFn({ method: "POST" })
     const leadRow = lead as { id: string; phone_number: string; lead_name: string | null } | null;
     if (!leadRow) return { ok: false, error: "Lead not found" };
 
-    // 1. Trigger the corresponding follow-up workflow (best-effort).
-    const { enrollLeadInWorkflowByName } = await import("./admissions.server");
+    // 1. Trigger the corresponding follow-up workflow (best-effort). Ensure the
+    // editable template workflows exist first so submission always has a target.
+    const { enrollLeadInWorkflowByName, ensureMeetingOutcomeWorkflows } = await import("./admissions.server");
     let workflowStatus = "no_workflow";
     try {
+      await ensureMeetingOutcomeWorkflows();
       const res = await enrollLeadInWorkflowByName({
         workflowName: mapping.workflow,
         phone: leadRow.phone_number,
@@ -887,6 +889,7 @@ export const saveMeetingOutcome = createServerFn({ method: "POST" })
     } catch (e) {
       console.error("Workflow enrollment failed:", e);
     }
+
 
     // 2. Store the meeting outcome.
     const meetingDate = data.meeting_date ? new Date(data.meeting_date) : new Date();
