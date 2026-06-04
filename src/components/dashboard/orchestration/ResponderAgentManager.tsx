@@ -185,7 +185,7 @@ function AgentEditor({ initial, onDone }: { initial: Agent; onDone: () => void }
   const saveFn = useServerFn(upsertResponderAgent);
   const wsFn = useServerFn(listWorkspaces);
   const { data: wsData } = useQuery({ queryKey: ["workspaces"], queryFn: () => wsFn() });
-  const workspaces = (wsData?.workspaces ?? []) as Workspace[];
+  const workspaces = (wsData?.workspaces ?? []) as unknown as Workspace[];
 
   const [form, setForm] = useState<Agent>(initial);
   useEffect(() => setForm(initial), [initial]);
