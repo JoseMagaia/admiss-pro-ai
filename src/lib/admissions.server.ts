@@ -912,12 +912,12 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
         .update({ current_step: nextStep, status: "completed", next_run_at: null, last_step_at: new Date().toISOString() } as never)
         .eq("id", enr.id as string);
     } else {
-      const nextDelay = steps[nextStep]?.delayMinutes ?? 0;
+      const nextDelayMs = steps[nextStep]?.delayMs ?? 0;
       await db
         .from("workflow_enrollments")
         .update({
           current_step: nextStep,
-          next_run_at: new Date(Date.now() + nextDelay * 60_000).toISOString(),
+          next_run_at: new Date(Date.now() + nextDelayMs).toISOString(),
           last_step_at: new Date().toISOString(),
         } as never)
         .eq("id", enr.id as string);
