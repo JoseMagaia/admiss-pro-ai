@@ -316,19 +316,22 @@ export function MeetingOutcomesTab() {
   return (
     <div className="space-y-6">
       {/* Widget */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
+      <div className="grid grid-cols-3 gap-2.5 lg:grid-cols-6">
         {WIDGETS.map((w) => (
-          <div key={w.key} className="rounded-2xl border bg-card p-4 shadow-card">
-            <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${w.color}`}>
-              <w.icon className="h-5 w-5" />
-            </span>
-            <p className="mt-3 font-display text-2xl font-bold">
-              {stats ? (stats as Record<string, number>)[w.key] ?? 0 : "—"}
-            </p>
-            <p className="text-xs text-muted-foreground">{w.label}</p>
+          <div key={w.key} className="rounded-xl border bg-card p-3 shadow-card">
+            <div className="flex items-center gap-2">
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${w.color}`}>
+                <w.icon className="h-4 w-4" />
+              </span>
+              <p className="font-display text-xl font-bold leading-none">
+                {stats ? (stats as Record<string, number>)[w.key] ?? 0 : "—"}
+              </p>
+            </div>
+            <p className="mt-1.5 text-[11px] leading-tight text-muted-foreground">{w.label}</p>
           </div>
         ))}
       </div>
+
 
       <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
         {/* Form */}
