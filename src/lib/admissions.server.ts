@@ -939,6 +939,9 @@ export async function enrollLeadInWorkflowByName(params: {
   workspaceId?: string | null;
   /** When true, the first message is sent right away instead of waiting for the cron. */
   sendNow?: boolean;
+  /** Extra delay (ms) before the first message becomes due. Used to honour the
+   *  meeting-outcome edit window so the sequence only fires once the countdown ends. */
+  startDelayMs?: number;
 }): Promise<{ status: "enrolled" | "already_enrolled" | "no_workflow" | "no_steps"; workflowId?: string }> {
   const db = await admin();
   const { data: rows } = await db.from("workflows").select("*").eq("enabled", true);
