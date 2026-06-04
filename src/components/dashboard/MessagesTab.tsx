@@ -109,8 +109,11 @@ export function MessagesTab() {
   const filteredConvs = grouped.filter((c) => c.phone.toLowerCase().includes(search.toLowerCase()));
 
   useEffect(() => {
-    if (!active && filteredConvs.length) setActive(filteredConvs[0].phone);
-  }, [filteredConvs, active]);
+    // On desktop auto-open the most recent conversation. On mobile keep the list
+    // visible until the user taps a conversation.
+    if (!active && !isMobile && filteredConvs.length) setActive(filteredConvs[0].phone);
+  }, [filteredConvs, active, isMobile]);
+
 
   const activeMsgs = grouped.find((c) => c.phone === active)?.msgs ?? [];
   const activeConv = conversations.find((c) => c.phone_number === active);
