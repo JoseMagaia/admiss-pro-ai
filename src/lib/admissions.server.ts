@@ -527,17 +527,19 @@ function stageBeyondAi(stage?: string | null): boolean {
 /* ===================== ORCHESTRATION WORKFLOWS ===================== */
 
 import { PIPELINE_COLUMNS } from "./pipeline";
+import { DEFAULT_AGENT_ID, delayToMs } from "./orchestration";
 import { runResponderAgent } from "./ai-engine.server";
 
 export interface WorkflowStep {
   content: string;
-  delayMinutes: number;
+  /** Delay before sending this step, in milliseconds. */
+  delayMs: number;
 }
 
 interface GraphNode {
   id: string;
   type?: string;
-  data?: { content?: string; delayMinutes?: number };
+  data?: { content?: string; delayMinutes?: number; delayValue?: number; delayUnit?: string };
 }
 interface GraphEdge {
   source: string;
@@ -546,6 +548,15 @@ interface GraphEdge {
 interface WorkflowGraph {
   nodes?: GraphNode[];
   edges?: GraphEdge[];
+}
+
+// Resolve the delay (ms) of a message node, supporting selectable time units
+// (days/hours/minutes/seconds) with backward-compatible delayMinutes fallback.
+function nodeDelayMs(data?: GraphNode["data"]): number {
+  if (data && data.delayValue !== undefined && data.delayUnit) {
+    return delayToMs(Number(data.delayValue), String(data.delayUnit));
+  }
+  return Math.max(0, Number(data?.delayMinutes ?? 0)) * 60_000;
 }
 
 // Resolve the ordered message steps from a saved visual graph. Walks the edges
@@ -560,7 +571,7 @@ export function orderedSteps(graph: unknown): WorkflowStep[] {
   const trigger = nodes.find((n) => n.type === "trigger");
   const toStep = (n: GraphNode): WorkflowStep => ({
     content: String(n.data?.content ?? "").trim(),
-    delayMinutes: Math.max(0, Number(n.data?.delayMinutes ?? 0)),
+    delayMs: nodeDelayMs(n.data),
   });
 
   if (trigger && edges.length > 0) {
@@ -580,6 +591,7 @@ export function orderedSteps(graph: unknown): WorkflowStep[] {
 
   return messageNodes.map(toStep).filter((s) => s.content.length > 0);
 }
+
 
 // Send an outbound workflow message on the lead's conversation.
 async function sendWorkflowMessage(phone: string, message: string, workflowWorkspaceId: string | null) {
