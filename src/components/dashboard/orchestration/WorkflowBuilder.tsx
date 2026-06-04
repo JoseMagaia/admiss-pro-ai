@@ -24,6 +24,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { PIPELINE_COLUMNS } from "@/lib/pipeline";
+import {
+  TRIGGER_TYPES,
+  TIME_UNITS,
+  BOOKING_STATUSES,
+  type TriggerType,
+  type TriggerConfig,
+} from "@/lib/orchestration";
 import { upsertWorkflow } from "@/lib/dashboard.functions";
 
 export interface WorkflowRow {
@@ -33,6 +40,8 @@ export interface WorkflowRow {
   workspace_id: string | null;
   agent_id: string | null;
   trigger_segment: string;
+  trigger_type?: TriggerType | null;
+  trigger_config?: TriggerConfig | null;
   enabled: boolean;
   graph: unknown;
 }
@@ -58,8 +67,12 @@ function TriggerNode({ data }: NodeProps) {
   );
 }
 
+function unitShort(unit: string): string {
+  return TIME_UNITS.find((u) => u.id === unit)?.label.toLowerCase() ?? unit;
+}
+
 function MessageNode({ data, selected }: NodeProps) {
-  const d = data as { content?: string; delayMinutes?: number; index?: number };
+  const d = data as { content?: string; delayValue?: number; delayUnit?: string; index?: number };
   return (
     <div
       className={`w-52 rounded-xl border-2 bg-card px-4 py-2 shadow-card ${selected ? "border-primary" : "border-border"}`}
@@ -70,7 +83,7 @@ function MessageNode({ data, selected }: NodeProps) {
       </div>
       <p className="mt-1 line-clamp-2 text-xs text-foreground/80">{d.content || "(empty message)"}</p>
       <p className="mt-1 text-[10px] text-muted-foreground">
-        wait {d.delayMinutes ?? 0} min before sending
+        wait {d.delayValue ?? 0} {unitShort(d.delayUnit ?? "minutes")} before sending
       </p>
       <Handle type="source" position={Position.Bottom} />
     </div>
@@ -79,14 +92,14 @@ function MessageNode({ data, selected }: NodeProps) {
 
 const nodeTypes = { trigger: TriggerNode, message: MessageNode };
 
-function defaultGraph(segmentLabel: string): { nodes: Node[]; edges: Edge[] } {
+function defaultGraph(): { nodes: Node[]; edges: Edge[] } {
   return {
     nodes: [
       {
         id: "trigger",
         type: "trigger",
         position: { x: 80, y: 20 },
-        data: { label: `Trigger: ${segmentLabel}` },
+        data: { label: "Trigger" },
       },
     ],
     edges: [],
@@ -111,18 +124,28 @@ export function WorkflowBuilder({
   const [description, setDescription] = useState(initial.description ?? "");
   const [workspaceId, setWorkspaceId] = useState(initial.workspace_id ?? "");
   const [agentId, setAgentId] = useState(initial.agent_id ?? "");
-  const [segment, setSegment] = useState(initial.trigger_segment);
   const [enabled, setEnabled] = useState(initial.enabled);
 
-  const segmentLabel = useMemo(
-    () => PIPELINE_COLUMNS.find((c) => c.id === segment)?.label ?? "Manual",
-    [segment],
-  );
+  // Resolve initial trigger type/config with backward compatibility.
+  const initialType: TriggerType =
+    (initial.trigger_type as TriggerType) ??
+    (initial.trigger_segment && initial.trigger_segment !== "manual" ? "pipeline_stage" : "manual");
+  const initialConfig: TriggerConfig =
+    initial.trigger_config ??
+    (initial.trigger_segment && initial.trigger_segment !== "manual"
+      ? { segment: initial.trigger_segment }
+      : {});
+
+  const [triggerType, setTriggerType] = useState<TriggerType>(initialType);
+  const [segment, setSegment] = useState(initialConfig.segment ?? PIPELINE_COLUMNS[0].id);
+  const [amount, setAmount] = useState<number>(initialConfig.amount ?? 1);
+  const [unit, setUnit] = useState<string>(initialConfig.unit ?? "days");
+  const [bookingStatus, setBookingStatus] = useState<string>(initialConfig.status ?? "pending");
 
   const initialGraph = useMemo(() => {
     const g = (initial.graph ?? {}) as { nodes?: Node[]; edges?: Edge[] };
     if (g.nodes && g.nodes.length > 0) return { nodes: g.nodes, edges: g.edges ?? [] };
-    return defaultGraph(segmentLabel);
+    return defaultGraph();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -144,7 +167,12 @@ export function WorkflowBuilder({
       id,
       type: "message",
       position: { x: 80, y },
-      data: { content: "", delayMinutes: messageCount === 0 ? 0 : 60, index: messageCount },
+      data: {
+        content: "",
+        delayValue: messageCount === 0 ? 0 : 1,
+        delayUnit: messageCount === 0 ? "minutes" : "days",
+        index: messageCount,
+      },
     };
     setNodes((nds) => [...nds, newNode]);
     if (tail) setEdges((eds) => addEdge({ source: tail.id, target: id, sourceHandle: null, targetHandle: null }, eds));
@@ -166,6 +194,14 @@ export function WorkflowBuilder({
     setSelectedId(null);
   };
 
+  const buildTriggerConfig = (): TriggerConfig => {
+    if (triggerType === "pipeline_stage") return { segment };
+    if (triggerType === "time_since_first_message" || triggerType === "time_since_last_message")
+      return { amount, unit: unit as TriggerConfig["unit"] };
+    if (triggerType === "booking_status") return { status: bookingStatus as TriggerConfig["status"] };
+    return {};
+  };
+
   const save = useMutation({
     mutationFn: () =>
       saveFn({
@@ -175,7 +211,9 @@ export function WorkflowBuilder({
           description: description || null,
           workspace_id: workspaceId || null,
           agent_id: agentId || null,
-          trigger_segment: segment,
+          trigger_type: triggerType,
+          trigger_config: buildTriggerConfig(),
+          trigger_segment: triggerType === "pipeline_stage" ? segment : "manual",
           enabled,
           graph: { nodes, edges } as never,
         },
@@ -193,6 +231,9 @@ export function WorkflowBuilder({
     onError: () => toast.error("Failed to save"),
   });
 
+  const isTimeTrigger =
+    triggerType === "time_since_first_message" || triggerType === "time_since_last_message";
+
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -201,20 +242,83 @@ export function WorkflowBuilder({
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Cold lead re-engagement" />
         </div>
         <div className="space-y-1.5">
-          <Label>Enrolls leads in segment</Label>
+          <Label>Trigger type</Label>
           <select
-            value={segment}
-            onChange={(e) => setSegment(e.target.value)}
+            value={triggerType}
+            onChange={(e) => setTriggerType(e.target.value as TriggerType)}
             className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
           >
-            <option value="manual">Manual only</option>
-            {PIPELINE_COLUMNS.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.label}
+            {TRIGGER_TYPES.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
               </option>
             ))}
           </select>
+          <p className="text-[11px] text-muted-foreground">
+            {TRIGGER_TYPES.find((t) => t.id === triggerType)?.help}
+          </p>
         </div>
+
+        {triggerType === "pipeline_stage" && (
+          <div className="space-y-1.5">
+            <Label>Pipeline segment</Label>
+            <select
+              value={segment}
+              onChange={(e) => setSegment(e.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              {PIPELINE_COLUMNS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {isTimeTrigger && (
+          <div className="space-y-1.5">
+            <Label>Threshold</Label>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                min={0}
+                value={amount}
+                onChange={(e) => setAmount(Math.max(0, Number(e.target.value)))}
+                className="w-24"
+              />
+              <select
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                {TIME_UNITS.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {triggerType === "booking_status" && (
+          <div className="space-y-1.5">
+            <Label>Booking status</Label>
+            <select
+              value={bookingStatus}
+              onChange={(e) => setBookingStatus(e.target.value)}
+              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm capitalize"
+            >
+              {BOOKING_STATUSES.map((s) => (
+                <option key={s} value={s} className="capitalize">
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="space-y-1.5">
           <Label>Chatwoot Workspace</Label>
           <select
@@ -293,17 +397,31 @@ export function WorkflowBuilder({
                   value={String((selected.data as { content?: string }).content ?? "")}
                   onChange={(e) => updateSelected({ content: e.target.value })}
                   rows={6}
-                  placeholder="The WhatsApp message to send…"
+                  placeholder="The WhatsApp message to send… use {{lead_name}}, {{course_interest}}, {{country_interest}}"
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Wait before sending (minutes)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  value={Number((selected.data as { delayMinutes?: number }).delayMinutes ?? 0)}
-                  onChange={(e) => updateSelected({ delayMinutes: Math.max(0, Number(e.target.value)) })}
-                />
+                <Label>Wait before sending</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={Number((selected.data as { delayValue?: number }).delayValue ?? 0)}
+                    onChange={(e) => updateSelected({ delayValue: Math.max(0, Number(e.target.value)) })}
+                    className="w-24"
+                  />
+                  <select
+                    value={String((selected.data as { delayUnit?: string }).delayUnit ?? "minutes")}
+                    onChange={(e) => updateSelected({ delayUnit: e.target.value })}
+                    className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    {TIME_UNITS.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <Button variant="ghost" size="sm" className="text-destructive" onClick={deleteSelected}>
                 <Trash2 className="mr-1 h-4 w-4" /> Delete step

@@ -52,7 +52,9 @@ export interface Agent {
   custom_api_key: string | null;
   inherit_variables: boolean;
   enabled: boolean;
+  is_default?: boolean;
 }
+
 
 const EMPTY_AGENT: Agent = {
   name: "",
@@ -443,6 +445,11 @@ export function ResponderAgentManager() {
             <div className="flex items-center gap-2">
               <Bot className="h-4 w-4 text-primary" />
               <span className="font-semibold">{a.name}</span>
+              {a.is_default && (
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                  Default
+                </span>
+              )}
               {!a.enabled && (
                 <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
                   Disabled
@@ -450,26 +457,34 @@ export function ResponderAgentManager() {
               )}
             </div>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {a.provider_mode === "inherit" ? "Inherits provider" : a.provider_mode === "built_in" ? `Built-in · ${a.model}` : `Custom · ${a.custom_model || a.custom_provider}`}
-              {a.description ? ` · ${a.description}` : ""}
+              {a.is_default
+                ? `Qualification agent · ${a.model} · managed in AI Settings`
+                : `${a.provider_mode === "inherit" ? "Inherits provider" : a.provider_mode === "built_in" ? `Built-in · ${a.model}` : `Custom · ${a.custom_model || a.custom_provider}`}${a.description ? ` · ${a.description}` : ""}`}
             </p>
           </div>
           <div className="flex shrink-0 gap-1">
-            <Button variant="outline" size="sm" onClick={() => setEditing(a)}>
-              Edit
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                if (confirm(`Delete agent "${a.name}"?`)) del.mutate(a.id!);
-              }}
-            >
-              <Trash2 className="h-4 w-4 text-destructive" />
-            </Button>
+            {a.is_default ? (
+              <span className="self-center text-xs text-muted-foreground">Routable in workflows</span>
+            ) : (
+              <>
+                <Button variant="outline" size="sm" onClick={() => setEditing(a)}>
+                  Edit
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => {
+                    if (confirm(`Delete agent "${a.name}"?`)) del.mutate(a.id!);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
       ))}
+
       {agents.length === 0 && <p className="text-sm text-muted-foreground">No responder agents yet.</p>}
       <Button variant="outline" onClick={() => setEditing(EMPTY_AGENT)}>
         <Plus className="mr-1 h-4 w-4" /> New Responder Agent

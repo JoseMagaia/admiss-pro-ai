@@ -632,14 +632,45 @@ async function isSuper(): Promise<boolean> {
 export const listResponderAgents = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isSuper())) return { agents: [] };
   const db = await admin();
+  const { DEFAULT_AGENT_ID } = await import("./orchestration");
+
+  // Synthesize the built-in default qualification agent so it appears and can be
+  // routed alongside custom responder agents. It is managed in AI Settings.
+  const { data: cfg } = await db
+    .from("ai_configuration")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const c = cfg as Record<string, unknown> | null;
+  const defaultAgent = {
+    id: DEFAULT_AGENT_ID,
+    name: "Default Qualification Agent",
+    description: "The main admissions agent configured in AI Settings.",
+    workspace_id: null,
+    system_prompt: String(c?.system_prompt ?? ""),
+    model: String(c?.model ?? "google/gemini-3-flash-preview"),
+    temperature: Number(c?.temperature ?? 0.7),
+    provider_mode: "inherit",
+    custom_provider: null,
+    custom_base_url: null,
+    custom_model: null,
+    custom_api_key: null,
+    inherit_variables: true,
+    enabled: true,
+    is_default: true,
+  };
+
   const { data } = await db.from("responder_agents").select("*").order("created_at", { ascending: true });
   // Never expose stored API keys to the browser.
   const agents = (data ?? []).map((a: Record<string, unknown>) => ({
     ...a,
+    is_default: false,
     custom_api_key: a.custom_api_key ? "********" : null,
   }));
-  return { agents };
+  return { agents: [defaultAgent, ...agents] };
 });
+
 
 const responderAgentSchema = z.object({
   id: z.string().uuid().optional(),
@@ -666,6 +697,10 @@ export const upsertResponderAgent = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
+    const { DEFAULT_AGENT_ID } = await import("./orchestration");
+    if (data.id === DEFAULT_AGENT_ID) {
+      return { ok: false, error: "The default agent is managed in AI Settings." };
+    }
     const db = await admin();
     const { id, ...rest } = data;
     const key = rest.custom_api_key;
@@ -687,6 +722,10 @@ export const deleteResponderAgent = createServerFn({ method: "POST" })
       await guard(SUPER);
     } catch (e) {
       return { ok: false, error: (e as Error).message };
+    }
+    const { DEFAULT_AGENT_ID } = await import("./orchestration");
+    if (data.id === DEFAULT_AGENT_ID) {
+      return { ok: false, error: "The default agent cannot be deleted." };
     }
     const db = await admin();
     const { error } = await db.from("responder_agents").delete().eq("id", data.id);
@@ -775,7 +814,24 @@ const workflowSchema = z.object({
   description: z.string().max(1000).nullable().optional(),
   workspace_id: z.string().uuid().nullable().optional(),
   agent_id: z.string().uuid().nullable().optional(),
-  trigger_segment: z.string().min(1).max(100),
+  trigger_type: z
+    .enum([
+      "manual",
+      "pipeline_stage",
+      "time_since_first_message",
+      "time_since_last_message",
+      "booking_status",
+    ])
+    .optional(),
+  trigger_config: z
+    .object({
+      segment: z.string().max(100).optional(),
+      amount: z.number().min(0).max(100000).optional(),
+      unit: z.enum(["seconds", "minutes", "hours", "days"]).optional(),
+      status: z.enum(["pending", "confirmed", "completed", "cancelled"]).optional(),
+    })
+    .optional(),
+  trigger_segment: z.string().min(1).max(100).optional(),
   enabled: z.boolean(),
   graph: z.any().optional(),
 });
@@ -790,6 +846,12 @@ export const upsertWorkflow = createServerFn({ method: "POST" })
     }
     const db = await admin();
     const { id, ...rest } = data;
+    const triggerType = rest.trigger_type ?? "manual";
+    // Keep the legacy trigger_segment column in sync for backward compatibility.
+    rest.trigger_segment =
+      triggerType === "pipeline_stage" ? rest.trigger_config?.segment ?? "manual" : "manual";
+    if (!rest.trigger_type) rest.trigger_type = triggerType;
+    if (!rest.trigger_config) rest.trigger_config = {};
     if (id) {
       const { error } = await db.from("workflows").update(rest as never).eq("id", id);
       return { ok: !error, error: error?.message ?? null };
@@ -797,6 +859,18 @@ export const upsertWorkflow = createServerFn({ method: "POST" })
     const { data: created, error } = await db.from("workflows").insert(rest as never).select("id").single();
     return { ok: !error, error: error?.message ?? null, id: (created as { id?: string } | null)?.id };
   });
+
+export const seedMeetingOutcomeWorkflows = createServerFn({ method: "POST" }).handler(async () => {
+  try {
+    await guard(["super_admin", "admin"]);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message, created: 0 };
+  }
+  const { ensureMeetingOutcomeWorkflows } = await import("./admissions.server");
+  const res = await ensureMeetingOutcomeWorkflows();
+  return { ok: true, error: null, created: res.created };
+});
+
 
 export const deleteWorkflow = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
@@ -874,10 +948,12 @@ export const saveMeetingOutcome = createServerFn({ method: "POST" })
     const leadRow = lead as { id: string; phone_number: string; lead_name: string | null } | null;
     if (!leadRow) return { ok: false, error: "Lead not found" };
 
-    // 1. Trigger the corresponding follow-up workflow (best-effort).
-    const { enrollLeadInWorkflowByName } = await import("./admissions.server");
+    // 1. Trigger the corresponding follow-up workflow (best-effort). Ensure the
+    // editable template workflows exist first so submission always has a target.
+    const { enrollLeadInWorkflowByName, ensureMeetingOutcomeWorkflows } = await import("./admissions.server");
     let workflowStatus = "no_workflow";
     try {
+      await ensureMeetingOutcomeWorkflows();
       const res = await enrollLeadInWorkflowByName({
         workflowName: mapping.workflow,
         phone: leadRow.phone_number,
@@ -887,6 +963,7 @@ export const saveMeetingOutcome = createServerFn({ method: "POST" })
     } catch (e) {
       console.error("Workflow enrollment failed:", e);
     }
+
 
     // 2. Store the meeting outcome.
     const meetingDate = data.meeting_date ? new Date(data.meeting_date) : new Date();

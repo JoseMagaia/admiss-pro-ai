@@ -527,17 +527,19 @@ function stageBeyondAi(stage?: string | null): boolean {
 /* ===================== ORCHESTRATION WORKFLOWS ===================== */
 
 import { PIPELINE_COLUMNS } from "./pipeline";
+import { DEFAULT_AGENT_ID, delayToMs } from "./orchestration";
 import { runResponderAgent } from "./ai-engine.server";
 
 export interface WorkflowStep {
   content: string;
-  delayMinutes: number;
+  /** Delay before sending this step, in milliseconds. */
+  delayMs: number;
 }
 
 interface GraphNode {
   id: string;
   type?: string;
-  data?: { content?: string; delayMinutes?: number };
+  data?: { content?: string; delayMinutes?: number; delayValue?: number; delayUnit?: string };
 }
 interface GraphEdge {
   source: string;
@@ -546,6 +548,15 @@ interface GraphEdge {
 interface WorkflowGraph {
   nodes?: GraphNode[];
   edges?: GraphEdge[];
+}
+
+// Resolve the delay (ms) of a message node, supporting selectable time units
+// (days/hours/minutes/seconds) with backward-compatible delayMinutes fallback.
+function nodeDelayMs(data?: GraphNode["data"]): number {
+  if (data && data.delayValue !== undefined && data.delayUnit) {
+    return delayToMs(Number(data.delayValue), String(data.delayUnit));
+  }
+  return Math.max(0, Number(data?.delayMinutes ?? 0)) * 60_000;
 }
 
 // Resolve the ordered message steps from a saved visual graph. Walks the edges
@@ -560,7 +571,7 @@ export function orderedSteps(graph: unknown): WorkflowStep[] {
   const trigger = nodes.find((n) => n.type === "trigger");
   const toStep = (n: GraphNode): WorkflowStep => ({
     content: String(n.data?.content ?? "").trim(),
-    delayMinutes: Math.max(0, Number(n.data?.delayMinutes ?? 0)),
+    delayMs: nodeDelayMs(n.data),
   });
 
   if (trigger && edges.length > 0) {
@@ -581,7 +592,10 @@ export function orderedSteps(graph: unknown): WorkflowStep[] {
   return messageNodes.map(toStep).filter((s) => s.content.length > 0);
 }
 
-// Send an outbound workflow message on the lead's conversation.
+
+// Send an outbound workflow message on the lead's conversation. The message
+// content may contain {{lead_name}} / {{course_interest}} / {{country_interest}}
+// / {{phone_number}} placeholders, filled from the lead record before sending.
 async function sendWorkflowMessage(phone: string, message: string, workflowWorkspaceId: string | null) {
   const db = await admin();
   const { data: conv } = await db
@@ -591,33 +605,42 @@ async function sendWorkflowMessage(phone: string, message: string, workflowWorks
     .maybeSingle();
   const { data: lead } = await db
     .from("leads")
-    .select("chatwoot_conversation_id, workspace_id")
+    .select("chatwoot_conversation_id, workspace_id, lead_name, course_interest, country_interest")
     .eq("phone_number", phone)
     .maybeSingle();
 
+  const leadRow = (lead as Record<string, unknown> | null) ?? {};
+  const filled = fillTemplate(message, {
+    lead_name: leadRow.lead_name ?? "",
+    course_interest: leadRow.course_interest ?? "",
+    country_interest: leadRow.country_interest ?? "",
+    phone_number: phone,
+  });
+
   const workspaceId =
     (conv as Record<string, unknown> | null)?.workspace_id ??
-    (lead as Record<string, unknown> | null)?.workspace_id ??
+    leadRow.workspace_id ??
     workflowWorkspaceId ??
     null;
   const conversationId =
     (conv as Record<string, unknown> | null)?.chatwoot_conversation_id ??
-    (lead as Record<string, unknown> | null)?.chatwoot_conversation_id ??
+    leadRow.chatwoot_conversation_id ??
     null;
 
   const workspace = await resolveWorkspace({ workspaceId: workspaceId as string | null });
   const creds = await resolveCreds(workspace);
-  const sent = await sendChatwootReply(creds, conversationId as string | null, message);
+  const sent = await sendChatwootReply(creds, conversationId as string | null, filled);
 
   await db.from("whatsapp_messages").insert({
     phone_number: phone,
-    message_content: message,
+    message_content: filled,
     sender: "workflow",
     message_type: "text",
     processed: true,
   });
   return sent;
 }
+
 
 // Build the effective AI context for a responder agent (provider, variables, model).
 async function loadResponderContext(agent: Record<string, unknown>): Promise<AiContext> {
@@ -692,13 +715,23 @@ async function tryWorkflowResponder(params: {
     const workflow = wf as Record<string, unknown> | null;
     if (!workflow || !workflow.enabled || !workflow.agent_id) continue;
 
-    const { data: ag } = await db
-      .from("responder_agents")
-      .select("*")
-      .eq("id", workflow.agent_id as string)
-      .maybeSingle();
-    const agent = ag as Record<string, unknown> | null;
-    if (!agent || !agent.enabled) continue;
+    const agentId = String(workflow.agent_id);
+
+    // Resolve the responder context. The built-in default agent uses the
+    // qualification agent's prompt/model/variables/provider from AI Settings.
+    let ctx: AiContext;
+    if (agentId === DEFAULT_AGENT_ID) {
+      ctx = await loadAiContext();
+    } else {
+      const { data: ag } = await db
+        .from("responder_agents")
+        .select("*")
+        .eq("id", agentId)
+        .maybeSingle();
+      const agent = ag as Record<string, unknown> | null;
+      if (!agent || !agent.enabled) continue;
+      ctx = await loadResponderContext(agent);
+    }
 
     // Mark the enrollment as reacted so the outbound sequence stops.
     await db
@@ -706,7 +739,7 @@ async function tryWorkflowResponder(params: {
       .update({ reacted: true, status: "reacted", next_run_at: null } as never)
       .eq("id", enr.id as string);
 
-    const ctx = await loadResponderContext(agent);
+
     const history = await recentHistory(params.phone);
     const { reply, error } = await runResponderAgent({
       systemPrompt: ctx.systemPrompt,
@@ -753,40 +786,98 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
 
   // --- Enrollment ---
   for (const wf of workflows) {
-    const segment = String(wf.trigger_segment ?? "manual");
-    if (segment === "manual") continue;
-    const column = PIPELINE_COLUMNS.find((c) => c.id === segment);
-    if (!column) continue;
+    // Backward-compatible trigger resolution.
+    const triggerType = String(
+      wf.trigger_type ?? (String(wf.trigger_segment ?? "manual") === "manual" ? "manual" : "pipeline_stage"),
+    );
+    if (triggerType === "manual") continue;
+
     const steps = orderedSteps(wf.graph);
     if (steps.length === 0) continue;
+    const cfg = (wf.trigger_config ?? {}) as {
+      segment?: string;
+      amount?: number;
+      unit?: string;
+      status?: string;
+    };
 
-    const { data: leadsData } = await db
-      .from("leads")
-      .select("id, phone_number")
-      .in("qualification_status", column.stages as unknown as string[])
-      .limit(500);
-    const leads = (leadsData as Array<{ id: string; phone_number: string }>) ?? [];
+    // Phones already enrolled in this workflow are skipped.
+    const { data: enrolledRows } = await db
+      .from("workflow_enrollments")
+      .select("phone_number")
+      .eq("workflow_id", wf.id as string);
+    const enrolledSet = new Set(
+      ((enrolledRows as Array<{ phone_number: string }>) ?? []).map((r) => r.phone_number),
+    );
 
-    for (const lead of leads) {
-      const { data: existing } = await db
-        .from("workflow_enrollments")
-        .select("id")
-        .eq("workflow_id", wf.id as string)
-        .eq("phone_number", lead.phone_number)
-        .maybeSingle();
-      if (existing) continue;
-      const firstDelay = steps[0]?.delayMinutes ?? 0;
+    // Build the list of candidate leads for this trigger type.
+    const candidates: Array<{ id: string | null; phone_number: string }> = [];
+
+    if (triggerType === "pipeline_stage") {
+      const segment = String(cfg.segment ?? wf.trigger_segment ?? "");
+      const column = PIPELINE_COLUMNS.find((c) => c.id === segment);
+      if (!column) continue;
+      const { data: leadsData } = await db
+        .from("leads")
+        .select("id, phone_number")
+        .in("qualification_status", column.stages as unknown as string[])
+        .limit(500);
+      for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) candidates.push(l);
+    } else if (triggerType === "booking_status") {
+      const status = String(cfg.status ?? "pending");
+      const { data: appts } = await db
+        .from("appointments")
+        .select("phone_number")
+        .eq("status", status)
+        .limit(500);
+      const phones = [
+        ...new Set(
+          ((appts as Array<{ phone_number: string | null }>) ?? [])
+            .map((a) => a.phone_number)
+            .filter((p): p is string => Boolean(p)),
+        ),
+      ];
+      if (phones.length === 0) continue;
+      const { data: leadsData } = await db.from("leads").select("id, phone_number").in("phone_number", phones);
+      for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) candidates.push(l);
+    } else if (triggerType === "time_since_first_message" || triggerType === "time_since_last_message") {
+      const thresholdMs = delayToMs(Number(cfg.amount ?? 0), String(cfg.unit ?? "hours"));
+      if (thresholdMs <= 0) continue;
+      const cutoff = Date.now() - thresholdMs;
+      const earliest = triggerType === "time_since_first_message";
+      const { data: leadsData } = await db.from("leads").select("id, phone_number").limit(500);
+      for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) {
+        if (enrolledSet.has(l.phone_number)) continue;
+        const { data: msgs } = await db
+          .from("whatsapp_messages")
+          .select("received_at")
+          .eq("phone_number", l.phone_number)
+          .order("received_at", { ascending: earliest })
+          .limit(1);
+        const ts = (msgs as Array<{ received_at: string }> | null)?.[0]?.received_at;
+        if (!ts) continue;
+        if (new Date(ts).getTime() <= cutoff) candidates.push(l);
+      }
+    } else {
+      continue;
+    }
+
+    const firstDelayMs = steps[0]?.delayMs ?? 0;
+    for (const lead of candidates) {
+      if (enrolledSet.has(lead.phone_number)) continue;
+      enrolledSet.add(lead.phone_number);
       await db.from("workflow_enrollments").insert({
         workflow_id: wf.id,
         lead_id: lead.id,
         phone_number: lead.phone_number,
         current_step: 0,
         status: "active",
-        next_run_at: new Date(Date.now() + firstDelay * 60_000).toISOString(),
+        next_run_at: new Date(Date.now() + firstDelayMs).toISOString(),
       } as never);
       enrolled += 1;
     }
   }
+
 
   // --- Advance due enrollments ---
   const { data: dueData } = await db
@@ -821,12 +912,12 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
         .update({ current_step: nextStep, status: "completed", next_run_at: null, last_step_at: new Date().toISOString() } as never)
         .eq("id", enr.id as string);
     } else {
-      const nextDelay = steps[nextStep]?.delayMinutes ?? 0;
+      const nextDelayMs = steps[nextStep]?.delayMs ?? 0;
       await db
         .from("workflow_enrollments")
         .update({
           current_step: nextStep,
-          next_run_at: new Date(Date.now() + nextDelay * 60_000).toISOString(),
+          next_run_at: new Date(Date.now() + nextDelayMs).toISOString(),
           last_step_at: new Date().toISOString(),
         } as never)
         .eq("id", enr.id as string);
@@ -864,7 +955,7 @@ export async function enrollLeadInWorkflowByName(params: {
     .maybeSingle();
   if (existing) return { status: "already_enrolled", workflowId: target.id as string };
 
-  const firstDelay = steps[0]?.delayMinutes ?? 0;
+  const firstDelayMs = steps[0]?.delayMs ?? 0;
   await db.from("workflow_enrollments").insert({
     workflow_id: target.id,
     lead_id: params.leadId ?? null,
@@ -872,7 +963,69 @@ export async function enrollLeadInWorkflowByName(params: {
     current_step: 0,
     status: "active",
     reacted: false,
-    next_run_at: new Date(Date.now() + firstDelay * 60_000).toISOString(),
+    next_run_at: new Date(Date.now() + firstDelayMs).toISOString(),
   } as never);
   return { status: "enrolled", workflowId: target.id as string };
 }
+
+/* ===================== MEETING OUTCOME WORKFLOW TEMPLATES ===================== */
+
+import { UNIT_SECONDS } from "./orchestration";
+import { MEETING_OUTCOME_TEMPLATES, type TemplateStep } from "./meeting-outcomes";
+
+// Build a visual-builder-compatible graph from a list of template steps.
+function buildTemplateGraph(steps: TemplateStep[]) {
+  const nodes: Array<Record<string, unknown>> = [
+    { id: "trigger", type: "trigger", position: { x: 80, y: 20 }, data: { label: "Trigger" } },
+  ];
+  const edges: Array<Record<string, unknown>> = [];
+  let prev = "trigger";
+  steps.forEach((s, i) => {
+    const id = `m${i + 1}`;
+    nodes.push({
+      id,
+      type: "message",
+      position: { x: 80, y: 140 + i * 130 },
+      data: {
+        content: s.content,
+        delayValue: s.delayValue,
+        delayUnit: s.delayUnit,
+        // keep delayMinutes for backward-compatible readers
+        delayMinutes: Math.round((s.delayValue * (UNIT_SECONDS[s.delayUnit] ?? 60)) / 60),
+        index: i,
+      },
+    });
+    edges.push({ id: `e-${prev}-${id}`, source: prev, target: id });
+    prev = id;
+  });
+  return { nodes, edges };
+}
+
+// Create any missing Meeting Outcome follow-up workflow templates (idempotent).
+// Existing workflows with the same name are left untouched so user edits persist.
+export async function ensureMeetingOutcomeWorkflows(): Promise<{ created: number }> {
+  const db = await admin();
+  const { data: rows } = await db.from("workflows").select("name");
+  const existing = new Set(
+    ((rows as Array<{ name: string }>) ?? []).map((r) => String(r.name ?? "").trim().toLowerCase()),
+  );
+
+  let created = 0;
+  for (const tpl of MEETING_OUTCOME_TEMPLATES) {
+    if (existing.has(tpl.name.trim().toLowerCase())) continue;
+    await db.from("workflows").insert({
+      name: tpl.name,
+      description: tpl.description,
+      workspace_id: null,
+      agent_id: DEFAULT_AGENT_ID,
+      trigger_type: "manual",
+      trigger_segment: "manual",
+      trigger_config: {},
+      enabled: true,
+      graph: buildTemplateGraph(tpl.steps),
+    } as never);
+    created += 1;
+  }
+  return { created };
+}
+
