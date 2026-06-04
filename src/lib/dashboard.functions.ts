@@ -811,3 +811,174 @@ export const deleteWorkflow = createServerFn({ method: "POST" })
     return { ok: !error, error: error?.message ?? null };
   });
 
+/* ===================== MEETING OUTCOMES ===================== */
+
+const MEETING_ROLES = ["super_admin", "admin"] as AppRole[];
+
+async function isAdminOrSuper(): Promise<boolean> {
+  const { getRequestUser } = await import("@/integrations/supabase/role-guard.server");
+  const u = await getRequestUser();
+  return u?.role === "super_admin" || u?.role === "admin";
+}
+
+export const listMeetingOutcomes = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAdminOrSuper())) return { outcomes: [] };
+  const db = await admin();
+  const { data } = await db
+    .from("meeting_outcomes")
+    .select("*")
+    .order("meeting_date", { ascending: false })
+    .limit(500);
+  return { outcomes: data ?? [] };
+});
+
+const meetingOutcomeSchema = z.object({
+  lead_id: z.string().uuid(),
+  meeting_date: z.string().min(1).optional(),
+  outcome: z.enum([
+    "ready_to_pay",
+    "parent_discussion",
+    "financial_delay",
+    "future_applicant",
+    "not_qualified",
+  ]),
+  commitment_level: z.enum(["high", "medium", "low"]).nullable().optional(),
+  main_obstacle: z.string().max(100).nullable().optional(),
+  next_action: z.string().max(100).nullable().optional(),
+  follow_up_date: z.string().max(40).nullable().optional(),
+  internal_notes: z.string().max(5000).nullable().optional(),
+});
+
+export const saveMeetingOutcome = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => meetingOutcomeSchema.parse(d))
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(MEETING_ROLES);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+
+    const { findOutcome } = await import("./meeting-outcomes");
+    const mapping = findOutcome(data.outcome);
+    if (!mapping) return { ok: false, error: "Unknown outcome" };
+
+    const db = await admin();
+
+    // Look up the lead so name/phone are authoritative (read-only on the client).
+    const { data: lead } = await db
+      .from("leads")
+      .select("id, phone_number, lead_name")
+      .eq("id", data.lead_id)
+      .maybeSingle();
+    const leadRow = lead as { id: string; phone_number: string; lead_name: string | null } | null;
+    if (!leadRow) return { ok: false, error: "Lead not found" };
+
+    // 1. Trigger the corresponding follow-up workflow (best-effort).
+    const { enrollLeadInWorkflowByName } = await import("./admissions.server");
+    let workflowStatus = "no_workflow";
+    try {
+      const res = await enrollLeadInWorkflowByName({
+        workflowName: mapping.workflow,
+        phone: leadRow.phone_number,
+        leadId: leadRow.id,
+      });
+      workflowStatus = res.status;
+    } catch (e) {
+      console.error("Workflow enrollment failed:", e);
+    }
+
+    // 2. Store the meeting outcome.
+    const meetingDate = data.meeting_date ? new Date(data.meeting_date) : new Date();
+    const { data: inserted, error: insertErr } = await db
+      .from("meeting_outcomes")
+      .insert({
+        lead_id: leadRow.id,
+        phone_number: leadRow.phone_number,
+        lead_name: leadRow.lead_name,
+        meeting_date: isNaN(meetingDate.getTime()) ? new Date().toISOString() : meetingDate.toISOString(),
+        outcome: data.outcome,
+        commitment_level: data.commitment_level ?? null,
+        main_obstacle: data.main_obstacle ?? null,
+        next_action: data.next_action ?? null,
+        follow_up_date: data.follow_up_date || null,
+        internal_notes: data.internal_notes ?? null,
+        workflow_triggered: mapping.workflow,
+        recorded_by: me.email ?? "Admissions Team",
+      } as never)
+      .select("id")
+      .single();
+    if (insertErr) return { ok: false, error: insertErr.message };
+
+    // 3. Update the lead's stage automatically.
+    await db
+      .from("leads")
+      .update({ qualification_status: mapping.stage } as never)
+      .eq("id", leadRow.id);
+
+    // 4. Log the action in the audit trail.
+    await db.from("audit_logs").insert({
+      actor_email: me.email ?? null,
+      actor_role: me.role ?? null,
+      action: "meeting_outcome_recorded",
+      entity_type: "lead",
+      entity_id: leadRow.id,
+      details: {
+        outcome: data.outcome,
+        outcome_label: mapping.label,
+        new_stage: mapping.stage,
+        workflow: mapping.workflow,
+        workflow_status: workflowStatus,
+        commitment_level: data.commitment_level ?? null,
+        main_obstacle: data.main_obstacle ?? null,
+        next_action: data.next_action ?? null,
+        follow_up_date: data.follow_up_date ?? null,
+        outcome_id: (inserted as { id?: string } | null)?.id ?? null,
+      },
+    } as never);
+
+    return { ok: true, error: null, workflowStatus, stage: mapping.stage };
+  });
+
+export const getMeetingOutcomeStats = createServerFn({ method: "GET" }).handler(async () => {
+  const empty = {
+    meetingsThisWeek: 0,
+    readyToPay: 0,
+    parentDiscussion: 0,
+    financialDelay: 0,
+    futureApplicants: 0,
+    conversionForecast: 0,
+  };
+  if (!(await isAdminOrSuper())) return empty;
+
+  const db = await admin();
+  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data } = await db
+    .from("meeting_outcomes")
+    .select("outcome, commitment_level, meeting_date")
+    .gte("meeting_date", weekAgo)
+    .limit(2000);
+
+  const rows = (data ?? []) as Array<{ outcome: string; commitment_level: string | null }>;
+  const { MEETING_OUTCOMES, COMMITMENT_WEIGHTS } = await import("./meeting-outcomes");
+
+  let forecast = 0;
+  const counts: Record<string, number> = {};
+  for (const r of rows) {
+    counts[r.outcome] = (counts[r.outcome] ?? 0) + 1;
+    const base = MEETING_OUTCOMES.find((o) => o.value === r.outcome)?.weight ?? 0;
+    const mult = r.commitment_level ? COMMITMENT_WEIGHTS[r.commitment_level] ?? 0.7 : 0.7;
+    forecast += base * mult;
+  }
+
+  return {
+    meetingsThisWeek: rows.length,
+    readyToPay: counts["ready_to_pay"] ?? 0,
+    parentDiscussion: counts["parent_discussion"] ?? 0,
+    financialDelay: counts["financial_delay"] ?? 0,
+    futureApplicants: counts["future_applicant"] ?? 0,
+    conversionForecast: Math.round(forecast),
+  };
+});
+
+

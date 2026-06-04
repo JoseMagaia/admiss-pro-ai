@@ -15,6 +15,7 @@ export const TAB_ACCESS: Record<string, AppRole[]> = {
   messages: ["super_admin", "admin", "agent"],
   bookings: ["super_admin", "admin", "agent"],
   pipeline: ["super_admin", "admin", "agent"],
+  meeting_outcomes: ["super_admin", "admin"], // record specialist meeting results (no agent)
   orchestration: ["super_admin"], // visual workflow builder + responder agents
   settings: ["super_admin", "admin"], // agent: no settings
 };
