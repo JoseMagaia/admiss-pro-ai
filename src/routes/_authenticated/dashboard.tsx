@@ -146,13 +146,16 @@ function Dashboard() {
             </p>
           </header>
 
-          {activeTab !== "settings" && activeTab !== "orchestration" && <DashboardStats />}
+          {activeTab !== "settings" &&
+            activeTab !== "orchestration" &&
+            activeTab !== "meeting_outcomes" && <DashboardStats />}
 
           <div className="mt-6">
             {activeTab === "leads" && <LeadsTab />}
             {activeTab === "messages" && <MessagesTab />}
             {activeTab === "bookings" && <BookingsTab />}
             {activeTab === "pipeline" && <PipelineTab />}
+            {activeTab === "meeting_outcomes" && <MeetingOutcomesTab />}
             {activeTab === "orchestration" && <OrchestrationTab />}
             {activeTab === "settings" && <SettingsTab role={role} />}
           </div>
