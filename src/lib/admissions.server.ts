@@ -955,7 +955,7 @@ export async function enrollLeadInWorkflowByName(params: {
     .maybeSingle();
   if (existing) return { status: "already_enrolled", workflowId: target.id as string };
 
-  const firstDelay = steps[0]?.delayMinutes ?? 0;
+  const firstDelayMs = steps[0]?.delayMs ?? 0;
   await db.from("workflow_enrollments").insert({
     workflow_id: target.id,
     lead_id: params.leadId ?? null,
@@ -963,7 +963,7 @@ export async function enrollLeadInWorkflowByName(params: {
     current_step: 0,
     status: "active",
     reacted: false,
-    next_run_at: new Date(Date.now() + firstDelay * 60_000).toISOString(),
+    next_run_at: new Date(Date.now() + firstDelayMs).toISOString(),
   } as never);
   return { status: "enrolled", workflowId: target.id as string };
 }
