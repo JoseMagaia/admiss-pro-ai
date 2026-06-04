@@ -814,7 +814,24 @@ const workflowSchema = z.object({
   description: z.string().max(1000).nullable().optional(),
   workspace_id: z.string().uuid().nullable().optional(),
   agent_id: z.string().uuid().nullable().optional(),
-  trigger_segment: z.string().min(1).max(100),
+  trigger_type: z
+    .enum([
+      "manual",
+      "pipeline_stage",
+      "time_since_first_message",
+      "time_since_last_message",
+      "booking_status",
+    ])
+    .optional(),
+  trigger_config: z
+    .object({
+      segment: z.string().max(100).optional(),
+      amount: z.number().min(0).max(100000).optional(),
+      unit: z.enum(["seconds", "minutes", "hours", "days"]).optional(),
+      status: z.enum(["pending", "confirmed", "completed", "cancelled"]).optional(),
+    })
+    .optional(),
+  trigger_segment: z.string().min(1).max(100).optional(),
   enabled: z.boolean(),
   graph: z.any().optional(),
 });
@@ -829,6 +846,12 @@ export const upsertWorkflow = createServerFn({ method: "POST" })
     }
     const db = await admin();
     const { id, ...rest } = data;
+    const triggerType = rest.trigger_type ?? "manual";
+    // Keep the legacy trigger_segment column in sync for backward compatibility.
+    rest.trigger_segment =
+      triggerType === "pipeline_stage" ? rest.trigger_config?.segment ?? "manual" : "manual";
+    if (!rest.trigger_type) rest.trigger_type = triggerType;
+    if (!rest.trigger_config) rest.trigger_config = {};
     if (id) {
       const { error } = await db.from("workflows").update(rest as never).eq("id", id);
       return { ok: !error, error: error?.message ?? null };
@@ -836,6 +859,18 @@ export const upsertWorkflow = createServerFn({ method: "POST" })
     const { data: created, error } = await db.from("workflows").insert(rest as never).select("id").single();
     return { ok: !error, error: error?.message ?? null, id: (created as { id?: string } | null)?.id };
   });
+
+export const seedMeetingOutcomeWorkflows = createServerFn({ method: "POST" }).handler(async () => {
+  try {
+    await guard(["super_admin", "admin"]);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message, created: 0 };
+  }
+  const { ensureMeetingOutcomeWorkflows } = await import("./admissions.server");
+  const res = await ensureMeetingOutcomeWorkflows();
+  return { ok: true, error: null, created: res.created };
+});
+
 
 export const deleteWorkflow = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
