@@ -119,6 +119,39 @@ export type Database = {
         }
         Relationships: []
       }
+      audit_logs: {
+        Row: {
+          action: string
+          actor_email: string | null
+          actor_role: string | null
+          created_at: string
+          details: Json
+          entity_id: string | null
+          entity_type: string | null
+          id: string
+        }
+        Insert: {
+          action: string
+          actor_email?: string | null
+          actor_role?: string | null
+          created_at?: string
+          details?: Json
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+        }
+        Update: {
+          action?: string
+          actor_email?: string | null
+          actor_role?: string | null
+          created_at?: string
+          details?: Json
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
       chatwoot_workspaces: {
         Row: {
           chatwoot_account_id: string | null
@@ -367,6 +400,60 @@ export type Database = {
           student_or_parent?: string | null
           updated_at?: string
           workspace_id?: string | null
+        }
+        Relationships: []
+      }
+      meeting_outcomes: {
+        Row: {
+          commitment_level: string | null
+          created_at: string
+          follow_up_date: string | null
+          id: string
+          internal_notes: string | null
+          lead_id: string | null
+          lead_name: string | null
+          main_obstacle: string | null
+          meeting_date: string
+          next_action: string | null
+          outcome: string
+          phone_number: string
+          recorded_by: string | null
+          updated_at: string
+          workflow_triggered: string | null
+        }
+        Insert: {
+          commitment_level?: string | null
+          created_at?: string
+          follow_up_date?: string | null
+          id?: string
+          internal_notes?: string | null
+          lead_id?: string | null
+          lead_name?: string | null
+          main_obstacle?: string | null
+          meeting_date?: string
+          next_action?: string | null
+          outcome: string
+          phone_number: string
+          recorded_by?: string | null
+          updated_at?: string
+          workflow_triggered?: string | null
+        }
+        Update: {
+          commitment_level?: string | null
+          created_at?: string
+          follow_up_date?: string | null
+          id?: string
+          internal_notes?: string | null
+          lead_id?: string | null
+          lead_name?: string | null
+          main_obstacle?: string | null
+          meeting_date?: string
+          next_action?: string | null
+          outcome?: string
+          phone_number?: string
+          recorded_by?: string | null
+          updated_at?: string
+          workflow_triggered?: string | null
         }
         Relationships: []
       }
