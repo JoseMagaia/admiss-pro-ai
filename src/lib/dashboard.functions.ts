@@ -697,6 +697,10 @@ export const upsertResponderAgent = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
+    const { DEFAULT_AGENT_ID } = await import("./orchestration");
+    if (data.id === DEFAULT_AGENT_ID) {
+      return { ok: false, error: "The default agent is managed in AI Settings." };
+    }
     const db = await admin();
     const { id, ...rest } = data;
     const key = rest.custom_api_key;
