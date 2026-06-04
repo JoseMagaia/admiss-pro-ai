@@ -147,7 +147,7 @@ export function WorkflowBuilder({
       data: { content: "", delayMinutes: messageCount === 0 ? 0 : 60, index: messageCount },
     };
     setNodes((nds) => [...nds, newNode]);
-    if (tail) setEdges((eds) => addEdge({ source: tail.id, target: id }, eds));
+    if (tail) setEdges((eds) => addEdge({ source: tail.id, target: id, sourceHandle: null, targetHandle: null }, eds));
     setSelectedId(id);
   };
 
