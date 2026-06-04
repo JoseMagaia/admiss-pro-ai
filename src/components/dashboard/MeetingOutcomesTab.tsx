@@ -48,12 +48,25 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   listLeads,
   listWorkspaces,
   listMeetingOutcomes,
   saveMeetingOutcome,
   updateMeetingOutcome,
+  deleteMeetingOutcome,
+  processDueWorkflows,
   getMeetingOutcomeStats,
 } from "@/lib/dashboard.functions";
 import {
