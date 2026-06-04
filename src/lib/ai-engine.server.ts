@@ -383,3 +383,117 @@ export function fillTemplate(template: string, ctx: Record<string, unknown>): st
     return v === null || v === undefined ? "" : String(v);
   });
 }
+
+/* ===================== RESPONDER AGENT (orchestration) =====================
+   A responder agent replies to leads who react to an outbound message
+   sequence. Unlike the qualification engine it produces a plain conversational
+   reply (no pipeline JSON) and never advances the qualification stage. */
+
+export interface RunResponderArgs {
+  systemPrompt: string;
+  model: string;
+  temperature: number;
+  variables: Record<string, string>;
+  settings: Record<string, unknown> | null;
+  lead: LeadRecord;
+  history: EngineMessage[];
+  userMessage: string;
+  provider?: ProviderConfig | null;
+}
+
+export interface RunResponderResult {
+  reply: string;
+  modelUsed: string;
+  error?: string;
+}
+
+function buildResponderPrompt(args: {
+  systemPrompt: string;
+  variables: Record<string, string>;
+  settings: Record<string, unknown> | null;
+  lead: LeadRecord;
+  history: EngineMessage[];
+}): string {
+  const resolved = applyVariables(args.systemPrompt, args.variables);
+
+  const settingsBlock = args.settings
+    ? `Company: ${args.settings.company_name ?? ""}
+Email: ${args.settings.company_email ?? ""}
+Phone: ${args.settings.company_phone ?? ""}
+Working hours: ${args.settings.working_hours ?? ""}
+Active destinations: ${args.settings.active_destinations ?? ""}
+Active programs: ${args.settings.active_programs ?? ""}
+Scholarships: ${args.settings.scholarship_information ?? ""}`
+    : "";
+
+  const leadBlock = JSON.stringify(
+    {
+      lead_name: args.lead.lead_name,
+      course_interest: args.lead.course_interest,
+      country_interest: args.lead.country_interest,
+      qualification_status: args.lead.qualification_status ?? "NEW_LEAD",
+    },
+    null,
+    2,
+  );
+
+  const historyBlock = args.history
+    .slice(-12)
+    .map((h) => `${h.sender === "lead" ? "Student" : "Assistant"}: ${h.message_content}`)
+    .join("\n");
+
+  return `${resolved}
+
+=== COMPANY SETTINGS ===
+${settingsBlock}
+
+=== LEAD MEMORY ===
+${leadBlock}
+
+=== RECENT CONVERSATION ===
+${historyBlock || "(no prior messages)"}
+
+=== OUTPUT FORMAT ===
+Reply with ONLY the WhatsApp message text to send to the lead. Do not use JSON, labels, or quotation marks around the message.`;
+}
+
+export async function runResponderAgent(args: RunResponderArgs): Promise<RunResponderResult> {
+  const prompt = buildResponderPrompt({
+    systemPrompt: args.systemPrompt,
+    variables: args.variables,
+    settings: args.settings,
+    lead: args.lead,
+    history: args.history,
+  });
+
+  const temperature = args.temperature ?? 0.7;
+  const provider = args.provider;
+  const useCustom = provider?.mode === "custom";
+  let modelUsed = args.model;
+  let result: ChatResult;
+
+  try {
+    if (useCustom) {
+      const key = provider?.custom_api_key?.trim();
+      const customModel = provider?.custom_model?.trim();
+      const baseUrl = provider?.custom_base_url?.trim();
+      const providerName = (provider?.custom_provider ?? "").toLowerCase();
+      if (!key) return { reply: "", modelUsed, error: "Responder agent is missing an API key." };
+      if (!customModel) return { reply: "", modelUsed, error: "Responder agent is missing a model." };
+      modelUsed = customModel;
+      if (providerName === "anthropic") {
+        result = await callAnthropic(baseUrl || "https://api.anthropic.com", key, customModel, temperature, prompt, args.userMessage);
+      } else {
+        if (!baseUrl) return { reply: "", modelUsed, error: "Responder agent is missing a base URL." };
+        result = await callOpenAiCompatible(baseUrl, key, customModel, temperature, prompt, args.userMessage);
+      }
+    } else {
+      result = await callBuiltIn(args.model, temperature, prompt, args.userMessage);
+    }
+  } catch (e) {
+    return { reply: "", modelUsed, error: e instanceof Error ? e.message : "Unknown AI error" };
+  }
+
+  if (!result.ok) return { reply: "", modelUsed, error: result.error ?? "AI request failed" };
+  return { reply: result.content.trim(), modelUsed };
+}
