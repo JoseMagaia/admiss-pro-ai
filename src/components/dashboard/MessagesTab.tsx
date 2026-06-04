@@ -182,9 +182,14 @@ export function MessagesTab() {
   }
 
   return (
-    <div className="grid h-[72vh] grid-cols-1 gap-4 md:grid-cols-[300px_1fr]">
+    <div className="grid h-[78vh] grid-cols-1 gap-4 md:h-[72vh] md:grid-cols-[300px_1fr]">
       {/* List */}
-      <div className="flex flex-col overflow-hidden rounded-2xl border bg-card shadow-card">
+      <div
+        className={cn(
+          "flex-col overflow-hidden rounded-2xl border bg-card shadow-card md:flex",
+          active ? "hidden" : "flex",
+        )}
+      >
         <div className="border-b p-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
