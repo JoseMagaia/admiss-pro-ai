@@ -277,16 +277,35 @@ export function MessagesTab() {
                 <MessageSquare className="hidden h-4 w-4 text-primary md:block" />
                 <span className="truncate">{active}</span>
               </span>
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                {takeover ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                AI {takeover ? "paused" : "active"}
-                <Switch
-                  checked={!takeover}
-                  onCheckedChange={(v) => toggleTakeover.mutate(!v)}
-                  disabled={toggleTakeover.isPending}
-                />
-              </label>
+              <div className="flex items-center gap-3">
+                {canPause && workflowState && (
+                  <Button
+                    size="sm"
+                    variant={workflowState === "paused" ? "default" : "outline"}
+                    className="h-7 gap-1 px-2 text-xs"
+                    disabled={pauseWorkflow.isPending}
+                    onClick={() => pauseWorkflow.mutate(workflowState !== "paused")}
+                  >
+                    {workflowState === "paused" ? (
+                      <Play className="h-3.5 w-3.5" />
+                    ) : (
+                      <Pause className="h-3.5 w-3.5" />
+                    )}
+                    {workflowState === "paused" ? "Resume workflow" : "Pause workflow"}
+                  </Button>
+                )}
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {takeover ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                  AI {takeover ? "paused" : "active"}
+                  <Switch
+                    checked={!takeover}
+                    onCheckedChange={(v) => toggleTakeover.mutate(!v)}
+                    disabled={toggleTakeover.isPending}
+                  />
+                </label>
+              </div>
             </div>
+
 
             {/* Scheduled banner */}
             {activeScheduled.length > 0 && (
