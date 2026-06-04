@@ -835,3 +835,44 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
 
   return { enrolled, sent };
 }
+
+// Manually enroll a single lead into a workflow identified by name (case
+// insensitive). Used by the Meeting Outcomes flow to route a lead into the
+// follow-up sequence that matches the recorded outcome. Best-effort: returns a
+// status string describing what happened so the caller can surface it / audit it.
+export async function enrollLeadInWorkflowByName(params: {
+  workflowName: string;
+  phone: string;
+  leadId?: string | null;
+}): Promise<{ status: "enrolled" | "already_enrolled" | "no_workflow" | "no_steps"; workflowId?: string }> {
+  const db = await admin();
+  const { data: rows } = await db.from("workflows").select("*").eq("enabled", true);
+  const workflows = (rows as Array<Record<string, unknown>>) ?? [];
+  const target = workflows.find(
+    (w) => String(w.name ?? "").trim().toLowerCase() === params.workflowName.trim().toLowerCase(),
+  );
+  if (!target) return { status: "no_workflow" };
+
+  const steps = orderedSteps(target.graph);
+  if (steps.length === 0) return { status: "no_workflow", workflowId: target.id as string };
+
+  const { data: existing } = await db
+    .from("workflow_enrollments")
+    .select("id")
+    .eq("workflow_id", target.id as string)
+    .eq("phone_number", params.phone)
+    .maybeSingle();
+  if (existing) return { status: "already_enrolled", workflowId: target.id as string };
+
+  const firstDelay = steps[0]?.delayMinutes ?? 0;
+  await db.from("workflow_enrollments").insert({
+    workflow_id: target.id,
+    lead_id: params.leadId ?? null,
+    phone_number: params.phone,
+    current_step: 0,
+    status: "active",
+    reacted: false,
+    next_run_at: new Date(Date.now() + firstDelay * 60_000).toISOString(),
+  } as never);
+  return { status: "enrolled", workflowId: target.id as string };
+}
