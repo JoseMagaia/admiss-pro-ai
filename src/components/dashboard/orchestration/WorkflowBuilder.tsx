@@ -31,6 +31,11 @@ import {
   type TriggerType,
   type TriggerConfig,
 } from "@/lib/orchestration";
+import {
+  MEETING_OUTCOME_TEMPLATES,
+  type OutcomeWorkflowTemplate,
+  type TemplateStep,
+} from "@/lib/meeting-outcomes";
 import { upsertWorkflow } from "@/lib/dashboard.functions";
 
 export interface WorkflowRow {
