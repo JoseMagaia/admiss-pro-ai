@@ -49,10 +49,13 @@ export function LeadsTab() {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const canDelete = profile.role === "super_admin" || profile.role === "admin";
+  const canPause = profile.role === "super_admin" || profile.role === "admin";
   const leadsFn = useServerFn(listLeads);
   const convFn = useServerFn(listConversations);
   const takeoverFn = useServerFn(toggleHumanTakeover);
   const deleteFn = useServerFn(deleteLead);
+  const statesFn = useServerFn(listWorkflowStates);
+  const pauseFn = useServerFn(pauseLeadWorkflow);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [pendingDelete, setPendingDelete] = useState<Lead | null>(null);
@@ -67,12 +70,26 @@ export function LeadsTab() {
     queryFn: () => convFn(),
     refetchInterval: 5000,
   });
+  const { data: statesData } = useQuery({
+    queryKey: ["workflow-states"],
+    queryFn: () => statesFn(),
+    refetchInterval: 8000,
+    enabled: canPause,
+  });
 
   const takeoverMap = useMemo(() => {
     const m = new Map<string, boolean>();
     for (const c of (convData?.conversations ?? []) as Conversation[]) m.set(c.phone_number, c.human_takeover);
     return m;
   }, [convData]);
+
+  const workflowMap = useMemo(() => {
+    const m = new Map<string, "active" | "paused">();
+    for (const s of (statesData?.states ?? []) as Array<{ phone_number: string; status: "active" | "paused" }>) {
+      m.set(s.phone_number, s.status);
+    }
+    return m;
+  }, [statesData]);
 
   const takeover = useMutation({
     mutationFn: (vars: { phone: string; enabled: boolean }) => takeoverFn({ data: vars }),
