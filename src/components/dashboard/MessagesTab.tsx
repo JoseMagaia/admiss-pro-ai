@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAuth } from "@/hooks/useAuth";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,8 @@ import {
   listScheduledMessages,
   cancelScheduledMessage,
   toggleHumanTakeover,
+  listWorkflowStates,
+  pauseLeadWorkflow,
 } from "@/lib/dashboard.functions";
 import { cn } from "@/lib/utils";
 
