@@ -761,7 +761,9 @@ export type Database = {
           graph: Json
           id: string
           name: string
+          trigger_config: Json
           trigger_segment: string
+          trigger_type: string
           updated_at: string
           workspace_id: string | null
         }
@@ -773,7 +775,9 @@ export type Database = {
           graph?: Json
           id?: string
           name: string
+          trigger_config?: Json
           trigger_segment?: string
+          trigger_type?: string
           updated_at?: string
           workspace_id?: string | null
         }
@@ -785,7 +789,9 @@ export type Database = {
           graph?: Json
           id?: string
           name?: string
+          trigger_config?: Json
           trigger_segment?: string
+          trigger_type?: string
           updated_at?: string
           workspace_id?: string | null
         }
