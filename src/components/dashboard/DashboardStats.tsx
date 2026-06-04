@@ -19,18 +19,18 @@ export function DashboardStats() {
   });
 
   return (
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
       {CARDS.map((c) => (
-        <div key={c.key} className="rounded-2xl border bg-card p-5 shadow-card">
-          <div className="flex items-center justify-between">
-            <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${c.color}`}>
-              <c.icon className="h-5 w-5" />
-            </span>
+        <div key={c.key} className="flex items-center gap-3 rounded-xl border bg-card p-3 shadow-card">
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${c.color}`}>
+            <c.icon className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <p className="font-display text-xl font-bold leading-none">
+              {data ? (data as Record<string, number>)[c.key] : "—"}
+            </p>
+            <p className="mt-1 truncate text-xs text-muted-foreground">{c.label}</p>
           </div>
-          <p className="mt-4 font-display text-3xl font-bold">
-            {data ? (data as Record<string, number>)[c.key] : "—"}
-          </p>
-          <p className="text-sm text-muted-foreground">{c.label}</p>
         </div>
       ))}
     </div>
