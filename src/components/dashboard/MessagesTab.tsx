@@ -227,13 +227,25 @@ export function MessagesTab() {
       </div>
 
       {/* Timeline + composer */}
-      <div className="flex flex-col overflow-hidden rounded-2xl border bg-card shadow-card">
+      <div
+        className={cn(
+          "flex-col overflow-hidden rounded-2xl border bg-card shadow-card md:flex",
+          active ? "flex" : "hidden md:flex",
+        )}
+      >
         {active ? (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-              <span className="flex items-center gap-2 font-semibold">
-                <MessageSquare className="h-4 w-4 text-primary" />
-                {active}
+              <span className="flex min-w-0 items-center gap-2 font-semibold">
+                <button
+                  onClick={() => setActive(null)}
+                  className="md:hidden"
+                  aria-label="Back to conversations"
+                >
+                  <ArrowLeft className="h-4 w-4 text-muted-foreground" />
+                </button>
+                <MessageSquare className="hidden h-4 w-4 text-primary md:block" />
+                <span className="truncate">{active}</span>
               </span>
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 {takeover ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
