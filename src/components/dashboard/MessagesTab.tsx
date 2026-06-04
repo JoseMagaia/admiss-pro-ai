@@ -212,7 +212,7 @@ export function MessagesTab() {
   }
 
   return (
-    <div className="grid h-[78vh] grid-cols-1 gap-4 md:h-[72vh] md:grid-cols-[300px_1fr]">
+    <div className="grid h-[82vh] grid-cols-1 gap-4 md:h-[80vh] md:grid-cols-[300px_1fr]">
       {/* List */}
       <div
         className={cn(
