@@ -52,7 +52,9 @@ export interface Agent {
   custom_api_key: string | null;
   inherit_variables: boolean;
   enabled: boolean;
+  is_default?: boolean;
 }
+
 
 const EMPTY_AGENT: Agent = {
   name: "",
