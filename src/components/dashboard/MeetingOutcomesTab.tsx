@@ -223,11 +223,12 @@ export function MeetingOutcomesTab() {
       }
       const wf =
         r.workflowStatus === "enrolled"
-          ? "Follow-up workflow activated — first message sent."
+          ? "Follow-up scheduled — the first message sends when the 1-minute edit window ends."
           : r.workflowStatus === "already_enrolled"
             ? "Lead already in this workflow."
             : "No matching active workflow found — create it in Orchestration.";
       toast.success(`Outcome saved. ${wf}`);
+      if (r.workflowStatus === "enrolled") scheduleWorkflowFire();
       setForm({ ...EMPTY_FORM });
       setFollowUp(undefined);
       qc.invalidateQueries({ queryKey: ["meeting-outcomes"] });
