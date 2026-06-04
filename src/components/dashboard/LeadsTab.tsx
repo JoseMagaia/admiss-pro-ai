@@ -100,6 +100,19 @@ export function LeadsTab() {
     onError: () => toast.error("Failed to update"),
   });
 
+  const pause = useMutation({
+    mutationFn: (vars: { phone: string; paused: boolean }) => pauseFn({ data: vars }),
+    onSuccess: (res, vars) => {
+      if ((res as { ok: boolean }).ok) {
+        qc.invalidateQueries({ queryKey: ["workflow-states"] });
+        toast.success(vars.paused ? "Workflow paused for this lead" : "Workflow resumed");
+      } else {
+        toast.error((res as { error?: string }).error ?? "Failed to update workflow");
+      }
+    },
+    onError: () => toast.error("Failed to update workflow"),
+  });
+
   const remove = useMutation({
     mutationFn: (id: string) => deleteFn({ data: { id } }),
     onSuccess: (res) => {
