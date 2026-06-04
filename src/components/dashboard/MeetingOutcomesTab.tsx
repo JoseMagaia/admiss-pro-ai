@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { format } from "date-fns";
@@ -14,6 +14,8 @@ import {
   TrendingUp,
   ClipboardCheck,
   Loader2,
+  Pencil,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -40,8 +49,10 @@ import {
 import { cn } from "@/lib/utils";
 import {
   listLeads,
+  listWorkspaces,
   listMeetingOutcomes,
   saveMeetingOutcome,
+  updateMeetingOutcome,
   getMeetingOutcomeStats,
 } from "@/lib/dashboard.functions";
 import {
@@ -59,6 +70,12 @@ interface Lead {
   lead_name: string | null;
 }
 
+interface Workspace {
+  id: string;
+  name?: string | null;
+  is_default?: boolean | null;
+}
+
 interface OutcomeRow {
   id: string;
   lead_name: string | null;
@@ -66,11 +83,16 @@ interface OutcomeRow {
   meeting_date: string;
   outcome: string;
   commitment_level: string | null;
+  main_obstacle: string | null;
   next_action: string | null;
   follow_up_date: string | null;
   workflow_triggered: string | null;
   recorded_by: string | null;
+  created_at: string;
 }
+
+const EDIT_WINDOW_MS = 60_000;
+
 
 const WIDGETS = [
   { key: "meetingsThisWeek", label: "Meetings This Week", icon: CalendarDays, color: "text-primary bg-primary/10" },
