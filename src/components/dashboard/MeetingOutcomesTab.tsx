@@ -115,16 +115,32 @@ const EMPTY_FORM = {
 export function MeetingOutcomesTab() {
   const qc = useQueryClient();
   const leadsFn = useServerFn(listLeads);
+  const workspacesFn = useServerFn(listWorkspaces);
   const outcomesFn = useServerFn(listMeetingOutcomes);
   const statsFn = useServerFn(getMeetingOutcomeStats);
   const saveFn = useServerFn(saveMeetingOutcome);
+  const updateFn = useServerFn(updateMeetingOutcome);
 
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  const [workspaceId, setWorkspaceId] = useState<string>("");
   const [followUp, setFollowUp] = useState<Date | undefined>(undefined);
   const [meetingDate] = useState<Date>(new Date());
   const [leadOpen, setLeadOpen] = useState(false);
 
+  // Re-render every second so the 1-minute edit window closes precisely.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Edit dialog state.
+  const [editRow, setEditRow] = useState<OutcomeRow | null>(null);
+  const [editForm, setEditForm] = useState({ ...EMPTY_FORM });
+  const [editFollowUp, setEditFollowUp] = useState<Date | undefined>(undefined);
+
   const { data: leadsData } = useQuery({ queryKey: ["leads"], queryFn: () => leadsFn() });
+  const { data: workspacesData } = useQuery({ queryKey: ["workspaces"], queryFn: () => workspacesFn() });
   const { data: outcomesData } = useQuery({
     queryKey: ["meeting-outcomes"],
     queryFn: () => outcomesFn(),
@@ -137,6 +153,7 @@ export function MeetingOutcomesTab() {
   });
 
   const leads = (leadsData?.leads ?? []) as Lead[];
+  const workspaces = (workspacesData?.workspaces ?? []) as Workspace[];
   const outcomes = (outcomesData?.outcomes ?? []) as OutcomeRow[];
   const selectedLead = useMemo(() => leads.find((l) => l.id === form.leadId), [leads, form.leadId]);
 
@@ -157,6 +174,7 @@ export function MeetingOutcomesTab() {
           next_action: form.nextAction || null,
           follow_up_date: followUp ? format(followUp, "yyyy-MM-dd") : null,
           internal_notes: form.notes || null,
+          workspace_id: workspaceId || null,
         },
       }),
     onSuccess: (res) => {
@@ -167,7 +185,7 @@ export function MeetingOutcomesTab() {
       }
       const wf =
         r.workflowStatus === "enrolled"
-          ? "Follow-up workflow triggered."
+          ? "Follow-up workflow activated — first message sent."
           : r.workflowStatus === "already_enrolled"
             ? "Lead already in this workflow."
             : "No matching active workflow found — create it in Orchestration.";
@@ -181,8 +199,60 @@ export function MeetingOutcomesTab() {
     onError: () => toast.error("Failed to save outcome"),
   });
 
+  const update = useMutation({
+    mutationFn: () =>
+      updateFn({
+        data: {
+          id: editRow!.id,
+          outcome: editForm.outcome as
+            | "ready_to_pay"
+            | "parent_discussion"
+            | "financial_delay"
+            | "future_applicant"
+            | "not_qualified",
+          commitment_level: (editForm.commitment || null) as "high" | "medium" | "low" | null,
+          main_obstacle: editForm.obstacle || null,
+          next_action: editForm.nextAction || null,
+          follow_up_date: editFollowUp ? format(editFollowUp, "yyyy-MM-dd") : null,
+          internal_notes: editForm.notes || null,
+        },
+      }),
+    onSuccess: (res) => {
+      const r = res as { ok: boolean; error?: string };
+      if (!r.ok) {
+        toast.error(r.error ?? "Failed to update outcome");
+        return;
+      }
+      toast.success("Outcome updated.");
+      setEditRow(null);
+      qc.invalidateQueries({ queryKey: ["meeting-outcomes"] });
+      qc.invalidateQueries({ queryKey: ["meeting-outcome-stats"] });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+    },
+    onError: () => toast.error("Failed to update outcome"),
+  });
+
+  function openEdit(o: OutcomeRow) {
+    setEditRow(o);
+    setEditForm({
+      leadId: o.id,
+      outcome: o.outcome,
+      commitment: o.commitment_level ?? "",
+      obstacle: o.main_obstacle ?? "",
+      nextAction: o.next_action ?? "",
+      notes: "",
+    });
+    setEditFollowUp(o.follow_up_date ? new Date(o.follow_up_date) : undefined);
+  }
+
+  function editableFor(o: OutcomeRow): number {
+    const remaining = EDIT_WINDOW_MS - (now - new Date(o.created_at).getTime());
+    return remaining > 0 ? remaining : 0;
+  }
+
   const canSave = form.leadId && form.outcome && !save.isPending;
   const mappedWorkflow = MEETING_OUTCOMES.find((o) => o.value === form.outcome)?.workflow;
+
 
   return (
     <div className="space-y-6">
