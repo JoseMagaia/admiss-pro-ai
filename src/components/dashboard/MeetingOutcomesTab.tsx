@@ -169,7 +169,7 @@ export function MeetingOutcomesTab() {
         {WIDGETS.map((w) => (
           <div key={w.key} className="rounded-2xl border bg-card p-4 shadow-card">
             <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${w.color}`}>
-              <w.icon className="h-4.5 w-4.5" />
+              <w.icon className="h-5 w-5" />
             </span>
             <p className="mt-3 font-display text-2xl font-bold">
               {stats ? (stats as Record<string, number>)[w.key] ?? 0 : "—"}
