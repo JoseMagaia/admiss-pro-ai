@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, UserCog, Bot, Trash2 } from "lucide-react";
+import { Search, UserCog, Bot, Trash2, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { StageBadge } from "./StageBadge";
-import { listLeads, toggleHumanTakeover, listConversations, deleteLead } from "@/lib/dashboard.functions";
+import {
+  listLeads,
+  toggleHumanTakeover,
+  listConversations,
+  deleteLead,
+  listWorkflowStates,
+  pauseLeadWorkflow,
+} from "@/lib/dashboard.functions";
 import { LEAD_FILTERS, columnForStage } from "@/lib/pipeline";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
