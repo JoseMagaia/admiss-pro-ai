@@ -7,6 +7,7 @@ import {
   Calendar,
   KanbanSquare,
   Workflow as WorkflowIcon,
+  ClipboardCheck,
   Settings as SettingsIcon,
   ArrowLeft,
   LogOut,
@@ -19,6 +20,7 @@ import { MessagesTab } from "@/components/dashboard/MessagesTab";
 import { BookingsTab } from "@/components/dashboard/BookingsTab";
 import { PipelineTab } from "@/components/dashboard/PipelineTab";
 import { OrchestrationTab } from "@/components/dashboard/OrchestrationTab";
+import { MeetingOutcomesTab } from "@/components/dashboard/MeetingOutcomesTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
