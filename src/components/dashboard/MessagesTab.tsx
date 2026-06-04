@@ -66,6 +66,8 @@ interface Scheduled {
 
 export function MessagesTab() {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const canPause = profile.role === "super_admin" || profile.role === "admin";
   const msgFn = useServerFn(listMessages);
   const convFn = useServerFn(listConversations);
   const schedFn = useServerFn(listScheduledMessages);
@@ -73,6 +75,8 @@ export function MessagesTab() {
   const scheduleFn = useServerFn(scheduleMessage);
   const cancelFn = useServerFn(cancelScheduledMessage);
   const takeoverFn = useServerFn(toggleHumanTakeover);
+  const statesFn = useServerFn(listWorkflowStates);
+  const pauseFn = useServerFn(pauseLeadWorkflow);
 
   const { data: msgData } = useQuery({ queryKey: ["messages"], queryFn: () => msgFn(), refetchInterval: 5000 });
   const { data: convData } = useQuery({
@@ -84,6 +88,12 @@ export function MessagesTab() {
     queryKey: ["scheduled"],
     queryFn: () => schedFn(),
     refetchInterval: 10000,
+  });
+  const { data: statesData } = useQuery({
+    queryKey: ["workflow-states"],
+    queryFn: () => statesFn(),
+    refetchInterval: 8000,
+    enabled: canPause,
   });
 
   const [search, setSearch] = useState("");
