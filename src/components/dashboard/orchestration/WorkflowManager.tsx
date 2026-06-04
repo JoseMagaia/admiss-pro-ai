@@ -60,7 +60,7 @@ export function WorkflowManager() {
   });
 
   const seed = useMutation({
-    mutationFn: () => seedFn({ data: {} as never }),
+    mutationFn: () => seedFn(),
     onSuccess: (r) => {
       const res = r as { ok: boolean; created?: number; error?: string };
       if (!res.ok) {
