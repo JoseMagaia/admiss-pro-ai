@@ -192,6 +192,19 @@ export function MessagesTab() {
     onError: () => toast.error("Failed to update"),
   });
 
+  const pauseWorkflow = useMutation({
+    mutationFn: (paused: boolean) => pauseFn({ data: { phone: active!, paused } }),
+    onSuccess: (res, paused) => {
+      if ((res as { ok: boolean }).ok) {
+        qc.invalidateQueries({ queryKey: ["workflow-states"] });
+        toast.success(paused ? "Workflow paused for this lead" : "Workflow resumed");
+      } else {
+        toast.error((res as { error?: string }).error ?? "Failed to update workflow");
+      }
+    },
+    onError: () => toast.error("Failed to update workflow"),
+  });
+
   function handleSend() {
     const text = draft.trim();
     if (!text || !active) return;
