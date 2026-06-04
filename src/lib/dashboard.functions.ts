@@ -1103,6 +1103,31 @@ export const updateMeetingOutcome = createServerFn({ method: "POST" })
         .eq("id", row.lead_id);
     }
 
+    // If the outcome changed, re-point the still-pending follow-up workflow so the
+    // correct sequence fires when the edit window ends. The enrollment is only
+    // re-created when the original message has not been sent yet (current_step 0).
+    if (row.workflow_triggered !== mapping.workflow && row.phone_number) {
+      try {
+        const { enrollLeadInWorkflowByName } = await import("./admissions.server");
+        await db
+          .from("workflow_enrollments")
+          .delete()
+          .eq("phone_number", row.phone_number)
+          .eq("current_step", 0)
+          .eq("status", "active");
+        const remaining = Math.max(0, OUTCOME_EDIT_WINDOW_MS - age);
+        await enrollLeadInWorkflowByName({
+          workflowName: mapping.workflow,
+          phone: row.phone_number,
+          leadId: row.lead_id ?? null,
+          sendNow: false,
+          startDelayMs: remaining,
+        });
+      } catch (e) {
+        console.error("Re-enrollment after outcome edit failed:", e);
+      }
+    }
+
     await db.from("audit_logs").insert({
       actor_email: me.email ?? null,
       actor_role: me.role ?? null,
