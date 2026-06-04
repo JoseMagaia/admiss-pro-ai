@@ -263,7 +263,7 @@ export function LeadsTab() {
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={canDelete ? 10 : 9} className="px-4 py-12 text-center text-muted-foreground">
+                <td colSpan={9 + (canPause ? 1 : 0) + (canDelete ? 1 : 0)} className="px-4 py-12 text-center text-muted-foreground">
                   No leads found.
                 </td>
               </tr>
