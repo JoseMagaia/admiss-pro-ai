@@ -6,6 +6,7 @@ import {
   MessageSquare,
   Calendar,
   KanbanSquare,
+  Workflow as WorkflowIcon,
   Settings as SettingsIcon,
   ArrowLeft,
   LogOut,
@@ -17,6 +18,7 @@ import { LeadsTab } from "@/components/dashboard/LeadsTab";
 import { MessagesTab } from "@/components/dashboard/MessagesTab";
 import { BookingsTab } from "@/components/dashboard/BookingsTab";
 import { PipelineTab } from "@/components/dashboard/PipelineTab";
+import { OrchestrationTab } from "@/components/dashboard/OrchestrationTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
@@ -38,6 +40,7 @@ const ALL_TABS = [
   { id: "messages", label: "Messages", icon: MessageSquare },
   { id: "bookings", label: "Bookings", icon: Calendar },
   { id: "pipeline", label: "Pipeline", icon: KanbanSquare },
+  { id: "orchestration", label: "Orchestration", icon: WorkflowIcon },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
@@ -140,13 +143,14 @@ function Dashboard() {
             </p>
           </header>
 
-          {activeTab !== "settings" && <DashboardStats />}
+          {activeTab !== "settings" && activeTab !== "orchestration" && <DashboardStats />}
 
           <div className="mt-6">
             {activeTab === "leads" && <LeadsTab />}
             {activeTab === "messages" && <MessagesTab />}
             {activeTab === "bookings" && <BookingsTab />}
             {activeTab === "pipeline" && <PipelineTab />}
+            {activeTab === "orchestration" && <OrchestrationTab />}
             {activeTab === "settings" && <SettingsTab role={role} />}
           </div>
         </div>

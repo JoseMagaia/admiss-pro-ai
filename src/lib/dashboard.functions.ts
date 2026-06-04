@@ -618,3 +618,196 @@ export const deleteWorkspace = createServerFn({ method: "POST" })
     const { error } = await db.from("chatwoot_workspaces").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
   });
+
+/* ===================== ORCHESTRATION: RESPONDER AGENTS ===================== */
+
+const SUPER = ["super_admin"] as AppRole[];
+
+async function isSuper(): Promise<boolean> {
+  const { getRequestUser } = await import("@/integrations/supabase/role-guard.server");
+  const u = await getRequestUser();
+  return u?.role === "super_admin";
+}
+
+export const listResponderAgents = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isSuper())) return { agents: [] };
+  const db = await admin();
+  const { data } = await db.from("responder_agents").select("*").order("created_at", { ascending: true });
+  // Never expose stored API keys to the browser.
+  const agents = (data ?? []).map((a: Record<string, unknown>) => ({
+    ...a,
+    custom_api_key: a.custom_api_key ? "********" : null,
+  }));
+  return { agents };
+});
+
+const responderAgentSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(200),
+  description: z.string().max(1000).nullable().optional(),
+  workspace_id: z.string().uuid().nullable().optional(),
+  system_prompt: z.string().max(50000),
+  model: z.string().min(1).max(100),
+  temperature: z.number().min(0).max(2),
+  provider_mode: z.enum(["inherit", "built_in", "custom"]),
+  custom_provider: z.string().max(100).nullable().optional(),
+  custom_base_url: z.string().max(500).nullable().optional(),
+  custom_model: z.string().max(200).nullable().optional(),
+  custom_api_key: z.string().max(500).nullable().optional(),
+  inherit_variables: z.boolean(),
+  enabled: z.boolean(),
+});
+
+export const upsertResponderAgent = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => responderAgentSchema.parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(SUPER);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { id, ...rest } = data;
+    const key = rest.custom_api_key;
+    if (key === "" || key === "********" || key === undefined) {
+      delete (rest as Record<string, unknown>).custom_api_key;
+    }
+    if (id) {
+      const { error } = await db.from("responder_agents").update(rest as never).eq("id", id);
+      return { ok: !error, error: error?.message ?? null };
+    }
+    const { data: created, error } = await db.from("responder_agents").insert(rest as never).select("id").single();
+    return { ok: !error, error: error?.message ?? null, id: (created as { id?: string } | null)?.id };
+  });
+
+export const deleteResponderAgent = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(SUPER);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { error } = await db.from("responder_agents").delete().eq("id", data.id);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+/* ----------------- responder agent variables ----------------- */
+
+export const listResponderAgentVariables = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ agentId: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    if (!(await isSuper())) return { variables: [] };
+    const db = await admin();
+    const { data: rows } = await db
+      .from("responder_agent_variables")
+      .select("*")
+      .eq("agent_id", data.agentId)
+      .order("variable_name", { ascending: true });
+    return { variables: rows ?? [] };
+  });
+
+export const upsertResponderAgentVariable = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid().optional(),
+        agent_id: z.string().uuid(),
+        variable_name: z.string().min(1).max(100).regex(/^[A-Z0-9_]+$/),
+        variable_value: z.string().max(2000),
+        description: z.string().max(500).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(SUPER);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { id, ...rest } = data;
+    if (id) {
+      const { error } = await db.from("responder_agent_variables").update(rest as never).eq("id", id);
+      return { ok: !error, error: error?.message ?? null };
+    }
+    const { error } = await db.from("responder_agent_variables").insert(rest as never);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+export const deleteResponderAgentVariable = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(SUPER);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { error } = await db.from("responder_agent_variables").delete().eq("id", data.id);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+/* ===================== ORCHESTRATION: WORKFLOWS ===================== */
+
+export const listWorkflows = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isSuper())) return { workflows: [] };
+  const db = await admin();
+  const { data } = await db.from("workflows").select("*").order("created_at", { ascending: true });
+  return { workflows: data ?? [] };
+});
+
+export const listWorkflowEnrollments = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isSuper())) return { enrollments: [] };
+  const db = await admin();
+  const { data } = await db
+    .from("workflow_enrollments")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(500);
+  return { enrollments: data ?? [] };
+});
+
+const workflowSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(200),
+  description: z.string().max(1000).nullable().optional(),
+  workspace_id: z.string().uuid().nullable().optional(),
+  agent_id: z.string().uuid().nullable().optional(),
+  trigger_segment: z.string().min(1).max(100),
+  enabled: z.boolean(),
+  graph: z.any().optional(),
+});
+
+export const upsertWorkflow = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => workflowSchema.parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(SUPER);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { id, ...rest } = data;
+    if (id) {
+      const { error } = await db.from("workflows").update(rest as never).eq("id", id);
+      return { ok: !error, error: error?.message ?? null };
+    }
+    const { data: created, error } = await db.from("workflows").insert(rest as never).select("id").single();
+    return { ok: !error, error: error?.message ?? null, id: (created as { id?: string } | null)?.id };
+  });
+
+export const deleteWorkflow = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(SUPER);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { error } = await db.from("workflows").delete().eq("id", data.id);
+    return { ok: !error, error: error?.message ?? null };
+  });
+

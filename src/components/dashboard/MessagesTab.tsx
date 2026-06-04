@@ -13,12 +13,14 @@ import {
   Loader2,
   Pause,
   Play,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Dialog,
   DialogContent,
@@ -87,6 +89,7 @@ export function MessagesTab() {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
 
   const messages = (msgData?.messages ?? []) as Message[];
   const conversations = (convData?.conversations ?? []) as Conversation[];
@@ -106,8 +109,11 @@ export function MessagesTab() {
   const filteredConvs = grouped.filter((c) => c.phone.toLowerCase().includes(search.toLowerCase()));
 
   useEffect(() => {
-    if (!active && filteredConvs.length) setActive(filteredConvs[0].phone);
-  }, [filteredConvs, active]);
+    // On desktop auto-open the most recent conversation. On mobile keep the list
+    // visible until the user taps a conversation.
+    if (!active && !isMobile && filteredConvs.length) setActive(filteredConvs[0].phone);
+  }, [filteredConvs, active, isMobile]);
+
 
   const activeMsgs = grouped.find((c) => c.phone === active)?.msgs ?? [];
   const activeConv = conversations.find((c) => c.phone_number === active);
@@ -176,9 +182,14 @@ export function MessagesTab() {
   }
 
   return (
-    <div className="grid h-[72vh] grid-cols-1 gap-4 md:grid-cols-[300px_1fr]">
+    <div className="grid h-[78vh] grid-cols-1 gap-4 md:h-[72vh] md:grid-cols-[300px_1fr]">
       {/* List */}
-      <div className="flex flex-col overflow-hidden rounded-2xl border bg-card shadow-card">
+      <div
+        className={cn(
+          "flex-col overflow-hidden rounded-2xl border bg-card shadow-card md:flex",
+          active ? "hidden" : "flex",
+        )}
+      >
         <div className="border-b p-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -216,13 +227,25 @@ export function MessagesTab() {
       </div>
 
       {/* Timeline + composer */}
-      <div className="flex flex-col overflow-hidden rounded-2xl border bg-card shadow-card">
+      <div
+        className={cn(
+          "flex-col overflow-hidden rounded-2xl border bg-card shadow-card md:flex",
+          active ? "flex" : "hidden md:flex",
+        )}
+      >
         {active ? (
           <>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-              <span className="flex items-center gap-2 font-semibold">
-                <MessageSquare className="h-4 w-4 text-primary" />
-                {active}
+              <span className="flex min-w-0 items-center gap-2 font-semibold">
+                <button
+                  onClick={() => setActive(null)}
+                  className="md:hidden"
+                  aria-label="Back to conversations"
+                >
+                  <ArrowLeft className="h-4 w-4 text-muted-foreground" />
+                </button>
+                <MessageSquare className="hidden h-4 w-4 text-primary md:block" />
+                <span className="truncate">{active}</span>
               </span>
               <label className="flex items-center gap-2 text-xs text-muted-foreground">
                 {takeover ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
