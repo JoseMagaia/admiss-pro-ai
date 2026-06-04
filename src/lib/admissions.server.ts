@@ -715,13 +715,23 @@ async function tryWorkflowResponder(params: {
     const workflow = wf as Record<string, unknown> | null;
     if (!workflow || !workflow.enabled || !workflow.agent_id) continue;
 
-    const { data: ag } = await db
-      .from("responder_agents")
-      .select("*")
-      .eq("id", workflow.agent_id as string)
-      .maybeSingle();
-    const agent = ag as Record<string, unknown> | null;
-    if (!agent || !agent.enabled) continue;
+    const agentId = String(workflow.agent_id);
+
+    // Resolve the responder context. The built-in default agent uses the
+    // qualification agent's prompt/model/variables/provider from AI Settings.
+    let ctx: AiContext;
+    if (agentId === DEFAULT_AGENT_ID) {
+      ctx = await loadAiContext();
+    } else {
+      const { data: ag } = await db
+        .from("responder_agents")
+        .select("*")
+        .eq("id", agentId)
+        .maybeSingle();
+      const agent = ag as Record<string, unknown> | null;
+      if (!agent || !agent.enabled) continue;
+      ctx = await loadResponderContext(agent);
+    }
 
     // Mark the enrollment as reacted so the outbound sequence stops.
     await db
@@ -729,7 +739,7 @@ async function tryWorkflowResponder(params: {
       .update({ reacted: true, status: "reacted", next_run_at: null } as never)
       .eq("id", enr.id as string);
 
-    const ctx = await loadResponderContext(agent);
+
     const history = await recentHistory(params.phone);
     const { reply, error } = await runResponderAgent({
       systemPrompt: ctx.systemPrompt,
