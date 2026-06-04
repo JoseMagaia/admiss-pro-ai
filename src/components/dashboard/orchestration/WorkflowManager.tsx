@@ -31,7 +31,6 @@ export function WorkflowManager() {
   const delFn = useServerFn(deleteWorkflow);
   const agentsFn = useServerFn(listResponderAgents);
   const wsFn = useServerFn(listWorkspaces);
-  const seedFn = useServerFn(seedMeetingOutcomeWorkflows);
 
   const { data } = useQuery({ queryKey: ["workflows"], queryFn: () => listFn() });
   const { data: agentsData } = useQuery({ queryKey: ["responder-agents"], queryFn: () => agentsFn() });
