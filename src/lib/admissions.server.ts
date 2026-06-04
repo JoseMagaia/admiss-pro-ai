@@ -786,40 +786,98 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
 
   // --- Enrollment ---
   for (const wf of workflows) {
-    const segment = String(wf.trigger_segment ?? "manual");
-    if (segment === "manual") continue;
-    const column = PIPELINE_COLUMNS.find((c) => c.id === segment);
-    if (!column) continue;
+    // Backward-compatible trigger resolution.
+    const triggerType = String(
+      wf.trigger_type ?? (String(wf.trigger_segment ?? "manual") === "manual" ? "manual" : "pipeline_stage"),
+    );
+    if (triggerType === "manual") continue;
+
     const steps = orderedSteps(wf.graph);
     if (steps.length === 0) continue;
+    const cfg = (wf.trigger_config ?? {}) as {
+      segment?: string;
+      amount?: number;
+      unit?: string;
+      status?: string;
+    };
 
-    const { data: leadsData } = await db
-      .from("leads")
-      .select("id, phone_number")
-      .in("qualification_status", column.stages as unknown as string[])
-      .limit(500);
-    const leads = (leadsData as Array<{ id: string; phone_number: string }>) ?? [];
+    // Phones already enrolled in this workflow are skipped.
+    const { data: enrolledRows } = await db
+      .from("workflow_enrollments")
+      .select("phone_number")
+      .eq("workflow_id", wf.id as string);
+    const enrolledSet = new Set(
+      ((enrolledRows as Array<{ phone_number: string }>) ?? []).map((r) => r.phone_number),
+    );
 
-    for (const lead of leads) {
-      const { data: existing } = await db
-        .from("workflow_enrollments")
-        .select("id")
-        .eq("workflow_id", wf.id as string)
-        .eq("phone_number", lead.phone_number)
-        .maybeSingle();
-      if (existing) continue;
-      const firstDelay = steps[0]?.delayMinutes ?? 0;
+    // Build the list of candidate leads for this trigger type.
+    const candidates: Array<{ id: string | null; phone_number: string }> = [];
+
+    if (triggerType === "pipeline_stage") {
+      const segment = String(cfg.segment ?? wf.trigger_segment ?? "");
+      const column = PIPELINE_COLUMNS.find((c) => c.id === segment);
+      if (!column) continue;
+      const { data: leadsData } = await db
+        .from("leads")
+        .select("id, phone_number")
+        .in("qualification_status", column.stages as unknown as string[])
+        .limit(500);
+      for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) candidates.push(l);
+    } else if (triggerType === "booking_status") {
+      const status = String(cfg.status ?? "pending");
+      const { data: appts } = await db
+        .from("appointments")
+        .select("phone_number")
+        .eq("status", status)
+        .limit(500);
+      const phones = [
+        ...new Set(
+          ((appts as Array<{ phone_number: string | null }>) ?? [])
+            .map((a) => a.phone_number)
+            .filter((p): p is string => Boolean(p)),
+        ),
+      ];
+      if (phones.length === 0) continue;
+      const { data: leadsData } = await db.from("leads").select("id, phone_number").in("phone_number", phones);
+      for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) candidates.push(l);
+    } else if (triggerType === "time_since_first_message" || triggerType === "time_since_last_message") {
+      const thresholdMs = delayToMs(Number(cfg.amount ?? 0), String(cfg.unit ?? "hours"));
+      if (thresholdMs <= 0) continue;
+      const cutoff = Date.now() - thresholdMs;
+      const earliest = triggerType === "time_since_first_message";
+      const { data: leadsData } = await db.from("leads").select("id, phone_number").limit(500);
+      for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) {
+        if (enrolledSet.has(l.phone_number)) continue;
+        const { data: msgs } = await db
+          .from("whatsapp_messages")
+          .select("received_at")
+          .eq("phone_number", l.phone_number)
+          .order("received_at", { ascending: earliest })
+          .limit(1);
+        const ts = (msgs as Array<{ received_at: string }> | null)?.[0]?.received_at;
+        if (!ts) continue;
+        if (new Date(ts).getTime() <= cutoff) candidates.push(l);
+      }
+    } else {
+      continue;
+    }
+
+    const firstDelayMs = steps[0]?.delayMs ?? 0;
+    for (const lead of candidates) {
+      if (enrolledSet.has(lead.phone_number)) continue;
+      enrolledSet.add(lead.phone_number);
       await db.from("workflow_enrollments").insert({
         workflow_id: wf.id,
         lead_id: lead.id,
         phone_number: lead.phone_number,
         current_step: 0,
         status: "active",
-        next_run_at: new Date(Date.now() + firstDelay * 60_000).toISOString(),
+        next_run_at: new Date(Date.now() + firstDelayMs).toISOString(),
       } as never);
       enrolled += 1;
     }
   }
+
 
   // --- Advance due enrollments ---
   const { data: dueData } = await db
