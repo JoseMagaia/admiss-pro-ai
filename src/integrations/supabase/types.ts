@@ -421,6 +421,101 @@ export type Database = {
         }
         Relationships: []
       }
+      responder_agent_variables: {
+        Row: {
+          agent_id: string
+          created_at: string
+          description: string | null
+          id: string
+          updated_at: string
+          variable_name: string
+          variable_value: string
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          updated_at?: string
+          variable_name: string
+          variable_value?: string
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          updated_at?: string
+          variable_name?: string
+          variable_value?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "responder_agent_variables_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "responder_agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      responder_agents: {
+        Row: {
+          created_at: string
+          custom_api_key: string | null
+          custom_base_url: string | null
+          custom_model: string | null
+          custom_provider: string | null
+          description: string | null
+          enabled: boolean
+          id: string
+          inherit_variables: boolean
+          model: string
+          name: string
+          provider_mode: string
+          system_prompt: string
+          temperature: number
+          updated_at: string
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          custom_api_key?: string | null
+          custom_base_url?: string | null
+          custom_model?: string | null
+          custom_provider?: string | null
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          inherit_variables?: boolean
+          model?: string
+          name: string
+          provider_mode?: string
+          system_prompt?: string
+          temperature?: number
+          updated_at?: string
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          custom_api_key?: string | null
+          custom_base_url?: string | null
+          custom_model?: string | null
+          custom_provider?: string | null
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          inherit_variables?: boolean
+          model?: string
+          name?: string
+          provider_mode?: string
+          system_prompt?: string
+          temperature?: number
+          updated_at?: string
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
       scheduled_messages: {
         Row: {
           chatwoot_conversation_id: string | null
@@ -519,6 +614,103 @@ export type Database = {
           sender?: string
         }
         Relationships: []
+      }
+      workflow_enrollments: {
+        Row: {
+          created_at: string
+          current_step: number
+          id: string
+          last_step_at: string | null
+          lead_id: string | null
+          next_run_at: string | null
+          phone_number: string
+          reacted: boolean
+          status: string
+          updated_at: string
+          workflow_id: string
+        }
+        Insert: {
+          created_at?: string
+          current_step?: number
+          id?: string
+          last_step_at?: string | null
+          lead_id?: string | null
+          next_run_at?: string | null
+          phone_number: string
+          reacted?: boolean
+          status?: string
+          updated_at?: string
+          workflow_id: string
+        }
+        Update: {
+          created_at?: string
+          current_step?: number
+          id?: string
+          last_step_at?: string | null
+          lead_id?: string | null
+          next_run_at?: string | null
+          phone_number?: string
+          reacted?: boolean
+          status?: string
+          updated_at?: string
+          workflow_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflow_enrollments_workflow_id_fkey"
+            columns: ["workflow_id"]
+            isOneToOne: false
+            referencedRelation: "workflows"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workflows: {
+        Row: {
+          agent_id: string | null
+          created_at: string
+          description: string | null
+          enabled: boolean
+          graph: Json
+          id: string
+          name: string
+          trigger_segment: string
+          updated_at: string
+          workspace_id: string | null
+        }
+        Insert: {
+          agent_id?: string | null
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          graph?: Json
+          id?: string
+          name: string
+          trigger_segment?: string
+          updated_at?: string
+          workspace_id?: string | null
+        }
+        Update: {
+          agent_id?: string | null
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          graph?: Json
+          id?: string
+          name?: string
+          trigger_segment?: string
+          updated_at?: string
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workflows_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "responder_agents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
