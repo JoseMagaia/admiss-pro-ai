@@ -959,6 +959,8 @@ export const saveMeetingOutcome = createServerFn({ method: "POST" })
         workflowName: mapping.workflow,
         phone: leadRow.phone_number,
         leadId: leadRow.id,
+        workspaceId: data.workspace_id ?? null,
+        sendNow: true,
       });
       workflowStatus = res.status;
     } catch (e) {
