@@ -31,6 +31,11 @@ import {
   type TriggerType,
   type TriggerConfig,
 } from "@/lib/orchestration";
+import {
+  MEETING_OUTCOME_TEMPLATES,
+  type OutcomeWorkflowTemplate,
+  type TemplateStep,
+} from "@/lib/meeting-outcomes";
 import { upsertWorkflow } from "@/lib/dashboard.functions";
 
 export interface WorkflowRow {
@@ -106,6 +111,37 @@ function defaultGraph(): { nodes: Node[]; edges: Edge[] } {
   };
 }
 
+function graphFromTemplate(steps: TemplateStep[]): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = [
+    { id: "trigger", type: "trigger", position: { x: 80, y: 20 }, data: { label: "Trigger" } },
+  ];
+  const edges: Edge[] = [];
+  let prevId = "trigger";
+  steps.forEach((step, i) => {
+    const id = `m${i}_${Date.now()}`;
+    nodes.push({
+      id,
+      type: "message",
+      position: { x: 80, y: 20 + (i + 1) * 120 },
+      data: {
+        content: step.content,
+        delayValue: step.delayValue,
+        delayUnit: step.delayUnit,
+        index: i,
+      },
+    });
+    edges.push({
+      id: `e_${prevId}_${id}`,
+      source: prevId,
+      target: id,
+      sourceHandle: null,
+      targetHandle: null,
+    });
+    prevId = id;
+  });
+  return { nodes, edges };
+}
+
 export function WorkflowBuilder({
   initial,
   agents,
@@ -154,6 +190,20 @@ export function WorkflowBuilder({
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const onConnect = useCallback((c: Connection) => setEdges((eds) => addEdge(c, eds)), [setEdges]);
+
+  const [templateChoice, setTemplateChoice] = useState("");
+
+  const applyTemplate = (tmpl: OutcomeWorkflowTemplate) => {
+    setName(tmpl.name);
+    setDescription(tmpl.description);
+    // Meeting-outcome templates are enrolled manually on form submission.
+    setTriggerType("manual");
+    const { nodes: tn, edges: te } = graphFromTemplate(tmpl.steps);
+    setNodes(tn);
+    setEdges(te);
+    setSelectedId(null);
+    toast.success(`Loaded "${tmpl.name}" template`);
+  };
 
   const messageCount = nodes.filter((n) => n.type === "message").length;
 
@@ -236,6 +286,32 @@ export function WorkflowBuilder({
 
   return (
     <div className="space-y-4">
+      <div className="rounded-xl border border-dashed bg-muted/30 p-3">
+        <Label className="text-xs">Start from a Meeting Outcome template</Label>
+        <div className="mt-1.5 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <select
+            value={templateChoice}
+            onChange={(e) => {
+              const val = e.target.value;
+              setTemplateChoice(val);
+              const tmpl = MEETING_OUTCOME_TEMPLATES.find((t) => t.name === val);
+              if (tmpl) applyTemplate(tmpl);
+            }}
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm sm:max-w-sm"
+          >
+            <option value="">Select a template…</option>
+            {MEETING_OUTCOME_TEMPLATES.map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-[11px] text-muted-foreground">
+            Auto-fills the name, description and message sequence with ideal intervals. You can edit everything before
+            saving.
+          </p>
+        </div>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div className="space-y-1.5">
           <Label>Workflow Name</Label>

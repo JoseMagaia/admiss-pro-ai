@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Trash2, Workflow as WorkflowIcon, Power, Sparkles } from "lucide-react";
+import { Plus, Trash2, Workflow as WorkflowIcon, Power } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { triggerTypeLabel } from "@/lib/orchestration";
@@ -10,7 +10,6 @@ import {
   deleteWorkflow,
   listResponderAgents,
   listWorkspaces,
-  seedMeetingOutcomeWorkflows,
 } from "@/lib/dashboard.functions";
 import { WorkflowBuilder, type WorkflowRow } from "./WorkflowBuilder";
 
@@ -32,7 +31,6 @@ export function WorkflowManager() {
   const delFn = useServerFn(deleteWorkflow);
   const agentsFn = useServerFn(listResponderAgents);
   const wsFn = useServerFn(listWorkspaces);
-  const seedFn = useServerFn(seedMeetingOutcomeWorkflows);
 
   const { data } = useQuery({ queryKey: ["workflows"], queryFn: () => listFn() });
   const { data: agentsData } = useQuery({ queryKey: ["responder-agents"], queryFn: () => agentsFn() });
@@ -59,23 +57,7 @@ export function WorkflowManager() {
     onError: () => toast.error("Failed to delete"),
   });
 
-  const seed = useMutation({
-    mutationFn: () => seedFn(),
-    onSuccess: (r) => {
-      const res = r as { ok: boolean; created?: number; error?: string };
-      if (!res.ok) {
-        toast.error(res.error ?? "Failed to generate templates");
-        return;
-      }
-      toast.success(
-        res.created && res.created > 0
-          ? `Created ${res.created} meeting-outcome template${res.created === 1 ? "" : "s"}.`
-          : "All meeting-outcome templates already exist.",
-      );
-      qc.invalidateQueries({ queryKey: ["workflows"] });
-    },
-    onError: () => toast.error("Failed to generate templates"),
-  });
+
 
   if (editing) {
     return (
@@ -142,9 +124,6 @@ export function WorkflowManager() {
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" onClick={() => setEditing({ ...EMPTY_WORKFLOW })}>
           <Plus className="mr-1 h-4 w-4" /> New Workflow
-        </Button>
-        <Button variant="ghost" disabled={seed.isPending} onClick={() => seed.mutate()}>
-          <Sparkles className="mr-1 h-4 w-4" /> Generate Meeting Outcome Templates
         </Button>
       </div>
     </div>
