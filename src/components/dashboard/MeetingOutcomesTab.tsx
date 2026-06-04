@@ -569,7 +569,9 @@ export function MeetingOutcomesTab() {
                   <th className="px-4 py-3 font-semibold">Follow-Up</th>
                   <th className="px-4 py-3 font-semibold">Workflow</th>
                   <th className="px-4 py-3 text-right font-semibold">Edit</th>
+                  {isSuperAdmin && <th className="px-4 py-3 text-right font-semibold">Delete</th>}
                 </tr>
+
               </thead>
               <tbody>
                 {outcomes.map((o) => {
