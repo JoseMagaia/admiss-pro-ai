@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as ApiPublicProcessWorkflowsRouteImport } from './routes/api/public/process-workflows'
 import { Route as ApiPublicProcessScheduledMessagesRouteImport } from './routes/api/public/process-scheduled-messages'
 import { Route as ApiPublicChatwootWebhookRouteImport } from './routes/api/public/chatwoot-webhook'
 
@@ -47,6 +48,12 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const ApiPublicProcessWorkflowsRoute =
+  ApiPublicProcessWorkflowsRouteImport.update({
+    id: '/api/public/process-workflows',
+    path: '/api/public/process-workflows',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicProcessScheduledMessagesRoute =
   ApiPublicProcessScheduledMessagesRouteImport.update({
     id: '/api/public/process-scheduled-messages',
@@ -68,6 +75,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
+  '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -77,6 +85,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
+  '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -88,6 +97,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
+  '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -99,6 +109,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/api/public/chatwoot-webhook'
     | '/api/public/process-scheduled-messages'
+    | '/api/public/process-workflows'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -108,6 +119,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/api/public/chatwoot-webhook'
     | '/api/public/process-scheduled-messages'
+    | '/api/public/process-workflows'
   id:
     | '__root__'
     | '/'
@@ -118,6 +130,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/api/public/chatwoot-webhook'
     | '/api/public/process-scheduled-messages'
+    | '/api/public/process-workflows'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -128,6 +141,7 @@ export interface RootRouteChildren {
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiPublicChatwootWebhookRoute: typeof ApiPublicChatwootWebhookRoute
   ApiPublicProcessScheduledMessagesRoute: typeof ApiPublicProcessScheduledMessagesRoute
+  ApiPublicProcessWorkflowsRoute: typeof ApiPublicProcessWorkflowsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -174,6 +188,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/process-workflows': {
+      id: '/api/public/process-workflows'
+      path: '/api/public/process-workflows'
+      fullPath: '/api/public/process-workflows'
+      preLoaderRoute: typeof ApiPublicProcessWorkflowsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/process-scheduled-messages': {
       id: '/api/public/process-scheduled-messages'
       path: '/api/public/process-scheduled-messages'
@@ -211,7 +232,18 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicChatwootWebhookRoute: ApiPublicChatwootWebhookRoute,
   ApiPublicProcessScheduledMessagesRoute:
     ApiPublicProcessScheduledMessagesRoute,
+  ApiPublicProcessWorkflowsRoute: ApiPublicProcessWorkflowsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
