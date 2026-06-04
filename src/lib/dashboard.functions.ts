@@ -1186,4 +1186,110 @@ export const getMeetingOutcomeStats = createServerFn({ method: "GET" }).handler(
   };
 });
 
+/* Delete a recorded meeting outcome. Super-admin only. */
+export const deleteMeetingOutcome = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { error } = await db.from("meeting_outcomes").delete().eq("id", data.id);
+    if (error) return { ok: false, error: error.message };
+    await db.from("audit_logs").insert({
+      actor_email: me.email ?? null,
+      actor_role: me.role ?? null,
+      action: "meeting_outcome_deleted",
+      entity_type: "meeting_outcome",
+      entity_id: data.id,
+      details: {},
+    } as never);
+    return { ok: true, error: null };
+  });
+
+/* Run the workflow processor on demand. Used to fire a meeting-outcome follow-up
+   the moment the 1-minute edit countdown ends, instead of waiting for the cron. */
+export const processDueWorkflows = createServerFn({ method: "POST" }).handler(async () => {
+  try {
+    await guard(["super_admin", "admin"]);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  try {
+    const { processWorkflows } = await import("./admissions.server");
+    const res = await processWorkflows();
+    return { ok: true, error: null, ...res };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+});
+
+/* Per-phone workflow state used to show pause/resume controls. Returns a list of
+   phone numbers that currently have an active or paused workflow enrollment. */
+export const listWorkflowStates = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAdminOrSuper())) return { states: [] };
+  const db = await admin();
+  const { data } = await db
+    .from("workflow_enrollments")
+    .select("phone_number, status")
+    .in("status", ["active", "paused"])
+    .limit(2000);
+  const byPhone = new Map<string, "active" | "paused">();
+  for (const r of (data as Array<{ phone_number: string; status: string }>) ?? []) {
+    const cur = byPhone.get(r.phone_number);
+    // Active wins over paused so resuming any sequence is reflected.
+    if (r.status === "active" || cur !== "active") {
+      byPhone.set(r.phone_number, r.status === "active" ? "active" : "paused");
+    }
+  }
+  return { states: Array.from(byPhone.entries()).map(([phone_number, status]) => ({ phone_number, status })) };
+});
+
+/* Pause or resume every active/paused workflow enrollment for a lead. Admin + super. */
+export const pauseLeadWorkflow = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ phone: z.string().min(1).max(60), paused: z.boolean() }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(["super_admin", "admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const from = data.paused ? "active" : "paused";
+    const to = data.paused ? "paused" : "active";
+    const { error } = await db
+      .from("workflow_enrollments")
+      .update({ status: to } as never)
+      .eq("phone_number", data.phone)
+      .eq("status", from);
+    if (error) return { ok: false, error: error.message };
+    await db.from("audit_logs").insert({
+      actor_email: me.email ?? null,
+      actor_role: me.role ?? null,
+      action: data.paused ? "workflow_paused" : "workflow_resumed",
+      entity_type: "lead",
+      details: { phone: data.phone },
+    } as never);
+    return { ok: true, error: null };
+  });
+
+/* Contacts directory — everyone who has been contacted (name + phone). Any role. */
+export const listContacts = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { contacts: [] };
+  const db = await admin();
+  const { data } = await db
+    .from("leads")
+    .select("id, lead_name, phone_number, course_interest, country_interest, created_at")
+    .order("created_at", { ascending: false })
+    .limit(2000);
+  return { contacts: data ?? [] };
+});
+
+
 
