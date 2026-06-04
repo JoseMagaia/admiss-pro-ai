@@ -523,3 +523,315 @@ function stageBeyondAi(stage?: string | null): boolean {
   ];
   return beyond.includes(stage ?? "");
 }
+
+/* ===================== ORCHESTRATION WORKFLOWS ===================== */
+
+import { PIPELINE_COLUMNS } from "./pipeline";
+import { runResponderAgent } from "./ai-engine.server";
+
+export interface WorkflowStep {
+  content: string;
+  delayMinutes: number;
+}
+
+interface GraphNode {
+  id: string;
+  type?: string;
+  data?: { content?: string; delayMinutes?: number };
+}
+interface GraphEdge {
+  source: string;
+  target: string;
+}
+interface WorkflowGraph {
+  nodes?: GraphNode[];
+  edges?: GraphEdge[];
+}
+
+// Resolve the ordered message steps from a saved visual graph. Walks the edges
+// starting from the trigger node; falls back to node array order.
+export function orderedSteps(graph: unknown): WorkflowStep[] {
+  const g = (graph ?? {}) as WorkflowGraph;
+  const nodes = g.nodes ?? [];
+  const edges = g.edges ?? [];
+  const messageNodes = nodes.filter((n) => n.type === "message" || n.type === undefined);
+  if (messageNodes.length === 0) return [];
+
+  const trigger = nodes.find((n) => n.type === "trigger");
+  const toStep = (n: GraphNode): WorkflowStep => ({
+    content: String(n.data?.content ?? "").trim(),
+    delayMinutes: Math.max(0, Number(n.data?.delayMinutes ?? 0)),
+  });
+
+  if (trigger && edges.length > 0) {
+    const ordered: WorkflowStep[] = [];
+    const seen = new Set<string>();
+    let currentId: string | undefined = trigger.id;
+    while (currentId) {
+      const edge = edges.find((e) => e.source === currentId);
+      if (!edge || seen.has(edge.target)) break;
+      seen.add(edge.target);
+      const node = nodes.find((n) => n.id === edge.target);
+      if (node && (node.type === "message" || node.type === undefined)) ordered.push(toStep(node));
+      currentId = edge.target;
+    }
+    if (ordered.length > 0) return ordered.filter((s) => s.content.length > 0);
+  }
+
+  return messageNodes.map(toStep).filter((s) => s.content.length > 0);
+}
+
+// Send an outbound workflow message on the lead's conversation.
+async function sendWorkflowMessage(phone: string, message: string, workflowWorkspaceId: string | null) {
+  const db = await admin();
+  const { data: conv } = await db
+    .from("conversations")
+    .select("chatwoot_conversation_id, workspace_id")
+    .eq("phone_number", phone)
+    .maybeSingle();
+  const { data: lead } = await db
+    .from("leads")
+    .select("chatwoot_conversation_id, workspace_id")
+    .eq("phone_number", phone)
+    .maybeSingle();
+
+  const workspaceId =
+    (conv as Record<string, unknown> | null)?.workspace_id ??
+    (lead as Record<string, unknown> | null)?.workspace_id ??
+    workflowWorkspaceId ??
+    null;
+  const conversationId =
+    (conv as Record<string, unknown> | null)?.chatwoot_conversation_id ??
+    (lead as Record<string, unknown> | null)?.chatwoot_conversation_id ??
+    null;
+
+  const workspace = await resolveWorkspace({ workspaceId: workspaceId as string | null });
+  const creds = await resolveCreds(workspace);
+  const sent = await sendChatwootReply(creds, conversationId as string | null, message);
+
+  await db.from("whatsapp_messages").insert({
+    phone_number: phone,
+    message_content: message,
+    sender: "workflow",
+    message_type: "text",
+    processed: true,
+  });
+  return sent;
+}
+
+// Build the effective AI context for a responder agent (provider, variables, model).
+async function loadResponderContext(agent: Record<string, unknown>): Promise<AiContext> {
+  const base = await loadAiContext();
+  const db = await admin();
+
+  // Variables: optionally inherit qualification variables, then apply overrides.
+  const variables: Record<string, string> = agent.inherit_variables ? { ...base.variables } : {};
+  const { data: overrides } = await db
+    .from("responder_agent_variables")
+    .select("variable_name, variable_value")
+    .eq("agent_id", agent.id as string);
+  for (const v of (overrides as Array<{ variable_name: string; variable_value: string }>) ?? []) {
+    variables[v.variable_name] = v.variable_value;
+  }
+
+  const mode = String(agent.provider_mode ?? "inherit");
+  let provider: ProviderConfig;
+  let model = String(agent.model ?? base.model);
+  if (mode === "inherit") {
+    provider = base.provider ?? { mode: "built_in" };
+    if (provider.mode === "built_in") model = base.model;
+  } else if (mode === "custom") {
+    provider = {
+      mode: "custom",
+      custom_provider: (agent.custom_provider as string) ?? null,
+      custom_base_url: (agent.custom_base_url as string) ?? null,
+      custom_model: (agent.custom_model as string) ?? null,
+      custom_api_key: (agent.custom_api_key as string) ?? null,
+    };
+  } else {
+    provider = { mode: "built_in" };
+  }
+
+  return {
+    systemPrompt: String(agent.system_prompt ?? "You are a helpful follow-up assistant."),
+    model,
+    temperature: Number(agent.temperature ?? 0.7),
+    variables,
+    settings: base.settings,
+    provider,
+  };
+}
+
+// If the lead has an active workflow enrollment with a responder agent, handle
+// the reaction with that agent and return its reply. Returns null if there is no
+// applicable workflow (so the caller falls back to the qualification engine).
+async function tryWorkflowResponder(params: {
+  phone: string;
+  message: string;
+  lead: LeadRecord;
+  conversationId: string | null;
+  creds: ChatwootCreds | null;
+}): Promise<string | null> {
+  const db = await admin();
+  const { data: enrollments } = await db
+    .from("workflow_enrollments")
+    .select("id, workflow_id, status")
+    .eq("phone_number", params.phone)
+    .in("status", ["active", "reacted"])
+    .order("updated_at", { ascending: false });
+
+  const rows = (enrollments as Array<Record<string, unknown>>) ?? [];
+  if (rows.length === 0) return null;
+
+  for (const enr of rows) {
+    const { data: wf } = await db
+      .from("workflows")
+      .select("id, agent_id, enabled")
+      .eq("id", enr.workflow_id as string)
+      .maybeSingle();
+    const workflow = wf as Record<string, unknown> | null;
+    if (!workflow || !workflow.enabled || !workflow.agent_id) continue;
+
+    const { data: ag } = await db
+      .from("responder_agents")
+      .select("*")
+      .eq("id", workflow.agent_id as string)
+      .maybeSingle();
+    const agent = ag as Record<string, unknown> | null;
+    if (!agent || !agent.enabled) continue;
+
+    // Mark the enrollment as reacted so the outbound sequence stops.
+    await db
+      .from("workflow_enrollments")
+      .update({ reacted: true, status: "reacted", next_run_at: null } as never)
+      .eq("id", enr.id as string);
+
+    const ctx = await loadResponderContext(agent);
+    const history = await recentHistory(params.phone);
+    const { reply, error } = await runResponderAgent({
+      systemPrompt: ctx.systemPrompt,
+      model: ctx.model,
+      temperature: ctx.temperature,
+      variables: ctx.variables,
+      settings: ctx.settings,
+      lead: params.lead,
+      history,
+      userMessage: params.message,
+      provider: ctx.provider,
+    });
+
+    if (error || !reply) {
+      // Let the qualification engine handle it rather than going silent.
+      return null;
+    }
+
+    await db.from("whatsapp_messages").insert({
+      phone_number: params.phone,
+      message_content: reply,
+      sender: "ai",
+      message_type: "text",
+      ai_response: reply,
+      processed: true,
+    });
+    await sendChatwootReply(params.creds, params.conversationId, reply);
+    return reply;
+  }
+
+  return null;
+}
+
+// Enroll matching leads into enabled workflows and advance due sequences.
+// Called every minute by the process-workflows cron route.
+export async function processWorkflows(): Promise<{ enrolled: number; sent: number }> {
+  const db = await admin();
+  const nowIso = new Date().toISOString();
+  let enrolled = 0;
+  let sent = 0;
+
+  const { data: workflowsData } = await db.from("workflows").select("*").eq("enabled", true);
+  const workflows = (workflowsData as Array<Record<string, unknown>>) ?? [];
+
+  // --- Enrollment ---
+  for (const wf of workflows) {
+    const segment = String(wf.trigger_segment ?? "manual");
+    if (segment === "manual") continue;
+    const column = PIPELINE_COLUMNS.find((c) => c.id === segment);
+    if (!column) continue;
+    const steps = orderedSteps(wf.graph);
+    if (steps.length === 0) continue;
+
+    const { data: leadsData } = await db
+      .from("leads")
+      .select("id, phone_number")
+      .in("qualification_status", column.stages as unknown as string[])
+      .limit(500);
+    const leads = (leadsData as Array<{ id: string; phone_number: string }>) ?? [];
+
+    for (const lead of leads) {
+      const { data: existing } = await db
+        .from("workflow_enrollments")
+        .select("id")
+        .eq("workflow_id", wf.id as string)
+        .eq("phone_number", lead.phone_number)
+        .maybeSingle();
+      if (existing) continue;
+      const firstDelay = steps[0]?.delayMinutes ?? 0;
+      await db.from("workflow_enrollments").insert({
+        workflow_id: wf.id,
+        lead_id: lead.id,
+        phone_number: lead.phone_number,
+        current_step: 0,
+        status: "active",
+        next_run_at: new Date(Date.now() + firstDelay * 60_000).toISOString(),
+      } as never);
+      enrolled += 1;
+    }
+  }
+
+  // --- Advance due enrollments ---
+  const { data: dueData } = await db
+    .from("workflow_enrollments")
+    .select("*")
+    .eq("status", "active")
+    .eq("reacted", false)
+    .lte("next_run_at", nowIso)
+    .limit(100);
+  const due = (dueData as Array<Record<string, unknown>>) ?? [];
+
+  for (const enr of due) {
+    const wf = workflows.find((w) => w.id === enr.workflow_id);
+    if (!wf) {
+      await db.from("workflow_enrollments").update({ status: "stopped" } as never).eq("id", enr.id as string);
+      continue;
+    }
+    const steps = orderedSteps(wf.graph);
+    const step = Number(enr.current_step ?? 0);
+    if (step >= steps.length) {
+      await db.from("workflow_enrollments").update({ status: "completed", next_run_at: null } as never).eq("id", enr.id as string);
+      continue;
+    }
+
+    await sendWorkflowMessage(String(enr.phone_number), steps[step].content, (wf.workspace_id as string) ?? null);
+    sent += 1;
+
+    const nextStep = step + 1;
+    if (nextStep >= steps.length) {
+      await db
+        .from("workflow_enrollments")
+        .update({ current_step: nextStep, status: "completed", next_run_at: null, last_step_at: new Date().toISOString() } as never)
+        .eq("id", enr.id as string);
+    } else {
+      const nextDelay = steps[nextStep]?.delayMinutes ?? 0;
+      await db
+        .from("workflow_enrollments")
+        .update({
+          current_step: nextStep,
+          next_run_at: new Date(Date.now() + nextDelay * 60_000).toISOString(),
+          last_step_at: new Date().toISOString(),
+        } as never)
+        .eq("id", enr.id as string);
+    }
+  }
+
+  return { enrolled, sent };
+}
