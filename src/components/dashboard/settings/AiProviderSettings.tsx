@@ -41,6 +41,7 @@ export function AiProviderSettings() {
   const qc = useQueryClient();
   const getFn = useServerFn(getAiConfig);
   const saveFn = useServerFn(saveAiProvider);
+  const testFn = useServerFn(testAiProvider);
 
   const { data } = useQuery({ queryKey: ["ai-config"], queryFn: () => getFn() });
   const cfg = (data?.config ?? null) as ConfigRow | null;
