@@ -211,7 +211,7 @@ export function LeadsTab() {
             className="pl-9"
           />
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {LEAD_FILTERS.map((f) => (
             <button
               key={f.id}
@@ -226,8 +226,34 @@ export function LeadsTab() {
               {f.label}
             </button>
           ))}
+          <Select value={timeFilter} onValueChange={setTimeFilter}>
+            <SelectTrigger className="h-8 w-[120px] text-xs">
+              <SelectValue placeholder="Time" />
+            </SelectTrigger>
+            <SelectContent>
+              {TIME_FILTERS.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sort} onValueChange={setSort}>
+            <SelectTrigger className="h-8 w-[130px] text-xs">
+              <ArrowUpDown className="mr-1 h-3.5 w-3.5" />
+              <SelectValue placeholder="Sort" />
+            </SelectTrigger>
+            <SelectContent>
+              {SORTS.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
+
 
       <div className="overflow-x-auto rounded-2xl border bg-card shadow-card">
         <table className="w-full text-sm">
