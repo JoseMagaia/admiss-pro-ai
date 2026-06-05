@@ -515,7 +515,7 @@ export async function deliverHumanMessage(params: {
     .maybeSingle();
 
   if (!lead) {
-    lead = await getOrCreateLead(phone, null, null, null);
+    lead = (await getOrCreateLead(phone, null, null, null)) as unknown as NonNullable<typeof lead>;
   }
   if (!conv) {
     const { data: createdConv } = await db
