@@ -537,7 +537,86 @@ export const saveAiProvider = createServerFn({ method: "POST" })
     return { ok: !error, error: error?.message ?? null };
   });
 
-export const listPromptVersions = createServerFn({ method: "GET" }).handler(async () => {
+// Test a custom AI provider connection before saving. When the api key is left
+// blank the stored key is used, so an existing connection can be re-verified.
+export const testAiProvider = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        provider_mode: z.enum(["built_in", "custom"]),
+        custom_provider: z.string().max(100).nullable().optional(),
+        custom_base_url: z.string().max(500).nullable().optional(),
+        custom_model: z.string().max(200).nullable().optional(),
+        custom_api_key: z.string().max(500).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+
+    if (data.provider_mode === "built_in") {
+      if (!process.env.LOVABLE_API_KEY) return { ok: false, error: "Built-in AI key is not configured." };
+      return { ok: true, error: null };
+    }
+
+    // Use the saved key when the form leaves it blank.
+    let apiKey = (data.custom_api_key ?? "").trim();
+    const baseUrl = (data.custom_base_url ?? "").trim();
+    const model = (data.custom_model ?? "").trim();
+    const provider = (data.custom_provider ?? "").toLowerCase();
+
+    if (!apiKey) {
+      const db = await admin();
+      const { data: cfg } = await db
+        .from("ai_configuration")
+        .select("custom_api_key")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      apiKey = String((cfg as { custom_api_key?: string } | null)?.custom_api_key ?? "").trim();
+    }
+
+    if (!apiKey) return { ok: false, error: "No API key provided or saved." };
+    if (!model) return { ok: false, error: "Select a model first." };
+
+    try {
+      if (provider === "anthropic") {
+        const url = (baseUrl.replace(/\/+$/, "") || "https://api.anthropic.com") + "/v1/messages";
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({ model, max_tokens: 8, messages: [{ role: "user", content: "ping" }] }),
+        });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          return { ok: false, error: `Provider error ${res.status}: ${t.slice(0, 200)}` };
+        }
+        return { ok: true, error: null };
+      }
+      if (!baseUrl) return { ok: false, error: "Base URL is required for this provider." };
+      const url = baseUrl.replace(/\/+$/, "") + "/chat/completions";
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, max_tokens: 8, messages: [{ role: "user", content: "ping" }] }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        return { ok: false, error: `Provider error ${res.status}: ${t.slice(0, 200)}` };
+      }
+      return { ok: true, error: null };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Connection failed" };
+    }
+  });
   if (!(await isAuthed())) return { versions: [] };
   const db = await admin();
   const { data } = await db
