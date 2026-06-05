@@ -205,13 +205,23 @@ export const listMessageThreads = createServerFn({ method: "POST" })
           .range(start, start + 999);
         const rows = ((matches as MessageRow[] | null) ?? []) as MessageRow[];
         for (const msg of rows) {
-          if (!threads.has(msg.phone_number)) {
+          const existing = threads.get(msg.phone_number);
+          if (!existing) {
             mergeThread(threads, msg.phone_number, {
               last_message_content: msg.message_content,
               last_message_at: msg.received_at,
               last_sender: msg.sender,
               match_message_content: msg.message_content,
               match_message_at: msg.received_at,
+              match_sender: msg.sender,
+            });
+          } else if (msg.sender === "lead" && existing.match_sender !== "lead") {
+            // Surface the student's (incoming) matching message instead of an
+            // outgoing AI/agent reply so inbound matches are visible in results.
+            mergeThread(threads, msg.phone_number, {
+              match_message_content: msg.message_content,
+              match_message_at: msg.received_at,
+              match_sender: "lead",
             });
           }
         }
