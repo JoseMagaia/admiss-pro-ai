@@ -175,17 +175,29 @@ export function LeadsTab() {
 
   const leads = (data?.leads ?? []) as Lead[];
 
-  const filtered = leads.filter((l) => {
-    const matchFilter = filter === "all" || columnForStage(l.qualification_status).id === filter;
+  const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    const matchSearch =
-      !q ||
-      l.lead_name?.toLowerCase().includes(q) ||
-      l.phone_number.toLowerCase().includes(q) ||
-      l.course_interest?.toLowerCase().includes(q) ||
-      l.country_interest?.toLowerCase().includes(q);
-    return matchFilter && matchSearch;
-  });
+    const rows = leads.filter((l) => {
+      const matchFilter = filter === "all" || columnForStage(l.qualification_status).id === filter;
+      const matchSearch =
+        !q ||
+        l.lead_name?.toLowerCase().includes(q) ||
+        l.phone_number.toLowerCase().includes(q) ||
+        l.course_interest?.toLowerCase().includes(q) ||
+        l.country_interest?.toLowerCase().includes(q);
+      const matchTime = withinRange(l.updated_at ?? l.created_at ?? null, timeFilter);
+      return matchFilter && matchSearch && matchTime;
+    });
+    rows.sort((a, b) => {
+      if (sort === "name_asc") return (a.lead_name ?? "").localeCompare(b.lead_name ?? "");
+      if (sort === "stage") return a.qualification_status.localeCompare(b.qualification_status);
+      const at = new Date(a.updated_at ?? a.created_at ?? 0).getTime();
+      const bt = new Date(b.updated_at ?? b.created_at ?? 0).getTime();
+      return sort === "oldest" ? at - bt : bt - at;
+    });
+    return rows;
+  }, [leads, filter, search, timeFilter, sort]);
+
 
   return (
     <div className="space-y-4">
