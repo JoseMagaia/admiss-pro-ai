@@ -617,6 +617,8 @@ export const testAiProvider = createServerFn({ method: "POST" })
       return { ok: false, error: e instanceof Error ? e.message : "Connection failed" };
     }
   });
+
+export const listPromptVersions = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { versions: [] };
   const db = await admin();
   const { data } = await db
