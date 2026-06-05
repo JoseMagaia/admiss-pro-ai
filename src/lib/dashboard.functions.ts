@@ -324,7 +324,7 @@ export const listMessageThreads = createServerFn({ method: "POST" })
 
 export const listConversationMessages = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
-    z.object({ phone: z.string().min(1).max(60), limit: z.number().int().min(1).max(500).optional() }).parse(d),
+    z.object({ phone: z.string().min(1).max(60), limit: z.number().int().min(1).max(1000).optional() }).parse(d),
   )
   .handler(async ({ data }) => {
     if (!(await isAuthed())) return { phone: data.phone, messages: [], conversation: null };
@@ -344,7 +344,7 @@ export const listConversationMessages = createServerFn({ method: "POST" })
       .select("*")
       .in("phone_number", messagePhones)
       .order("received_at", { ascending: false })
-      .limit(data.limit ?? 300);
+      .limit(data.limit ?? 1000);
     const messages = (((rows as MessageRow[] | null) ?? []) as MessageRow[]).reverse();
     return {
       phone: messages.at(-1)?.phone_number ?? canonicalPhone,
