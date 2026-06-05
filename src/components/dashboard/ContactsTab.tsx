@@ -20,6 +20,7 @@ interface Contact {
 export function ContactsTab() {
   const fn = useServerFn(listContacts);
   const [search, setSearch] = useState("");
+  const { openConversation } = useDashboardNav();
 
   const { data } = useQuery({
     queryKey: ["contacts"],
