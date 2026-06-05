@@ -98,6 +98,8 @@ export function LeadsTab() {
   const pauseFn = useServerFn(pauseLeadWorkflow);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [timeFilter, setTimeFilter] = useState("all");
+  const [sort, setSort] = useState("recent");
   const [pendingDelete, setPendingDelete] = useState<Lead | null>(null);
 
   const { data } = useQuery({
