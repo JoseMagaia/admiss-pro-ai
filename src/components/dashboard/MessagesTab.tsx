@@ -350,14 +350,14 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
         </div>
         <div className="flex-1 overflow-y-auto">
           {filteredConvs.map((c) => {
-            const conv = conversations.find((x) => x.phone_number === c.phone);
+            const conv = conversations.find((x) => digitsOnly(x.phone_number) === digitsOnly(c.phone));
             return (
               <button
                 key={c.phone}
                 onClick={() => setActive(c.phone)}
                 className={cn(
                   "flex w-full flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors hover:bg-muted/40",
-                  active === c.phone && "bg-primary/5",
+                  activeDigits === digitsOnly(c.phone) && "bg-primary/5",
                 )}
               >
                 <span className="flex items-center gap-2 text-sm font-semibold">
@@ -368,7 +368,13 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                     </span>
                   )}
                 </span>
-                <span className="line-clamp-1 text-xs text-muted-foreground">{c.last.message_content}</span>
+                <span className="line-clamp-2 text-xs text-muted-foreground">
+                  {c.matchMsg ? (
+                    <MatchSnippet text={c.matchMsg.message_content} term={search} />
+                  ) : (
+                    c.last.message_content
+                  )}
+                </span>
               </button>
             );
           })}
