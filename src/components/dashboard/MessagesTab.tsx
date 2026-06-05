@@ -52,6 +52,29 @@ import {
 } from "@/lib/dashboard.functions";
 import { cn } from "@/lib/utils";
 
+/** Compare phone numbers by their digits only, ignoring +, spaces, dashes, etc. */
+const digitsOnly = (p: string) => (p ?? "").replace(/\D/g, "");
+
+/** Render a short snippet of `text` centered on the first match of `term`, with the match highlighted. */
+function MatchSnippet({ text, term }: { text: string; term: string }) {
+  const q = term.trim();
+  if (!q) return <>{text}</>;
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx === -1) return <>{text}</>;
+  const start = Math.max(0, idx - 24);
+  const end = Math.min(text.length, idx + q.length + 40);
+  const before = (start > 0 ? "…" : "") + text.slice(start, idx);
+  const match = text.slice(idx, idx + q.length);
+  const after = text.slice(idx + q.length, end) + (end < text.length ? "…" : "");
+  return (
+    <>
+      {before}
+      <mark className="rounded bg-accent/40 px-0.5 text-accent-foreground">{match}</mark>
+      {after}
+    </>
+  );
+}
+
 interface Workspace {
   id: string;
   name?: string | null;
@@ -156,21 +179,29 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
   const filteredConvs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return grouped;
-    return grouped.filter(
-      (c) =>
-        c.phone.toLowerCase().includes(q) ||
-        c.msgs.some((m) => m.message_content?.toLowerCase().includes(q)),
-    );
+    if (!q) return grouped.map((c) => ({ ...c, matchMsg: null as Message | null }));
+    return grouped
+      .map((c) => {
+        const phoneMatch = c.phone.toLowerCase().includes(q);
+        // Find the most recent message whose body contains the search term.
+        const matchMsg =
+          [...c.msgs].reverse().find((m) => m.message_content?.toLowerCase().includes(q)) ?? null;
+        if (!phoneMatch && !matchMsg) return null;
+        return { ...c, matchMsg };
+      })
+      .filter((c): c is (typeof grouped)[number] & { matchMsg: Message | null } => c !== null);
   }, [grouped, search]);
 
   // When another tab requests a conversation, open it (works on mobile too).
+  // Match on digits so it opens regardless of how the phone is formatted in
+  // leads/contacts vs. the message records.
   useEffect(() => {
-    if (pendingConversation) {
-      setActive(pendingConversation);
-      onPendingHandled?.();
-    }
-  }, [pendingConversation, onPendingHandled]);
+    if (!pendingConversation) return;
+    const target = digitsOnly(pendingConversation);
+    const match = grouped.find((c) => digitsOnly(c.phone) === target);
+    setActive(match ? match.phone : pendingConversation);
+    onPendingHandled?.();
+  }, [pendingConversation, grouped, onPendingHandled]);
 
   useEffect(() => {
     // On desktop auto-open the most recent conversation. On mobile keep the list
@@ -178,11 +209,9 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     if (!active && !isMobile && filteredConvs.length) setActive(filteredConvs[0].phone);
   }, [filteredConvs, active, isMobile]);
 
-
-
-
-  const activeMsgs = grouped.find((c) => c.phone === active)?.msgs ?? [];
-  const activeConv = conversations.find((c) => c.phone_number === active);
+  const activeDigits = active ? digitsOnly(active) : null;
+  const activeMsgs = grouped.find((c) => digitsOnly(c.phone) === activeDigits)?.msgs ?? [];
+  const activeConv = conversations.find((c) => digitsOnly(c.phone_number) === activeDigits);
   const takeover = activeConv?.human_takeover ?? false;
   const activeScheduled = scheduled.filter((s) => s.phone_number === active && s.status === "pending");
   const workflowState =
@@ -321,14 +350,14 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
         </div>
         <div className="flex-1 overflow-y-auto">
           {filteredConvs.map((c) => {
-            const conv = conversations.find((x) => x.phone_number === c.phone);
+            const conv = conversations.find((x) => digitsOnly(x.phone_number) === digitsOnly(c.phone));
             return (
               <button
                 key={c.phone}
                 onClick={() => setActive(c.phone)}
                 className={cn(
                   "flex w-full flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors hover:bg-muted/40",
-                  active === c.phone && "bg-primary/5",
+                  activeDigits === digitsOnly(c.phone) && "bg-primary/5",
                 )}
               >
                 <span className="flex items-center gap-2 text-sm font-semibold">
@@ -339,7 +368,13 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                     </span>
                   )}
                 </span>
-                <span className="line-clamp-1 text-xs text-muted-foreground">{c.last.message_content}</span>
+                <span className="line-clamp-2 text-xs text-muted-foreground">
+                  {c.matchMsg ? (
+                    <MatchSnippet text={c.matchMsg.message_content} term={search} />
+                  ) : (
+                    c.last.message_content
+                  )}
+                </span>
               </button>
             );
           })}
