@@ -111,6 +111,19 @@ type ConversationRow = {
   updated_at?: string | null;
 };
 
+type MessageThread = {
+  phone_number: string;
+  lead_name: string | null;
+  human_takeover: boolean | null;
+  status: string | null;
+  conversation_updated_at: string | null;
+  last_message_content: string | null;
+  last_message_at: string | null;
+  last_sender: string | null;
+  match_message_content: string | null;
+  match_message_at: string | null;
+};
+
 function phoneCandidates(phone: string): string[] {
   const raw = phone.trim();
   const digits = raw.replace(/\D/g, "");
@@ -122,11 +135,22 @@ function phoneCandidates(phone: string): string[] {
 }
 
 function mergeThread(
-  threads: Map<string, Record<string, unknown>>,
+  threads: Map<string, MessageThread>,
   phone: string,
-  patch: Record<string, unknown>,
+  patch: Partial<MessageThread>,
 ) {
-  const existing = threads.get(phone) ?? { phone_number: phone };
+  const existing = threads.get(phone) ?? {
+    phone_number: phone,
+    lead_name: null,
+    human_takeover: null,
+    status: null,
+    conversation_updated_at: null,
+    last_message_content: null,
+    last_message_at: null,
+    last_sender: null,
+    match_message_content: null,
+    match_message_at: null,
+  };
   threads.set(phone, { ...existing, ...patch });
 }
 
@@ -161,7 +185,7 @@ export const listMessageThreads = createServerFn({ method: "POST" })
     const limit = data.limit ?? 30;
     const offset = data.offset ?? 0;
     const needed = offset + limit + 1;
-    const threads = new Map<string, Record<string, unknown>>();
+    const threads = new Map<string, MessageThread>();
 
     if (search) {
       let start = 0;
