@@ -26,6 +26,7 @@ import {
 } from "@/lib/dashboard.functions";
 import { LEAD_FILTERS, columnForStage } from "@/lib/pipeline";
 import { useAuth } from "@/hooks/useAuth";
+import { useDashboardNav } from "@/lib/dashboard-nav";
 import { cn } from "@/lib/utils";
 
 interface Lead {
