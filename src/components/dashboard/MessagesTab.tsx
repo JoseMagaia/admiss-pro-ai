@@ -118,6 +118,10 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     refetchInterval: 8000,
     enabled: canPause,
   });
+  const { data: workspacesData } = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: () => workspacesFn(),
+  });
 
   const [search, setSearch] = useState("");
   const [active, setActive] = useState<string | null>(null);
@@ -127,9 +131,17 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const bottomRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
+  // New-conversation dialog state.
+  const [newOpen, setNewOpen] = useState(false);
+  const [newPhone, setNewPhone] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newWorkspace, setNewWorkspace] = useState("");
+  const [newMessage, setNewMessage] = useState("");
+
   const messages = (msgData?.messages ?? []) as Message[];
   const conversations = (convData?.conversations ?? []) as Conversation[];
   const scheduled = (schedData?.scheduled ?? []) as Scheduled[];
+  const workspaces = (workspacesData?.workspaces ?? []) as unknown as Workspace[];
 
   const grouped = useMemo(() => {
     const map = new Map<string, Message[]>();
@@ -142,13 +154,31 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
       .sort((a, b) => new Date(b.last.received_at).getTime() - new Date(a.last.received_at).getTime());
   }, [messages]);
 
-  const filteredConvs = grouped.filter((c) => c.phone.toLowerCase().includes(search.toLowerCase()));
+  const filteredConvs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return grouped;
+    return grouped.filter(
+      (c) =>
+        c.phone.toLowerCase().includes(q) ||
+        c.msgs.some((m) => m.message_content?.toLowerCase().includes(q)),
+    );
+  }, [grouped, search]);
+
+  // When another tab requests a conversation, open it (works on mobile too).
+  useEffect(() => {
+    if (pendingConversation) {
+      setActive(pendingConversation);
+      onPendingHandled?.();
+    }
+  }, [pendingConversation, onPendingHandled]);
 
   useEffect(() => {
     // On desktop auto-open the most recent conversation. On mobile keep the list
     // visible until the user taps a conversation.
     if (!active && !isMobile && filteredConvs.length) setActive(filteredConvs[0].phone);
   }, [filteredConvs, active, isMobile]);
+
+
 
 
   const activeMsgs = grouped.find((c) => c.phone === active)?.msgs ?? [];
