@@ -21,6 +21,7 @@ export function PipelineTab() {
   const qc = useQueryClient();
   const leadsFn = useServerFn(listLeads);
   const stageFn = useServerFn(updateLeadStage);
+  const { openConversation } = useDashboardNav();
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
 
