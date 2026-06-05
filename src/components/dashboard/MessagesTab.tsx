@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
   Search,
@@ -38,8 +38,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  listMessages,
-  listConversations,
+  listMessageThreads,
+  listConversationMessages,
   sendHumanMessage,
   scheduleMessage,
   listScheduledMessages,
@@ -95,6 +95,19 @@ interface Conversation {
   status: string;
 }
 
+interface MessageThread {
+  phone_number: string;
+  lead_name: string | null;
+  human_takeover: boolean | null;
+  status: string | null;
+  conversation_updated_at: string | null;
+  last_message_content: string | null;
+  last_message_at: string | null;
+  last_sender: string | null;
+  match_message_content: string | null;
+  match_message_at: string | null;
+}
+
 interface Scheduled {
   id: string;
   phone_number: string;
@@ -112,8 +125,8 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const qc = useQueryClient();
   const { profile } = useAuth();
   const canPause = profile.role === "super_admin" || profile.role === "admin";
-  const msgFn = useServerFn(listMessages);
-  const convFn = useServerFn(listConversations);
+  const threadsFn = useServerFn(listMessageThreads);
+  const threadMessagesFn = useServerFn(listConversationMessages);
   const schedFn = useServerFn(listScheduledMessages);
   const sendFn = useServerFn(sendHumanMessage);
   const scheduleFn = useServerFn(scheduleMessage);
@@ -124,10 +137,32 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const workspacesFn = useServerFn(listWorkspaces);
   const startFn = useServerFn(startConversation);
 
-  const { data: msgData } = useQuery({ queryKey: ["messages"], queryFn: () => msgFn(), refetchInterval: 5000 });
-  const { data: convData } = useQuery({
-    queryKey: ["conversations"],
-    queryFn: () => convFn(),
+  const [search, setSearch] = useState("");
+  const [active, setActive] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+
+  // New-conversation dialog state.
+  const [newOpen, setNewOpen] = useState(false);
+  const [newPhone, setNewPhone] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newWorkspace, setNewWorkspace] = useState("");
+  const [newMessage, setNewMessage] = useState("");
+
+  const threadSearch = search.trim();
+  const threadPageSize = 30;
+  const threadQuery = useInfiniteQuery({
+    queryKey: ["message-threads", threadSearch],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      threadsFn({ data: { search: threadSearch, limit: threadPageSize, offset: pageParam } }),
+    getNextPageParam: (lastPage, pages) => {
+      const loaded = pages.reduce((sum, page) => sum + (((page as { threads?: unknown[] }).threads ?? []).length), 0);
+      return (lastPage as { hasMore?: boolean }).hasMore ? loaded : undefined;
+    },
     refetchInterval: 5000,
   });
   const { data: schedData } = useQuery({
@@ -146,51 +181,24 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     queryFn: () => workspacesFn(),
   });
 
-  const [search, setSearch] = useState("");
-  const [active, setActive] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [scheduleAt, setScheduleAt] = useState("");
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const isMobile = useIsMobile();
-
-  // New-conversation dialog state.
-  const [newOpen, setNewOpen] = useState(false);
-  const [newPhone, setNewPhone] = useState("");
-  const [newName, setNewName] = useState("");
-  const [newWorkspace, setNewWorkspace] = useState("");
-  const [newMessage, setNewMessage] = useState("");
-
-  const messages = (msgData?.messages ?? []) as Message[];
-  const conversations = (convData?.conversations ?? []) as Conversation[];
   const scheduled = (schedData?.scheduled ?? []) as Scheduled[];
   const workspaces = (workspacesData?.workspaces ?? []) as unknown as Workspace[];
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, Message[]>();
-    for (const m of messages) {
-      if (!map.has(m.phone_number)) map.set(m.phone_number, []);
-      map.get(m.phone_number)!.push(m);
-    }
-    return Array.from(map.entries())
-      .map(([phone, msgs]) => ({ phone, msgs, last: msgs[msgs.length - 1] }))
-      .sort((a, b) => new Date(b.last.received_at).getTime() - new Date(a.last.received_at).getTime());
-  }, [messages]);
+  const threads = useMemo(
+    () =>
+      (threadQuery.data?.pages ?? []).flatMap(
+        (page) => ((page as { threads?: MessageThread[] }).threads ?? []) as MessageThread[],
+      ),
+    [threadQuery.data],
+  );
 
-  const filteredConvs = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return grouped.map((c) => ({ ...c, matchMsg: null as Message | null }));
-    return grouped
-      .map((c) => {
-        const phoneMatch = c.phone.toLowerCase().includes(q);
-        // Find the most recent message whose body contains the search term.
-        const matchMsg =
-          [...c.msgs].reverse().find((m) => m.message_content?.toLowerCase().includes(q)) ?? null;
-        if (!phoneMatch && !matchMsg) return null;
-        return { ...c, matchMsg };
-      })
-      .filter((c): c is (typeof grouped)[number] & { matchMsg: Message | null } => c !== null);
-  }, [grouped, search]);
+  const activeDigits = active ? digitsOnly(active) : null;
+  const { data: activeData } = useQuery({
+    queryKey: ["conversation-messages", activeDigits ?? active],
+    queryFn: () => threadMessagesFn({ data: { phone: active!, limit: 1000 } }),
+    enabled: Boolean(active),
+    refetchInterval: 5000,
+  });
 
   // When another tab requests a conversation, open it (works on mobile too).
   // Match on digits so it opens regardless of how the phone is formatted in
@@ -198,25 +206,25 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   useEffect(() => {
     if (!pendingConversation) return;
     const target = digitsOnly(pendingConversation);
-    const match = grouped.find((c) => digitsOnly(c.phone) === target);
-    setActive(match ? match.phone : pendingConversation);
+    const match = threads.find((c) => digitsOnly(c.phone_number) === target);
+    setActive(match ? match.phone_number : pendingConversation);
     onPendingHandled?.();
-  }, [pendingConversation, grouped, onPendingHandled]);
+  }, [pendingConversation, threads, onPendingHandled]);
 
   useEffect(() => {
     // On desktop auto-open the most recent conversation. On mobile keep the list
     // visible until the user taps a conversation.
-    if (!active && !isMobile && filteredConvs.length) setActive(filteredConvs[0].phone);
-  }, [filteredConvs, active, isMobile]);
+    if (!active && !isMobile && threads.length) setActive(threads[0].phone_number);
+  }, [threads, active, isMobile]);
 
-  const activeDigits = active ? digitsOnly(active) : null;
-  const activeMsgs = grouped.find((c) => digitsOnly(c.phone) === activeDigits)?.msgs ?? [];
-  const activeConv = conversations.find((c) => digitsOnly(c.phone_number) === activeDigits);
+  const activeMsgs = ((activeData as { messages?: Message[] } | undefined)?.messages ?? []) as Message[];
+  const activeConv = (activeData as { conversation?: Conversation | null } | undefined)?.conversation ?? null;
+  const activePhone = (activeData as { phone?: string } | undefined)?.phone ?? active;
   const takeover = activeConv?.human_takeover ?? false;
-  const activeScheduled = scheduled.filter((s) => s.phone_number === active && s.status === "pending");
+  const activeScheduled = scheduled.filter((s) => digitsOnly(s.phone_number) === activeDigits && s.status === "pending");
   const workflowState =
     (statesData?.states ?? []).find(
-      (s: { phone_number: string }) => s.phone_number === active,
+      (s: { phone_number: string }) => digitsOnly(s.phone_number) === activeDigits,
     )?.status as "active" | "paused" | undefined;
 
   useEffect(() => {
@@ -224,7 +232,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   }, [activeMsgs.length, active]);
 
   const send = useMutation({
-    mutationFn: (message: string) => sendFn({ data: { phone: active!, message } }),
+    mutationFn: (message: string) => sendFn({ data: { phone: activePhone!, message } }),
     onSuccess: (r) => {
       const res = r as { ok: boolean; error?: string };
       if (res.ok) {
@@ -233,15 +241,15 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
         toast.warning(res.error ?? "Sent but delivery may have failed");
       }
       setDraft("");
-      qc.invalidateQueries({ queryKey: ["messages"] });
-      qc.invalidateQueries({ queryKey: ["conversations"] });
+      qc.invalidateQueries({ queryKey: ["message-threads"] });
+      qc.invalidateQueries({ queryKey: ["conversation-messages"] });
     },
     onError: () => toast.error("Failed to send"),
   });
 
   const schedule = useMutation({
     mutationFn: (vars: { message: string; scheduledFor: string }) =>
-      scheduleFn({ data: { phone: active!, message: vars.message, scheduledFor: vars.scheduledFor } }),
+      scheduleFn({ data: { phone: activePhone!, message: vars.message, scheduledFor: vars.scheduledFor } }),
     onSuccess: (r) => {
       const res = r as { ok: boolean; error?: string };
       if (res.ok) {
@@ -288,8 +296,8 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
       setNewName("");
       setNewWorkspace("");
       setNewMessage("");
-      qc.invalidateQueries({ queryKey: ["messages"] });
-      qc.invalidateQueries({ queryKey: ["conversations"] });
+      qc.invalidateQueries({ queryKey: ["message-threads"] });
+      qc.invalidateQueries({ queryKey: ["conversation-messages"] });
       qc.invalidateQueries({ queryKey: ["leads"] });
       qc.invalidateQueries({ queryKey: ["contacts"] });
       setActive(vars.phone);
@@ -299,15 +307,16 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
 
   const toggleTakeover = useMutation({
-    mutationFn: (enabled: boolean) => takeoverFn({ data: { phone: active!, enabled } }),
+    mutationFn: (enabled: boolean) => takeoverFn({ data: { phone: activePhone!, enabled } }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["conversations"] });
+      qc.invalidateQueries({ queryKey: ["message-threads"] });
+      qc.invalidateQueries({ queryKey: ["conversation-messages"] });
     },
     onError: () => toast.error("Failed to update"),
   });
 
   const pauseWorkflow = useMutation({
-    mutationFn: (paused: boolean) => pauseFn({ data: { phone: active!, paused } }),
+    mutationFn: (paused: boolean) => pauseFn({ data: { phone: activePhone!, paused } }),
     onSuccess: (res, paused) => {
       if ((res as { ok: boolean }).ok) {
         qc.invalidateQueries({ queryKey: ["workflow-states"] });
@@ -349,37 +358,54 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {filteredConvs.map((c) => {
-            const conv = conversations.find((x) => digitsOnly(x.phone_number) === digitsOnly(c.phone));
+          {threads.map((c) => {
+            const preview = c.match_message_content ?? c.last_message_content ?? "No messages yet.";
             return (
               <button
-                key={c.phone}
-                onClick={() => setActive(c.phone)}
+                key={c.phone_number}
+                onClick={() => setActive(c.phone_number)}
                 className={cn(
                   "flex w-full flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors hover:bg-muted/40",
-                  activeDigits === digitsOnly(c.phone) && "bg-primary/5",
+                  activeDigits === digitsOnly(c.phone_number) && "bg-primary/5",
                 )}
               >
                 <span className="flex items-center gap-2 text-sm font-semibold">
-                  {c.phone}
-                  {conv?.human_takeover && (
-                    <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-accent-foreground">
+                  <span className="truncate">{c.lead_name || c.phone_number}</span>
+                  {c.human_takeover && (
+                    <span className="shrink-0 rounded-full bg-accent/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-accent-foreground">
                       Human
                     </span>
                   )}
                 </span>
+                {c.lead_name && <span className="text-[11px] text-muted-foreground">{c.phone_number}</span>}
                 <span className="line-clamp-2 text-xs text-muted-foreground">
-                  {c.matchMsg ? (
-                    <MatchSnippet text={c.matchMsg.message_content} term={search} />
-                  ) : (
-                    c.last.message_content
-                  )}
+                  {c.match_message_content ? <MatchSnippet text={preview} term={search} /> : preview}
                 </span>
               </button>
             );
           })}
-          {filteredConvs.length === 0 && (
+          {threadQuery.isLoading && (
+            <div className="flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading conversations…
+            </div>
+          )}
+          {!threadQuery.isLoading && threads.length === 0 && (
             <p className="p-6 text-center text-sm text-muted-foreground">No conversations.</p>
+          )}
+          {threadQuery.hasNextPage && (
+            <div className="p-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={threadQuery.isFetchingNextPage}
+                onClick={() => threadQuery.fetchNextPage()}
+              >
+                {threadQuery.isFetchingNextPage ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                Load more chats
+              </Button>
+            </div>
           )}
         </div>
       </div>
