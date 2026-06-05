@@ -66,11 +66,16 @@ export function ContactsTab() {
               <th className="px-4 py-3 font-semibold">Course</th>
               <th className="px-4 py-3 font-semibold">Country</th>
               <th className="px-4 py-3 font-semibold">Added</th>
+              <th className="px-4 py-3 text-right font-semibold">Message</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((c) => (
-              <tr key={c.id} className="border-b last:border-0 hover:bg-muted/30">
+              <tr
+                key={c.id}
+                className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                onClick={() => openConversation(c.phone_number)}
+              >
                 <td className="px-4 py-3 font-medium">{c.lead_name ?? "—"}</td>
                 <td className="px-4 py-3 text-muted-foreground">{c.phone_number}</td>
                 <td className="px-4 py-3">{c.course_interest ?? "—"}</td>
@@ -78,11 +83,25 @@ export function ContactsTab() {
                 <td className="px-4 py-3 text-muted-foreground">
                   {format(new Date(c.created_at), "MMM d, yyyy")}
                 </td>
+                <td className="px-4 py-3 text-right">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 gap-1 px-2 text-xs text-primary"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openConversation(c.phone_number);
+                    }}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    Message
+                  </Button>
+                </td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
                   No contacts found.
                 </td>
               </tr>
