@@ -1,10 +1,17 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, Contact as ContactIcon, MessageSquare } from "lucide-react";
+import { Search, Contact as ContactIcon, MessageSquare, ArrowUpDown } from "lucide-react";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { listContacts } from "@/lib/dashboard.functions";
 import { useDashboardNav } from "@/lib/dashboard-nav";
 
@@ -15,6 +22,32 @@ interface Contact {
   course_interest: string | null;
   country_interest: string | null;
   created_at: string;
+}
+
+const TIME_FILTERS = [
+  { id: "all", label: "All time" },
+  { id: "today", label: "Today" },
+  { id: "7d", label: "7 days" },
+  { id: "30d", label: "30 days" },
+] as const;
+
+const SORTS = [
+  { id: "recent", label: "Newest" },
+  { id: "oldest", label: "Oldest" },
+  { id: "name_asc", label: "Name A–Z" },
+] as const;
+
+function withinRange(iso: string | null | undefined, range: string): boolean {
+  if (range === "all") return true;
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return false;
+  const now = Date.now();
+  const day = 86400000;
+  if (range === "today") return new Date(iso).toDateString() === new Date().toDateString();
+  if (range === "7d") return now - t <= 7 * day;
+  if (range === "30d") return now - t <= 30 * day;
+  return true;
 }
 
 export function ContactsTab() {
