@@ -27,6 +27,7 @@ import { SettingsTab } from "@/components/dashboard/SettingsTab";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
 import { canAccessTab, ROLE_LABELS } from "@/lib/roles";
+import { DashboardNavProvider } from "@/lib/dashboard-nav";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
