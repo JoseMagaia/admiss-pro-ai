@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Users, GraduationCap, Calendar, MessageSquare } from "lucide-react";
+import { Users, GraduationCap, Calendar, MessageSquare, UserX } from "lucide-react";
 import { getDashboardStats } from "@/lib/dashboard.functions";
 
 const CARDS = [
@@ -8,6 +8,7 @@ const CARDS = [
   { key: "qualified", label: "Qualified", icon: GraduationCap, color: "text-success bg-success/15" },
   { key: "bookings", label: "Bookings", icon: Calendar, color: "text-accent-foreground bg-accent/20" },
   { key: "messages", label: "Messages", icon: MessageSquare, color: "text-primary bg-chart-4/15" },
+  { key: "disqualified", label: "Disqualified", icon: UserX, color: "text-destructive bg-destructive/10" },
 ] as const;
 
 export function DashboardStats() {
