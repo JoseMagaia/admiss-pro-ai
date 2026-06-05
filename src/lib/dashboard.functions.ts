@@ -111,6 +111,11 @@ type ConversationRow = {
   updated_at?: string | null;
 };
 
+type LeadIdentityRow = {
+  phone_number: string;
+  lead_name: string | null;
+};
+
 type MessageThread = {
   phone_number: string;
   lead_name: string | null;
@@ -218,8 +223,8 @@ export const listMessageThreads = createServerFn({ method: "POST" })
         db.from("conversations").select("phone_number, human_takeover, status, updated_at").ilike("phone_number", `%${search}%`).limit(200),
       ]);
 
-      for (const lead of ([...(phoneLeads ?? []), ...(nameLeads ?? [])] as Array<Record<string, unknown>>)) {
-        mergeThread(threads, String(lead.phone_number), { lead_name: lead.lead_name ?? null });
+      for (const lead of ([...(phoneLeads ?? []), ...(nameLeads ?? [])] as LeadIdentityRow[])) {
+        mergeThread(threads, lead.phone_number, { lead_name: lead.lead_name ?? null });
       }
       for (const conv of ((phoneConvs as ConversationRow[] | null) ?? []) as ConversationRow[]) {
         mergeThread(threads, conv.phone_number, {
@@ -279,8 +284,8 @@ export const listMessageThreads = createServerFn({ method: "POST" })
           conversation_updated_at: conv.updated_at ?? null,
         });
       }
-      for (const lead of ((leadRows as Array<Record<string, unknown>> | null) ?? [])) {
-        mergeThread(threads, String(lead.phone_number), { lead_name: lead.lead_name ?? null });
+      for (const lead of ((leadRows as LeadIdentityRow[] | null) ?? [])) {
+        mergeThread(threads, lead.phone_number, { lead_name: lead.lead_name ?? null });
       }
 
       const missingLatest = phones.filter((phone) => !threads.get(phone)?.last_message_at);
