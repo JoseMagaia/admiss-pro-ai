@@ -47,7 +47,37 @@ interface Lead {
   parent_phone: string | null;
   document_received: boolean;
   qualification_status: string;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
+
+const TIME_FILTERS = [
+  { id: "all", label: "All time" },
+  { id: "today", label: "Today" },
+  { id: "7d", label: "7 days" },
+  { id: "30d", label: "30 days" },
+] as const;
+
+const SORTS = [
+  { id: "recent", label: "Most recent" },
+  { id: "oldest", label: "Oldest" },
+  { id: "name_asc", label: "Name A–Z" },
+  { id: "stage", label: "Stage" },
+] as const;
+
+function withinRange(iso: string | null | undefined, range: string): boolean {
+  if (range === "all") return true;
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return false;
+  const now = Date.now();
+  const day = 86400000;
+  if (range === "today") return new Date(iso).toDateString() === new Date().toDateString();
+  if (range === "7d") return now - t <= 7 * day;
+  if (range === "30d") return now - t <= 30 * day;
+  return true;
+}
+
 
 interface Conversation {
   phone_number: string;
