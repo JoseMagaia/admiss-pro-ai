@@ -217,9 +217,21 @@ export function AiProviderSettings() {
         </div>
       )}
 
-      <Button onClick={() => save.mutate()} disabled={save.isPending}>
-        <Save className="mr-1 h-4 w-4" /> Save Provider Settings
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={() => save.mutate()} disabled={save.isPending}>
+          <Save className="mr-1 h-4 w-4" /> Save Provider Settings
+        </Button>
+        {mode === "custom" && (
+          <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending}>
+            {test.isPending ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Plug className="mr-1 h-4 w-4" />
+            )}
+            Test connection
+          </Button>
+        )}
+      </div>
     </SettingsCard>
   );
 }
