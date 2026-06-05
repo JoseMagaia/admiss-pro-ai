@@ -305,10 +305,18 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
           active ? "hidden" : "flex",
         )}
       >
-        <div className="border-b p-3">
+        <div className="space-y-2 border-b p-3">
+          <Button size="sm" className="w-full gap-1.5" onClick={() => setNewOpen(true)}>
+            <Plus className="h-4 w-4" /> New conversation
+          </Button>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+            <Input
+              placeholder="Search number or message…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
