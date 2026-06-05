@@ -195,7 +195,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const activeDigits = active ? digitsOnly(active) : null;
   const { data: activeData } = useQuery({
     queryKey: ["conversation-messages", activeDigits ?? active],
-    queryFn: () => threadMessagesFn({ data: { phone: active!, limit: 500 } }),
+    queryFn: () => threadMessagesFn({ data: { phone: active!, limit: 1000 } }),
     enabled: Boolean(active),
     refetchInterval: 5000,
   });
