@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Save, Cpu, KeyRound } from "lucide-react";
+import { Save, Cpu, KeyRound, Plug, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { SettingsCard } from "./SettingsForms";
-import { getAiConfig, saveAiProvider } from "@/lib/dashboard.functions";
+import { getAiConfig, saveAiProvider, testAiProvider } from "@/lib/dashboard.functions";
 
 interface Preset {
   id: string;
