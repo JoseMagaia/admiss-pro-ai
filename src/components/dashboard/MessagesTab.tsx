@@ -206,25 +206,24 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   useEffect(() => {
     if (!pendingConversation) return;
     const target = digitsOnly(pendingConversation);
-    const match = grouped.find((c) => digitsOnly(c.phone) === target);
-    setActive(match ? match.phone : pendingConversation);
+    const match = threads.find((c) => digitsOnly(c.phone_number) === target);
+    setActive(match ? match.phone_number : pendingConversation);
     onPendingHandled?.();
-  }, [pendingConversation, grouped, onPendingHandled]);
+  }, [pendingConversation, threads, onPendingHandled]);
 
   useEffect(() => {
     // On desktop auto-open the most recent conversation. On mobile keep the list
     // visible until the user taps a conversation.
-    if (!active && !isMobile && filteredConvs.length) setActive(filteredConvs[0].phone);
-  }, [filteredConvs, active, isMobile]);
+    if (!active && !isMobile && threads.length) setActive(threads[0].phone_number);
+  }, [threads, active, isMobile]);
 
-  const activeDigits = active ? digitsOnly(active) : null;
-  const activeMsgs = grouped.find((c) => digitsOnly(c.phone) === activeDigits)?.msgs ?? [];
-  const activeConv = conversations.find((c) => digitsOnly(c.phone_number) === activeDigits);
+  const activeMsgs = ((activeData as { messages?: Message[] } | undefined)?.messages ?? []) as Message[];
+  const activeConv = (activeData as { conversation?: Conversation | null } | undefined)?.conversation ?? null;
   const takeover = activeConv?.human_takeover ?? false;
-  const activeScheduled = scheduled.filter((s) => s.phone_number === active && s.status === "pending");
+  const activeScheduled = scheduled.filter((s) => digitsOnly(s.phone_number) === activeDigits && s.status === "pending");
   const workflowState =
     (statesData?.states ?? []).find(
-      (s: { phone_number: string }) => s.phone_number === active,
+      (s: { phone_number: string }) => digitsOnly(s.phone_number) === activeDigits,
     )?.status as "active" | "paused" | undefined;
 
   useEffect(() => {
