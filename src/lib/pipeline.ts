@@ -16,6 +16,7 @@ export const QUALIFICATION_STAGES = [
   "SPECIALIST_CONSULTATION",
   "PAYMENT_ACTIVATION",
   "ONBOARDING",
+  "DISQUALIFIED",
 ] as const;
 
 export type QualificationStage = (typeof QUALIFICATION_STAGES)[number];
@@ -39,6 +40,7 @@ export const STAGE_LABELS: Record<string, string> = {
   SPECIALIST_CONSULTATION: "Specialist Consultation",
   PAYMENT_ACTIVATION: "Payment Activation",
   ONBOARDING: "Onboarding",
+  DISQUALIFIED: "Disqualified",
 };
 
 export interface PipelineColumn {
@@ -72,6 +74,7 @@ export const PIPELINE_COLUMNS: PipelineColumn[] = [
   },
   { id: "payment", label: "Payment Pending", stages: ["PAYMENT_ACTIVATION"] },
   { id: "onboarding", label: "Onboarding", stages: ["ONBOARDING"] },
+  { id: "disqualified", label: "Disqualified", stages: ["DISQUALIFIED"] },
 ];
 
 export function columnForStage(stage: string): PipelineColumn {
@@ -94,6 +97,7 @@ export const LEAD_FILTERS = [
   { id: "meeting", label: "Meeting Scheduled" },
   { id: "payment", label: "Payment Pending" },
   { id: "onboarding", label: "Onboarding" },
+  { id: "disqualified", label: "Disqualified" },
 ];
 
 export const APPOINTMENT_STATUSES = ["pending", "confirmed", "completed", "cancelled"] as const;
