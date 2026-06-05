@@ -99,6 +99,25 @@ export function AiProviderSettings() {
     onError: () => toast.error("Failed to save"),
   });
 
+  const test = useMutation({
+    mutationFn: () =>
+      testFn({
+        data: {
+          provider_mode: mode,
+          custom_provider: provider,
+          custom_base_url: baseUrl || null,
+          custom_model: model || null,
+          custom_api_key: apiKey || "", // empty → server uses the saved key
+        },
+      }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error: string | null };
+      if (res.ok) toast.success("Connection successful");
+      else toast.error(res.error ?? "Connection failed");
+    },
+    onError: () => toast.error("Connection failed"),
+  });
+
   return (
     <SettingsCard
       title="AI Provider"
