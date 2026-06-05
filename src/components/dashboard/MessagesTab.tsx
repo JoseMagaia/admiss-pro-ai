@@ -137,6 +137,21 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const workspacesFn = useServerFn(listWorkspaces);
   const startFn = useServerFn(startConversation);
 
+  const [search, setSearch] = useState("");
+  const [active, setActive] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+
+  // New-conversation dialog state.
+  const [newOpen, setNewOpen] = useState(false);
+  const [newPhone, setNewPhone] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newWorkspace, setNewWorkspace] = useState("");
+  const [newMessage, setNewMessage] = useState("");
+
   const threadSearch = search.trim();
   const threadPageSize = 30;
   const threadQuery = useInfiniteQuery({
@@ -166,51 +181,24 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     queryFn: () => workspacesFn(),
   });
 
-  const [search, setSearch] = useState("");
-  const [active, setActive] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [scheduleAt, setScheduleAt] = useState("");
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const isMobile = useIsMobile();
-
-  // New-conversation dialog state.
-  const [newOpen, setNewOpen] = useState(false);
-  const [newPhone, setNewPhone] = useState("");
-  const [newName, setNewName] = useState("");
-  const [newWorkspace, setNewWorkspace] = useState("");
-  const [newMessage, setNewMessage] = useState("");
-
-  const messages = (msgData?.messages ?? []) as Message[];
-  const conversations = (convData?.conversations ?? []) as Conversation[];
   const scheduled = (schedData?.scheduled ?? []) as Scheduled[];
   const workspaces = (workspacesData?.workspaces ?? []) as unknown as Workspace[];
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, Message[]>();
-    for (const m of messages) {
-      if (!map.has(m.phone_number)) map.set(m.phone_number, []);
-      map.get(m.phone_number)!.push(m);
-    }
-    return Array.from(map.entries())
-      .map(([phone, msgs]) => ({ phone, msgs, last: msgs[msgs.length - 1] }))
-      .sort((a, b) => new Date(b.last.received_at).getTime() - new Date(a.last.received_at).getTime());
-  }, [messages]);
+  const threads = useMemo(
+    () =>
+      (threadQuery.data?.pages ?? []).flatMap(
+        (page) => ((page as { threads?: MessageThread[] }).threads ?? []) as MessageThread[],
+      ),
+    [threadQuery.data],
+  );
 
-  const filteredConvs = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return grouped.map((c) => ({ ...c, matchMsg: null as Message | null }));
-    return grouped
-      .map((c) => {
-        const phoneMatch = c.phone.toLowerCase().includes(q);
-        // Find the most recent message whose body contains the search term.
-        const matchMsg =
-          [...c.msgs].reverse().find((m) => m.message_content?.toLowerCase().includes(q)) ?? null;
-        if (!phoneMatch && !matchMsg) return null;
-        return { ...c, matchMsg };
-      })
-      .filter((c): c is (typeof grouped)[number] & { matchMsg: Message | null } => c !== null);
-  }, [grouped, search]);
+  const activeDigits = active ? digitsOnly(active) : null;
+  const { data: activeData } = useQuery({
+    queryKey: ["conversation-messages", activeDigits ?? active],
+    queryFn: () => threadMessagesFn({ data: { phone: active!, limit: 500 } }),
+    enabled: Boolean(active),
+    refetchInterval: 5000,
+  });
 
   // When another tab requests a conversation, open it (works on mobile too).
   // Match on digits so it opens regardless of how the phone is formatted in
