@@ -156,21 +156,29 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
   const filteredConvs = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return grouped;
-    return grouped.filter(
-      (c) =>
-        c.phone.toLowerCase().includes(q) ||
-        c.msgs.some((m) => m.message_content?.toLowerCase().includes(q)),
-    );
+    if (!q) return grouped.map((c) => ({ ...c, matchMsg: null as Message | null }));
+    return grouped
+      .map((c) => {
+        const phoneMatch = c.phone.toLowerCase().includes(q);
+        // Find the most recent message whose body contains the search term.
+        const matchMsg =
+          [...c.msgs].reverse().find((m) => m.message_content?.toLowerCase().includes(q)) ?? null;
+        if (!phoneMatch && !matchMsg) return null;
+        return { ...c, matchMsg };
+      })
+      .filter((c): c is (typeof grouped)[number] & { matchMsg: Message | null } => c !== null);
   }, [grouped, search]);
 
   // When another tab requests a conversation, open it (works on mobile too).
+  // Match on digits so it opens regardless of how the phone is formatted in
+  // leads/contacts vs. the message records.
   useEffect(() => {
-    if (pendingConversation) {
-      setActive(pendingConversation);
-      onPendingHandled?.();
-    }
-  }, [pendingConversation, onPendingHandled]);
+    if (!pendingConversation) return;
+    const target = digitsOnly(pendingConversation);
+    const match = grouped.find((c) => digitsOnly(c.phone) === target);
+    setActive(match ? match.phone : pendingConversation);
+    onPendingHandled?.();
+  }, [pendingConversation, grouped, onPendingHandled]);
 
   useEffect(() => {
     // On desktop auto-open the most recent conversation. On mobile keep the list
@@ -178,11 +186,9 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     if (!active && !isMobile && filteredConvs.length) setActive(filteredConvs[0].phone);
   }, [filteredConvs, active, isMobile]);
 
-
-
-
-  const activeMsgs = grouped.find((c) => c.phone === active)?.msgs ?? [];
-  const activeConv = conversations.find((c) => c.phone_number === active);
+  const activeDigits = active ? digitsOnly(active) : null;
+  const activeMsgs = grouped.find((c) => digitsOnly(c.phone) === activeDigits)?.msgs ?? [];
+  const activeConv = conversations.find((c) => digitsOnly(c.phone_number) === activeDigits);
   const takeover = activeConv?.human_takeover ?? false;
   const activeScheduled = scheduled.filter((s) => s.phone_number === active && s.status === "pending");
   const workflowState =
