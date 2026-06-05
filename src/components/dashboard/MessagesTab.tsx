@@ -52,6 +52,29 @@ import {
 } from "@/lib/dashboard.functions";
 import { cn } from "@/lib/utils";
 
+/** Compare phone numbers by their digits only, ignoring +, spaces, dashes, etc. */
+const digitsOnly = (p: string) => (p ?? "").replace(/\D/g, "");
+
+/** Render a short snippet of `text` centered on the first match of `term`, with the match highlighted. */
+function MatchSnippet({ text, term }: { text: string; term: string }) {
+  const q = term.trim();
+  if (!q) return <>{text}</>;
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx === -1) return <>{text}</>;
+  const start = Math.max(0, idx - 24);
+  const end = Math.min(text.length, idx + q.length + 40);
+  const before = (start > 0 ? "…" : "") + text.slice(start, idx);
+  const match = text.slice(idx, idx + q.length);
+  const after = text.slice(idx + q.length, end) + (end < text.length ? "…" : "");
+  return (
+    <>
+      {before}
+      <mark className="rounded bg-accent/40 px-0.5 text-accent-foreground">{match}</mark>
+      {after}
+    </>
+  );
+}
+
 interface Workspace {
   id: string;
   name?: string | null;
