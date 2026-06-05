@@ -345,6 +345,9 @@ export async function createChatwootConversation(params: {
     console.error("Chatwoot conversation creation failed:", e);
     return null;
   }
+}
+
+
 
 export interface ProcessResult {
   reply: string;
