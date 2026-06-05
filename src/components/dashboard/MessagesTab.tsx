@@ -356,37 +356,54 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {filteredConvs.map((c) => {
-            const conv = conversations.find((x) => digitsOnly(x.phone_number) === digitsOnly(c.phone));
+          {threads.map((c) => {
+            const preview = c.match_message_content ?? c.last_message_content ?? "No messages yet.";
             return (
               <button
-                key={c.phone}
-                onClick={() => setActive(c.phone)}
+                key={c.phone_number}
+                onClick={() => setActive(c.phone_number)}
                 className={cn(
                   "flex w-full flex-col gap-0.5 border-b px-4 py-3 text-left transition-colors hover:bg-muted/40",
-                  activeDigits === digitsOnly(c.phone) && "bg-primary/5",
+                  activeDigits === digitsOnly(c.phone_number) && "bg-primary/5",
                 )}
               >
                 <span className="flex items-center gap-2 text-sm font-semibold">
-                  {c.phone}
-                  {conv?.human_takeover && (
-                    <span className="rounded-full bg-accent/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-accent-foreground">
+                  <span className="truncate">{c.lead_name || c.phone_number}</span>
+                  {c.human_takeover && (
+                    <span className="shrink-0 rounded-full bg-accent/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-accent-foreground">
                       Human
                     </span>
                   )}
                 </span>
+                {c.lead_name && <span className="text-[11px] text-muted-foreground">{c.phone_number}</span>}
                 <span className="line-clamp-2 text-xs text-muted-foreground">
-                  {c.matchMsg ? (
-                    <MatchSnippet text={c.matchMsg.message_content} term={search} />
-                  ) : (
-                    c.last.message_content
-                  )}
+                  {c.match_message_content ? <MatchSnippet text={preview} term={search} /> : preview}
                 </span>
               </button>
             );
           })}
-          {filteredConvs.length === 0 && (
+          {threadQuery.isLoading && (
+            <div className="flex items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading conversations…
+            </div>
+          )}
+          {!threadQuery.isLoading && threads.length === 0 && (
             <p className="p-6 text-center text-sm text-muted-foreground">No conversations.</p>
+          )}
+          {threadQuery.hasNextPage && (
+            <div className="p-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                disabled={threadQuery.isFetchingNextPage}
+                onClick={() => threadQuery.fetchNextPage()}
+              >
+                {threadQuery.isFetchingNextPage ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+                Load more chats
+              </Button>
+            </div>
           )}
         </div>
       </div>
