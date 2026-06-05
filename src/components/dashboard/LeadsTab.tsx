@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, UserCog, Bot, Trash2, Pause, Play } from "lucide-react";
+import { Search, UserCog, Bot, Trash2, Pause, Play, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import {
 } from "@/lib/dashboard.functions";
 import { LEAD_FILTERS, columnForStage } from "@/lib/pipeline";
 import { useAuth } from "@/hooks/useAuth";
+import { useDashboardNav } from "@/lib/dashboard-nav";
 import { cn } from "@/lib/utils";
 
 interface Lead {
@@ -48,6 +49,7 @@ interface Conversation {
 export function LeadsTab() {
   const qc = useQueryClient();
   const { profile } = useAuth();
+  const { openConversation } = useDashboardNav();
   const canDelete = profile.role === "super_admin" || profile.role === "admin";
   const canPause = profile.role === "super_admin" || profile.role === "admin";
   const leadsFn = useServerFn(listLeads);
@@ -197,8 +199,27 @@ export function LeadsTab() {
               const human = takeoverMap.get(l.phone_number) ?? false;
               return (
                 <tr key={l.id} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3 font-medium">{l.lead_name ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{l.phone_number}</td>
+                  <td className="px-4 py-3 font-medium">
+                    <button
+                      type="button"
+                      onClick={() => openConversation(l.phone_number)}
+                      className="group inline-flex items-center gap-1.5 text-left hover:text-primary"
+                      title="Open conversation"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary" />
+                      {l.lead_name ?? "—"}
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    <button
+                      type="button"
+                      onClick={() => openConversation(l.phone_number)}
+                      className="hover:text-primary hover:underline"
+                      title="Open conversation"
+                    >
+                      {l.phone_number}
+                    </button>
+                  </td>
                   <td className="px-4 py-3">{l.course_interest ?? "—"}</td>
                   <td className="px-4 py-3">{l.country_interest ?? "—"}</td>
                   <td className="px-4 py-3">

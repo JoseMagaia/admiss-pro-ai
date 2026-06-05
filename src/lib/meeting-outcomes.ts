@@ -43,7 +43,7 @@ export const MEETING_OUTCOMES: OutcomeOption[] = [
   {
     value: "not_qualified",
     label: "Not Qualified",
-    stage: "NEW_LEAD",
+    stage: "DISQUALIFIED",
     workflow: "Archive or Low-Ticket Offer Workflow",
     weight: 0.02,
   },

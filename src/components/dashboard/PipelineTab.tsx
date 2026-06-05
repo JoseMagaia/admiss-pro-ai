@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { GripVertical } from "lucide-react";
+import { GripVertical, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { listLeads, updateLeadStage } from "@/lib/dashboard.functions";
 import { PIPELINE_COLUMNS, columnForStage, stageLabel } from "@/lib/pipeline";
+import { useDashboardNav } from "@/lib/dashboard-nav";
 import { cn } from "@/lib/utils";
 
 interface Lead {
@@ -20,6 +21,7 @@ export function PipelineTab() {
   const qc = useQueryClient();
   const leadsFn = useServerFn(listLeads);
   const stageFn = useServerFn(updateLeadStage);
+  const { openConversation } = useDashboardNav();
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
 
@@ -101,7 +103,20 @@ export function PipelineTab() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className="text-sm font-semibold">{l.lead_name ?? l.phone_number}</span>
-                    <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        type="button"
+                        title="Open conversation"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openConversation(l.phone_number);
+                        }}
+                        className="text-muted-foreground opacity-0 transition-colors hover:text-primary group-hover:opacity-100"
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                      </button>
+                      <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                    </div>
                   </div>
                   <p className="mt-0.5 text-xs text-muted-foreground">{l.phone_number}</p>
                   {(l.course_interest || l.country_interest) && (

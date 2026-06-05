@@ -9,6 +9,7 @@ const COLUMN_STYLES: Record<string, string> = {
   meeting: "bg-chart-4/15 text-primary",
   payment: "bg-warning/20 text-warning-foreground",
   onboarding: "bg-success/20 text-success",
+  disqualified: "bg-destructive/15 text-destructive",
 };
 
 export function StageBadge({ stage, className }: { stage: string; className?: string }) {

@@ -333,9 +333,9 @@ export function MeetingOutcomesTab() {
       </div>
 
 
-      <div className="grid gap-6 lg:grid-cols-[420px_1fr]">
+      <div className="space-y-6">
         {/* Form */}
-        <div className="rounded-2xl border bg-card p-5 shadow-card">
+        <div className="rounded-2xl border bg-card p-5 shadow-card lg:max-w-2xl">
           <div className="mb-4 flex items-center gap-2">
             <ClipboardCheck className="h-5 w-5 text-primary" />
             <h2 className="font-display text-lg font-semibold">Record Meeting Outcome</h2>

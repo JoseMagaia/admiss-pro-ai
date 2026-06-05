@@ -14,12 +14,20 @@ import {
   Pause,
   Play,
   ArrowLeft,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -39,8 +47,16 @@ import {
   toggleHumanTakeover,
   listWorkflowStates,
   pauseLeadWorkflow,
+  listWorkspaces,
+  startConversation,
 } from "@/lib/dashboard.functions";
 import { cn } from "@/lib/utils";
+
+interface Workspace {
+  id: string;
+  name?: string | null;
+  is_default?: boolean | null;
+}
 
 interface Message {
   id: string;
@@ -64,7 +80,12 @@ interface Scheduled {
   status: string;
 }
 
-export function MessagesTab() {
+interface MessagesTabProps {
+  pendingConversation?: string | null;
+  onPendingHandled?: () => void;
+}
+
+export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesTabProps = {}) {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const canPause = profile.role === "super_admin" || profile.role === "admin";
@@ -77,6 +98,8 @@ export function MessagesTab() {
   const takeoverFn = useServerFn(toggleHumanTakeover);
   const statesFn = useServerFn(listWorkflowStates);
   const pauseFn = useServerFn(pauseLeadWorkflow);
+  const workspacesFn = useServerFn(listWorkspaces);
+  const startFn = useServerFn(startConversation);
 
   const { data: msgData } = useQuery({ queryKey: ["messages"], queryFn: () => msgFn(), refetchInterval: 5000 });
   const { data: convData } = useQuery({
@@ -95,6 +118,10 @@ export function MessagesTab() {
     refetchInterval: 8000,
     enabled: canPause,
   });
+  const { data: workspacesData } = useQuery({
+    queryKey: ["workspaces"],
+    queryFn: () => workspacesFn(),
+  });
 
   const [search, setSearch] = useState("");
   const [active, setActive] = useState<string | null>(null);
@@ -104,9 +131,17 @@ export function MessagesTab() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
+  // New-conversation dialog state.
+  const [newOpen, setNewOpen] = useState(false);
+  const [newPhone, setNewPhone] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newWorkspace, setNewWorkspace] = useState("");
+  const [newMessage, setNewMessage] = useState("");
+
   const messages = (msgData?.messages ?? []) as Message[];
   const conversations = (convData?.conversations ?? []) as Conversation[];
   const scheduled = (schedData?.scheduled ?? []) as Scheduled[];
+  const workspaces = (workspacesData?.workspaces ?? []) as unknown as Workspace[];
 
   const grouped = useMemo(() => {
     const map = new Map<string, Message[]>();
@@ -119,13 +154,31 @@ export function MessagesTab() {
       .sort((a, b) => new Date(b.last.received_at).getTime() - new Date(a.last.received_at).getTime());
   }, [messages]);
 
-  const filteredConvs = grouped.filter((c) => c.phone.toLowerCase().includes(search.toLowerCase()));
+  const filteredConvs = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return grouped;
+    return grouped.filter(
+      (c) =>
+        c.phone.toLowerCase().includes(q) ||
+        c.msgs.some((m) => m.message_content?.toLowerCase().includes(q)),
+    );
+  }, [grouped, search]);
+
+  // When another tab requests a conversation, open it (works on mobile too).
+  useEffect(() => {
+    if (pendingConversation) {
+      setActive(pendingConversation);
+      onPendingHandled?.();
+    }
+  }, [pendingConversation, onPendingHandled]);
 
   useEffect(() => {
     // On desktop auto-open the most recent conversation. On mobile keep the list
     // visible until the user taps a conversation.
     if (!active && !isMobile && filteredConvs.length) setActive(filteredConvs[0].phone);
   }, [filteredConvs, active, isMobile]);
+
+
 
 
   const activeMsgs = grouped.find((c) => c.phone === active)?.msgs ?? [];
@@ -184,6 +237,38 @@ export function MessagesTab() {
     onError: () => toast.error("Failed to cancel"),
   });
 
+  const startConv = useMutation({
+    mutationFn: (vars: { phone: string; name: string; workspaceId: string; message: string }) =>
+      startFn({
+        data: {
+          phone: vars.phone,
+          name: vars.name || undefined,
+          workspaceId: vars.workspaceId || undefined,
+          message: vars.message,
+        },
+      }),
+    onSuccess: (r, vars) => {
+      const res = r as { ok: boolean; error?: string };
+      if (!res.ok) {
+        toast.error(res.error ?? "Failed to start conversation");
+        return;
+      }
+      toast.success("Conversation started");
+      setNewOpen(false);
+      setNewPhone("");
+      setNewName("");
+      setNewWorkspace("");
+      setNewMessage("");
+      qc.invalidateQueries({ queryKey: ["messages"] });
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      setActive(vars.phone);
+    },
+    onError: () => toast.error("Failed to start conversation"),
+  });
+
+
   const toggleTakeover = useMutation({
     mutationFn: (enabled: boolean) => takeoverFn({ data: { phone: active!, enabled } }),
     onSuccess: () => {
@@ -220,10 +305,18 @@ export function MessagesTab() {
           active ? "hidden" : "flex",
         )}
       >
-        <div className="border-b p-3">
+        <div className="space-y-2 border-b p-3">
+          <Button size="sm" className="w-full gap-1.5" onClick={() => setNewOpen(true)}>
+            <Plus className="h-4 w-4" /> New conversation
+          </Button>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+            <Input
+              placeholder="Search number or message…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
@@ -451,6 +544,85 @@ export function MessagesTab() {
             >
               {schedule.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Clock className="mr-1 h-4 w-4" />}
               Schedule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* New conversation dialog */}
+      <Dialog open={newOpen} onOpenChange={setNewOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start new conversation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Phone number</label>
+              <Input
+                placeholder="e.g. +15551234567"
+                value={newPhone}
+                onChange={(e) => setNewPhone(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Name (optional)</label>
+              <Input
+                placeholder="Lead name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Send through workspace</label>
+              <Select value={newWorkspace} onValueChange={setNewWorkspace}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Default workspace" />
+                </SelectTrigger>
+                <SelectContent>
+                  {workspaces.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name ?? "Unnamed"}
+                      {w.is_default ? " (default)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">First message</label>
+              <Textarea
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type the first message…"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setNewOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!newPhone.trim() || !newMessage.trim()) {
+                  toast.error("Enter a phone number and message");
+                  return;
+                }
+                startConv.mutate({
+                  phone: newPhone.trim(),
+                  name: newName.trim(),
+                  workspaceId: newWorkspace,
+                  message: newMessage.trim(),
+                });
+              }}
+              disabled={startConv.isPending}
+            >
+              {startConv.isPending ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="mr-1 h-4 w-4" />
+              )}
+              Start
             </Button>
           </DialogFooter>
         </DialogContent>

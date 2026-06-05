@@ -289,6 +289,66 @@ export async function sendChatwootReply(
   }
 }
 
+// Create a brand-new Chatwoot contact + conversation for an agent-initiated
+// outbound message. Best-effort: returns the new conversation id, or null when
+// Chatwoot isn't configured or the inbox id is missing.
+export async function createChatwootConversation(params: {
+  creds: ChatwootCreds | null;
+  inboxId: string | null | undefined;
+  phone: string;
+  name?: string | null;
+}): Promise<string | null> {
+  const { creds, inboxId, phone, name } = params;
+  if (!creds || !inboxId) return null;
+  const base = String(creds.url).replace(/\/$/, "");
+  const headers = {
+    "Content-Type": "application/json",
+    api_access_token: creds.apiToken,
+  };
+  try {
+    // 1. Create (or get) the contact.
+    const contactRes = await fetch(
+      `${base}/api/v1/accounts/${creds.accountId}/contacts`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          inbox_id: Number(inboxId),
+          name: name || phone,
+          phone_number: phone.startsWith("+") ? phone : `+${phone}`,
+        }),
+      },
+    );
+    const contactJson = (await contactRes.json().catch(() => null)) as
+      | { payload?: { contact?: { id?: number }; contact_inbox?: { source_id?: string } } }
+      | null;
+    const contact = contactJson?.payload?.contact;
+    const sourceId = contactJson?.payload?.contact_inbox?.source_id;
+    if (!contact?.id) return null;
+
+    // 2. Create the conversation in the inbox for that contact.
+    const convRes = await fetch(
+      `${base}/api/v1/accounts/${creds.accountId}/conversations`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          inbox_id: Number(inboxId),
+          contact_id: contact.id,
+          source_id: sourceId,
+        }),
+      },
+    );
+    const convJson = (await convRes.json().catch(() => null)) as { id?: number } | null;
+    return convJson?.id ? String(convJson.id) : null;
+  } catch (e) {
+    console.error("Chatwoot conversation creation failed:", e);
+    return null;
+  }
+}
+
+
+
 export interface ProcessResult {
   reply: string;
   stage: string;

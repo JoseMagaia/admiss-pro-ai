@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   GraduationCap,
   Users,
@@ -27,6 +27,7 @@ import { SettingsTab } from "@/components/dashboard/SettingsTab";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
 import { canAccessTab, ROLE_LABELS } from "@/lib/roles";
+import { DashboardNavProvider } from "@/lib/dashboard-nav";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -55,6 +56,14 @@ type TabId = (typeof ALL_TABS)[number]["id"];
 function Dashboard() {
   const { loading, profile, signOut } = useAuth();
   const [tab, setTab] = useState<TabId>("leads");
+  const [pendingConversation, setPendingConversation] = useState<string | null>(null);
+
+  const openConversation = useCallback((phone: string) => {
+    setPendingConversation(phone);
+    setTab("messages");
+  }, []);
+
+
 
   if (loading) {
     return (
@@ -69,6 +78,7 @@ function Dashboard() {
   const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id ?? "leads";
 
   return (
+    <DashboardNavProvider value={{ openConversation }}>
     <div className="flex min-h-screen bg-background">
       {/* Sidebar */}
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-sidebar px-4 py-6 text-sidebar-foreground lg:flex">
@@ -155,7 +165,7 @@ function Dashboard() {
 
           <div className="mt-6">
             {activeTab === "leads" && <LeadsTab />}
-            {activeTab === "messages" && <MessagesTab />}
+            {activeTab === "messages" && <MessagesTab pendingConversation={pendingConversation} onPendingHandled={() => setPendingConversation(null)} />}
             {activeTab === "contacts" && <ContactsTab />}
             {activeTab === "bookings" && <BookingsTab />}
             {activeTab === "pipeline" && <PipelineTab />}
@@ -167,5 +177,6 @@ function Dashboard() {
       </main>
       <Toaster position="top-right" richColors />
     </div>
+    </DashboardNavProvider>
   );
 }

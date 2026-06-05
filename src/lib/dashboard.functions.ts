@@ -445,20 +445,27 @@ export const testPrompt = createServerFn({ method: "POST" })
 /* --------------------------- DASHBOARD STATS --------------------- */
 
 export const getDashboardStats = createServerFn({ method: "GET" }).handler(async () => {
-  if (!(await isAuthed())) return { leads: 0, qualified: 0, bookings: 0, messages: 0 };
+  if (!(await isAuthed())) return { leads: 0, qualified: 0, bookings: 0, messages: 0, disqualified: 0 };
   const db = await admin();
-  const [{ count: leadsCount }, { count: qualifiedCount }, { count: bookingsCount }, { count: msgCount }] =
-    await Promise.all([
-      db.from("leads").select("*", { count: "exact", head: true }),
-      db.from("leads").select("*", { count: "exact", head: true }).in("qualification_status", ["QUALIFIED", "BOOKING_REQUEST_CREATED"]),
-      db.from("appointments").select("*", { count: "exact", head: true }),
-      db.from("whatsapp_messages").select("*", { count: "exact", head: true }),
-    ]);
+  const [
+    { count: leadsCount },
+    { count: qualifiedCount },
+    { count: bookingsCount },
+    { count: msgCount },
+    { count: disqualifiedCount },
+  ] = await Promise.all([
+    db.from("leads").select("*", { count: "exact", head: true }),
+    db.from("leads").select("*", { count: "exact", head: true }).in("qualification_status", ["QUALIFIED", "BOOKING_REQUEST_CREATED"]),
+    db.from("appointments").select("*", { count: "exact", head: true }),
+    db.from("whatsapp_messages").select("*", { count: "exact", head: true }),
+    db.from("leads").select("*", { count: "exact", head: true }).eq("qualification_status", "DISQUALIFIED"),
+  ]);
   return {
     leads: leadsCount ?? 0,
     qualified: qualifiedCount ?? 0,
     bookings: bookingsCount ?? 0,
     messages: msgCount ?? 0,
+    disqualified: disqualifiedCount ?? 0,
   };
 });
 
@@ -486,6 +493,102 @@ export const sendHumanMessage = createServerFn({ method: "POST" })
     const result = await deliverHumanMessage({ phone: data.phone, message: data.message });
     return { ok: result.ok, error: result.error ?? null };
   });
+
+/* Start a brand-new conversation with an unregistered lead. Creates the lead +
+   conversation just like an inbound lead, then sends the first message through
+   the selected Chatwoot workspace. AI stays paused (human-started thread). */
+export const startConversation = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        phone: z.string().min(3).max(60),
+        name: z.string().min(1).max(200).optional(),
+        workspaceId: z.string().uuid().optional(),
+        message: z.string().min(1).max(4000),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(ANY_ROLE);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+
+    const phone = data.phone.trim();
+    const db = await admin();
+
+    // Don't clobber an existing lead/conversation.
+    const { data: existing } = await db
+      .from("leads")
+      .select("id")
+      .eq("phone_number", phone)
+      .maybeSingle();
+    if (existing) {
+      return { ok: false, error: "A lead with this number already exists. Open it from the list." };
+    }
+
+    const {
+      resolveWorkspace,
+      resolveCreds,
+      createChatwootConversation,
+      getOrCreateLead,
+      deliverHumanMessage,
+    } = await import("./admissions.server");
+
+    const workspace = await resolveWorkspace({ workspaceId: data.workspaceId ?? null });
+    const creds = await resolveCreds(workspace);
+
+    // Best-effort: create the Chatwoot contact + conversation so replies thread.
+    const conversationId = await createChatwootConversation({
+      creds,
+      inboxId: workspace?.chatwoot_inbox_id ?? null,
+      phone,
+      name: data.name ?? null,
+    });
+
+    // Create the lead so it shows up across Leads / Pipeline / Contacts.
+    const lead = await getOrCreateLead(phone, conversationId, null, workspace?.id ?? null);
+    if (data.name) {
+      await db.from("leads").update({ lead_name: data.name } as never).eq("id", lead.id!);
+    }
+
+    // Create the conversation row with AI paused (agent-started thread).
+    const { data: existingConv } = await db
+      .from("conversations")
+      .select("id")
+      .eq("phone_number", phone)
+      .maybeSingle();
+    if (!existingConv) {
+      await db.from("conversations").insert({
+        phone_number: phone,
+        lead_id: lead.id ?? null,
+        chatwoot_conversation_id: conversationId,
+        workspace_id: workspace?.id ?? null,
+        status: "pending",
+        human_takeover: true,
+        assigned_agent: me.email ?? "Agent",
+        ai_resumed: false,
+      } as never);
+    }
+
+    // Send + log the first message.
+    const result = await deliverHumanMessage({ phone, message: data.message });
+
+    await db.from("audit_logs").insert({
+      actor_email: me.email ?? null,
+      actor_role: me.role ?? null,
+      action: "conversation_started",
+      entity_type: "lead",
+      entity_id: lead.id ?? null,
+      details: { phone, workspace_id: workspace?.id ?? null, delivered: result.ok },
+    } as never);
+
+    return { ok: true, error: result.ok ? null : result.error ?? null };
+  });
+
+
 
 export const listScheduledMessages = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { scheduled: [] };
