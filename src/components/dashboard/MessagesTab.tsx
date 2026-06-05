@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useRef } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
   Search,
@@ -38,8 +38,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  listMessages,
-  listConversations,
+  listMessageThreads,
+  listConversationMessages,
   sendHumanMessage,
   scheduleMessage,
   listScheduledMessages,
@@ -95,6 +95,19 @@ interface Conversation {
   status: string;
 }
 
+interface MessageThread {
+  phone_number: string;
+  lead_name: string | null;
+  human_takeover: boolean | null;
+  status: string | null;
+  conversation_updated_at: string | null;
+  last_message_content: string | null;
+  last_message_at: string | null;
+  last_sender: string | null;
+  match_message_content: string | null;
+  match_message_at: string | null;
+}
+
 interface Scheduled {
   id: string;
   phone_number: string;
@@ -112,8 +125,8 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const qc = useQueryClient();
   const { profile } = useAuth();
   const canPause = profile.role === "super_admin" || profile.role === "admin";
-  const msgFn = useServerFn(listMessages);
-  const convFn = useServerFn(listConversations);
+  const threadsFn = useServerFn(listMessageThreads);
+  const threadMessagesFn = useServerFn(listConversationMessages);
   const schedFn = useServerFn(listScheduledMessages);
   const sendFn = useServerFn(sendHumanMessage);
   const scheduleFn = useServerFn(scheduleMessage);
@@ -124,10 +137,17 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const workspacesFn = useServerFn(listWorkspaces);
   const startFn = useServerFn(startConversation);
 
-  const { data: msgData } = useQuery({ queryKey: ["messages"], queryFn: () => msgFn(), refetchInterval: 5000 });
-  const { data: convData } = useQuery({
-    queryKey: ["conversations"],
-    queryFn: () => convFn(),
+  const threadSearch = search.trim();
+  const threadPageSize = 30;
+  const threadQuery = useInfiniteQuery({
+    queryKey: ["message-threads", threadSearch],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      threadsFn({ data: { search: threadSearch, limit: threadPageSize, offset: pageParam } }),
+    getNextPageParam: (lastPage, pages) => {
+      const loaded = pages.reduce((sum, page) => sum + (((page as { threads?: unknown[] }).threads ?? []).length), 0);
+      return (lastPage as { hasMore?: boolean }).hasMore ? loaded : undefined;
+    },
     refetchInterval: 5000,
   });
   const { data: schedData } = useQuery({
