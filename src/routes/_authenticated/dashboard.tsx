@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   GraduationCap,
   Users,
