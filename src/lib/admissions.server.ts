@@ -522,7 +522,7 @@ export async function deliverHumanMessage(params: {
       .from("conversations")
       .insert({
         phone_number: phone,
-        lead_id: (lead as LeadRecord | null)?.id ?? null,
+        lead_id: (lead as Record<string, unknown> | null)?.id ?? null,
         workspace_id: (lead as Record<string, unknown> | null)?.workspace_id ?? null,
         chatwoot_conversation_id: (lead as Record<string, unknown> | null)?.chatwoot_conversation_id ?? null,
         status: "pending",
