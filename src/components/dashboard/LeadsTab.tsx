@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, UserCog, Bot, Trash2, Pause, Play, MessageSquare } from "lucide-react";
+import { Search, UserCog, Bot, Trash2, Pause, Play, MessageSquare, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowUpDown } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
