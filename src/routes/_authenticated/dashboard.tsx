@@ -78,6 +78,7 @@ function Dashboard() {
   const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id ?? "leads";
 
   return (
+    <DashboardNavProvider value={{ openConversation }}>
     <div className="flex min-h-screen bg-background">
       {/* Sidebar */}
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-sidebar px-4 py-6 text-sidebar-foreground lg:flex">
