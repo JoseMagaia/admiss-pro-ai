@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, Contact as ContactIcon } from "lucide-react";
+import { Search, Contact as ContactIcon, MessageSquare } from "lucide-react";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { listContacts } from "@/lib/dashboard.functions";
+import { useDashboardNav } from "@/lib/dashboard-nav";
 
 interface Contact {
   id: string;
