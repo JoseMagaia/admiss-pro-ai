@@ -1324,6 +1324,84 @@ export const deleteWorkflow = createServerFn({ method: "POST" })
     return { ok: !error, error: error?.message ?? null };
   });
 
+/* Lightweight list of enabled workflows (id + name) usable by any role so
+   agents can assign a workflow to a lead from the Bookings tab. */
+export const listActiveWorkflows = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { workflows: [] };
+  const db = await admin();
+  const { data } = await db
+    .from("workflows")
+    .select("id, name, enabled")
+    .eq("enabled", true)
+    .order("name", { ascending: true });
+  return { workflows: (data ?? []) as Array<{ id: string; name: string }> };
+});
+
+/* Assign and immediately trigger a workflow for a lead by phone. Agents, admins
+   and super admins may do this from the Bookings tab. Sends the first message now. */
+export const triggerLeadWorkflow = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        workflowId: z.string().uuid(),
+        phone: z.string().min(1).max(60),
+        workspaceId: z.string().uuid().nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(ANY_ROLE);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { data: wf } = await db
+      .from("workflows")
+      .select("id, name, enabled")
+      .eq("id", data.workflowId)
+      .maybeSingle();
+    const workflow = wf as { id: string; name: string; enabled: boolean } | null;
+    if (!workflow) return { ok: false, error: "Workflow not found" };
+    if (!workflow.enabled) return { ok: false, error: "This workflow is disabled" };
+
+    const { data: lead } = await db
+      .from("leads")
+      .select("id")
+      .eq("phone_number", data.phone)
+      .maybeSingle();
+
+    const { enrollLeadInWorkflowByName } = await import("./admissions.server");
+    let status: string;
+    try {
+      const res = await enrollLeadInWorkflowByName({
+        workflowName: workflow.name,
+        phone: data.phone,
+        leadId: (lead as { id?: string } | null)?.id ?? null,
+        workspaceId: data.workspaceId ?? null,
+        sendNow: true,
+      });
+      status = res.status;
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Failed to trigger workflow" };
+    }
+
+    if (status === "no_workflow") return { ok: false, error: "Workflow has no message steps configured" };
+    if (status === "already_enrolled") return { ok: false, error: "Lead is already enrolled in this workflow" };
+
+    await db.from("audit_logs").insert({
+      actor_email: me.email ?? null,
+      actor_role: me.role ?? null,
+      action: "workflow_triggered",
+      entity_type: "lead",
+      entity_id: (lead as { id?: string } | null)?.id ?? null,
+      details: { phone: data.phone, workflow: workflow.name },
+    } as never);
+
+    return { ok: true, error: null, status };
+  });
+
 /* ===================== MEETING OUTCOMES ===================== */
 
 const MEETING_ROLES = ["super_admin", "admin"] as AppRole[];
