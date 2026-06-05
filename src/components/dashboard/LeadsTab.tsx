@@ -49,6 +49,7 @@ interface Conversation {
 export function LeadsTab() {
   const qc = useQueryClient();
   const { profile } = useAuth();
+  const { openConversation } = useDashboardNav();
   const canDelete = profile.role === "super_admin" || profile.role === "admin";
   const canPause = profile.role === "super_admin" || profile.role === "admin";
   const leadsFn = useServerFn(listLeads);
