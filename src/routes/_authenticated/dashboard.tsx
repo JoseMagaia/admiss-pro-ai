@@ -165,7 +165,7 @@ function Dashboard() {
 
           <div className="mt-6">
             {activeTab === "leads" && <LeadsTab />}
-            {activeTab === "messages" && <MessagesTab />}
+            {activeTab === "messages" && <MessagesTab pendingConversation={pendingConversation} onPendingHandled={() => setPendingConversation(null)} />}
             {activeTab === "contacts" && <ContactsTab />}
             {activeTab === "bookings" && <BookingsTab />}
             {activeTab === "pipeline" && <PipelineTab />}
