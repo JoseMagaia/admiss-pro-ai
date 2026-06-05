@@ -53,6 +53,8 @@ function withinRange(iso: string | null | undefined, range: string): boolean {
 export function ContactsTab() {
   const fn = useServerFn(listContacts);
   const [search, setSearch] = useState("");
+  const [timeFilter, setTimeFilter] = useState("all");
+  const [sort, setSort] = useState("recent");
   const { openConversation } = useDashboardNav();
 
   const { data } = useQuery({
@@ -62,15 +64,25 @@ export function ContactsTab() {
   });
 
   const contacts = (data?.contacts ?? []) as Contact[];
-  const q = search.toLowerCase();
-  const filtered = contacts.filter(
-    (c) =>
-      !q ||
-      c.lead_name?.toLowerCase().includes(q) ||
-      c.phone_number.toLowerCase().includes(q) ||
-      c.course_interest?.toLowerCase().includes(q) ||
-      c.country_interest?.toLowerCase().includes(q),
-  );
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    const rows = contacts.filter(
+      (c) =>
+        (!q ||
+          c.lead_name?.toLowerCase().includes(q) ||
+          c.phone_number.toLowerCase().includes(q) ||
+          c.course_interest?.toLowerCase().includes(q) ||
+          c.country_interest?.toLowerCase().includes(q)) &&
+        withinRange(c.created_at, timeFilter),
+    );
+    rows.sort((a, b) => {
+      if (sort === "name_asc") return (a.lead_name ?? "").localeCompare(b.lead_name ?? "");
+      const at = new Date(a.created_at ?? 0).getTime();
+      const bt = new Date(b.created_at ?? 0).getTime();
+      return sort === "oldest" ? at - bt : bt - at;
+    });
+    return rows;
+  }, [contacts, search, timeFilter, sort]);
 
   return (
     <div className="space-y-4">
@@ -79,16 +91,44 @@ export function ContactsTab() {
           <ContactIcon className="h-4 w-4 text-primary" />
           {filtered.length} contact{filtered.length === 1 ? "" : "s"}
         </div>
-        <div className="relative max-w-xs flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search contacts…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative max-w-xs flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search contacts…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Select value={timeFilter} onValueChange={setTimeFilter}>
+            <SelectTrigger className="h-8 w-[120px] text-xs">
+              <SelectValue placeholder="Time" />
+            </SelectTrigger>
+            <SelectContent>
+              {TIME_FILTERS.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sort} onValueChange={setSort}>
+            <SelectTrigger className="h-8 w-[120px] text-xs">
+              <ArrowUpDown className="mr-1 h-3.5 w-3.5" />
+              <SelectValue placeholder="Sort" />
+            </SelectTrigger>
+            <SelectContent>
+              {SORTS.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
+
 
       <div className="overflow-x-auto rounded-2xl border bg-card shadow-card">
         <table className="w-full text-sm">
