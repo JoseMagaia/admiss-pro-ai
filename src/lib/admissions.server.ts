@@ -503,16 +503,37 @@ export async function deliverHumanMessage(params: {
   const db = await admin();
   const { phone, message } = params;
 
-  const { data: lead } = await db
+  let { data: lead } = await db
     .from("leads")
     .select("id, chatwoot_conversation_id, workspace_id")
     .eq("phone_number", phone)
     .maybeSingle();
-  const { data: conv } = await db
+  let { data: conv } = await db
     .from("conversations")
-    .select("chatwoot_conversation_id, workspace_id")
+    .select("id, chatwoot_conversation_id, workspace_id")
     .eq("phone_number", phone)
     .maybeSingle();
+
+  if (!lead) {
+    lead = await getOrCreateLead(phone, null, null, null);
+  }
+  if (!conv) {
+    const { data: createdConv } = await db
+      .from("conversations")
+      .insert({
+        phone_number: phone,
+        lead_id: (lead as LeadRecord | null)?.id ?? null,
+        workspace_id: (lead as Record<string, unknown> | null)?.workspace_id ?? null,
+        chatwoot_conversation_id: (lead as Record<string, unknown> | null)?.chatwoot_conversation_id ?? null,
+        status: "pending",
+        human_takeover: true,
+        assigned_agent: "Admissions Team",
+        ai_resumed: false,
+      } as never)
+      .select("id, chatwoot_conversation_id, workspace_id")
+      .single();
+    conv = createdConv;
+  }
 
   const workspaceId =
     (conv as Record<string, unknown> | null)?.workspace_id ??
@@ -536,6 +557,11 @@ export async function deliverHumanMessage(params: {
     message_type: "text",
     processed: true,
   });
+
+  await db
+    .from("conversations")
+    .update({ human_takeover: true, status: "pending", updated_at: new Date().toISOString() } as never)
+    .eq("phone_number", phone);
 
   if (!sent) {
     return { ok: false, error: "Could not deliver via Chatwoot. Message logged to the conversation." };
