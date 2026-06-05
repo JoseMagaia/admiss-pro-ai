@@ -14,12 +14,20 @@ import {
   Pause,
   Play,
   ArrowLeft,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -39,8 +47,16 @@ import {
   toggleHumanTakeover,
   listWorkflowStates,
   pauseLeadWorkflow,
+  listWorkspaces,
+  startConversation,
 } from "@/lib/dashboard.functions";
 import { cn } from "@/lib/utils";
+
+interface Workspace {
+  id: string;
+  name?: string | null;
+  is_default?: boolean | null;
+}
 
 interface Message {
   id: string;
