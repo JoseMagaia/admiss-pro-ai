@@ -548,6 +548,85 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* New conversation dialog */}
+      <Dialog open={newOpen} onOpenChange={setNewOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start new conversation</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Phone number</label>
+              <Input
+                placeholder="e.g. +15551234567"
+                value={newPhone}
+                onChange={(e) => setNewPhone(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Name (optional)</label>
+              <Input
+                placeholder="Lead name"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Send through workspace</label>
+              <Select value={newWorkspace} onValueChange={setNewWorkspace}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Default workspace" />
+                </SelectTrigger>
+                <SelectContent>
+                  {workspaces.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name ?? "Unnamed"}
+                      {w.is_default ? " (default)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">First message</label>
+              <Textarea
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder="Type the first message…"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setNewOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!newPhone.trim() || !newMessage.trim()) {
+                  toast.error("Enter a phone number and message");
+                  return;
+                }
+                startConv.mutate({
+                  phone: newPhone.trim(),
+                  name: newName.trim(),
+                  workspaceId: newWorkspace,
+                  message: newMessage.trim(),
+                });
+              }}
+              disabled={startConv.isPending}
+            >
+              {startConv.isPending ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="mr-1 h-4 w-4" />
+              )}
+              Start
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
