@@ -156,6 +156,7 @@ function mergeThread(
     last_sender: null,
     match_message_content: null,
     match_message_at: null,
+    match_sender: null,
   };
   threads.set(phone, { ...existing, ...patch });
 }
