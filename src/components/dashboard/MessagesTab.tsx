@@ -219,6 +219,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
   const activeMsgs = ((activeData as { messages?: Message[] } | undefined)?.messages ?? []) as Message[];
   const activeConv = (activeData as { conversation?: Conversation | null } | undefined)?.conversation ?? null;
+  const activePhone = (activeData as { phone?: string } | undefined)?.phone ?? active;
   const takeover = activeConv?.human_takeover ?? false;
   const activeScheduled = scheduled.filter((s) => digitsOnly(s.phone_number) === activeDigits && s.status === "pending");
   const workflowState =
@@ -231,7 +232,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   }, [activeMsgs.length, active]);
 
   const send = useMutation({
-    mutationFn: (message: string) => sendFn({ data: { phone: active!, message } }),
+    mutationFn: (message: string) => sendFn({ data: { phone: activePhone!, message } }),
     onSuccess: (r) => {
       const res = r as { ok: boolean; error?: string };
       if (res.ok) {
@@ -240,15 +241,15 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
         toast.warning(res.error ?? "Sent but delivery may have failed");
       }
       setDraft("");
-      qc.invalidateQueries({ queryKey: ["messages"] });
-      qc.invalidateQueries({ queryKey: ["conversations"] });
+      qc.invalidateQueries({ queryKey: ["message-threads"] });
+      qc.invalidateQueries({ queryKey: ["conversation-messages"] });
     },
     onError: () => toast.error("Failed to send"),
   });
 
   const schedule = useMutation({
     mutationFn: (vars: { message: string; scheduledFor: string }) =>
-      scheduleFn({ data: { phone: active!, message: vars.message, scheduledFor: vars.scheduledFor } }),
+      scheduleFn({ data: { phone: activePhone!, message: vars.message, scheduledFor: vars.scheduledFor } }),
     onSuccess: (r) => {
       const res = r as { ok: boolean; error?: string };
       if (res.ok) {
@@ -295,8 +296,8 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
       setNewName("");
       setNewWorkspace("");
       setNewMessage("");
-      qc.invalidateQueries({ queryKey: ["messages"] });
-      qc.invalidateQueries({ queryKey: ["conversations"] });
+      qc.invalidateQueries({ queryKey: ["message-threads"] });
+      qc.invalidateQueries({ queryKey: ["conversation-messages"] });
       qc.invalidateQueries({ queryKey: ["leads"] });
       qc.invalidateQueries({ queryKey: ["contacts"] });
       setActive(vars.phone);
@@ -306,15 +307,16 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
 
   const toggleTakeover = useMutation({
-    mutationFn: (enabled: boolean) => takeoverFn({ data: { phone: active!, enabled } }),
+    mutationFn: (enabled: boolean) => takeoverFn({ data: { phone: activePhone!, enabled } }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["conversations"] });
+      qc.invalidateQueries({ queryKey: ["message-threads"] });
+      qc.invalidateQueries({ queryKey: ["conversation-messages"] });
     },
     onError: () => toast.error("Failed to update"),
   });
 
   const pauseWorkflow = useMutation({
-    mutationFn: (paused: boolean) => pauseFn({ data: { phone: active!, paused } }),
+    mutationFn: (paused: boolean) => pauseFn({ data: { phone: activePhone!, paused } }),
     onSuccess: (res, paused) => {
       if ((res as { ok: boolean }).ok) {
         qc.invalidateQueries({ queryKey: ["workflow-states"] });
