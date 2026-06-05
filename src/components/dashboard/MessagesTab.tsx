@@ -80,7 +80,12 @@ interface Scheduled {
   status: string;
 }
 
-export function MessagesTab() {
+interface MessagesTabProps {
+  pendingConversation?: string | null;
+  onPendingHandled?: () => void;
+}
+
+export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesTabProps = {}) {
   const qc = useQueryClient();
   const { profile } = useAuth();
   const canPause = profile.role === "super_admin" || profile.role === "admin";
@@ -93,6 +98,8 @@ export function MessagesTab() {
   const takeoverFn = useServerFn(toggleHumanTakeover);
   const statesFn = useServerFn(listWorkflowStates);
   const pauseFn = useServerFn(pauseLeadWorkflow);
+  const workspacesFn = useServerFn(listWorkspaces);
+  const startFn = useServerFn(startConversation);
 
   const { data: msgData } = useQuery({ queryKey: ["messages"], queryFn: () => msgFn(), refetchInterval: 5000 });
   const { data: convData } = useQuery({
