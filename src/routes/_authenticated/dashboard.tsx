@@ -177,5 +177,6 @@ function Dashboard() {
       </main>
       <Toaster position="top-right" richColors />
     </div>
+    </DashboardNavProvider>
   );
 }
