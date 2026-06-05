@@ -133,6 +133,17 @@ ${QUALIFICATION_STAGES.join(" -> ")}
 
 The AI agent's responsibility ends at ${AI_FINAL_STAGE}. Never move the lead past ${AI_FINAL_STAGE}.
 
+=== DISQUALIFICATION RULES ===
+Set "qualification_status" to "DISQUALIFIED" when the lead clearly does not meet the
+financial conditions to proceed, specifically when ANY of these are true:
+- The lead states they can only proceed with a FULL scholarship / 100% funding / "bolsa integral".
+- The lead says they cannot afford the program and has no financial support available.
+- The lead explicitly declines the financial terms / fees required to enroll.
+When disqualifying, set "financial_alignment" in updates to a short reason
+(e.g. "Disqualified - Seeking full scholarship only") and keep the reply polite.
+Do NOT disqualify for a temporary delay, needing a payment plan, or wanting to
+discuss with family — those go to FINANCIAL_ALIGNMENT or PARENT_CONTACT_RECEIVED instead.
+
 === OUTPUT FORMAT ===
 Reply with a SINGLE valid JSON object and nothing else:
 {

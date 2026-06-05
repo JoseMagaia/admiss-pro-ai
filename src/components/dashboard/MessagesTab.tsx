@@ -106,6 +106,7 @@ interface MessageThread {
   last_sender: string | null;
   match_message_content: string | null;
   match_message_at: string | null;
+  match_sender: string | null;
 }
 
 interface Scheduled {
@@ -379,7 +380,16 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                 </span>
                 {c.lead_name && <span className="text-[11px] text-muted-foreground">{c.phone_number}</span>}
                 <span className="line-clamp-2 text-xs text-muted-foreground">
-                  {c.match_message_content ? <MatchSnippet text={preview} term={search} /> : preview}
+                  {c.match_message_content ? (
+                    <>
+                      <span className="mr-1 rounded bg-muted px-1 py-0.5 text-[9px] font-semibold uppercase">
+                        {c.match_sender === "lead" ? "Student" : c.match_sender === "ai" ? "AI" : "Agent"}
+                      </span>
+                      <MatchSnippet text={preview} term={search} />
+                    </>
+                  ) : (
+                    preview
+                  )}
                 </span>
               </button>
             );

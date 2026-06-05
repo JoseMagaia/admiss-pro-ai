@@ -1,10 +1,17 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, UserCog, Bot, Trash2, Pause, Play, MessageSquare } from "lucide-react";
+import { Search, UserCog, Bot, Trash2, Pause, Play, MessageSquare, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,7 +46,37 @@ interface Lead {
   parent_phone: string | null;
   document_received: boolean;
   qualification_status: string;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
+
+const TIME_FILTERS = [
+  { id: "all", label: "All time" },
+  { id: "today", label: "Today" },
+  { id: "7d", label: "7 days" },
+  { id: "30d", label: "30 days" },
+] as const;
+
+const SORTS = [
+  { id: "recent", label: "Most recent" },
+  { id: "oldest", label: "Oldest" },
+  { id: "name_asc", label: "Name A–Z" },
+  { id: "stage", label: "Stage" },
+] as const;
+
+function withinRange(iso: string | null | undefined, range: string): boolean {
+  if (range === "all") return true;
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return false;
+  const now = Date.now();
+  const day = 86400000;
+  if (range === "today") return new Date(iso).toDateString() === new Date().toDateString();
+  if (range === "7d") return now - t <= 7 * day;
+  if (range === "30d") return now - t <= 30 * day;
+  return true;
+}
+
 
 interface Conversation {
   phone_number: string;
@@ -60,6 +97,8 @@ export function LeadsTab() {
   const pauseFn = useServerFn(pauseLeadWorkflow);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [timeFilter, setTimeFilter] = useState("all");
+  const [sort, setSort] = useState("recent");
   const [pendingDelete, setPendingDelete] = useState<Lead | null>(null);
 
   const { data } = useQuery({
@@ -135,17 +174,29 @@ export function LeadsTab() {
 
   const leads = (data?.leads ?? []) as Lead[];
 
-  const filtered = leads.filter((l) => {
-    const matchFilter = filter === "all" || columnForStage(l.qualification_status).id === filter;
+  const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    const matchSearch =
-      !q ||
-      l.lead_name?.toLowerCase().includes(q) ||
-      l.phone_number.toLowerCase().includes(q) ||
-      l.course_interest?.toLowerCase().includes(q) ||
-      l.country_interest?.toLowerCase().includes(q);
-    return matchFilter && matchSearch;
-  });
+    const rows = leads.filter((l) => {
+      const matchFilter = filter === "all" || columnForStage(l.qualification_status).id === filter;
+      const matchSearch =
+        !q ||
+        l.lead_name?.toLowerCase().includes(q) ||
+        l.phone_number.toLowerCase().includes(q) ||
+        l.course_interest?.toLowerCase().includes(q) ||
+        l.country_interest?.toLowerCase().includes(q);
+      const matchTime = withinRange(l.updated_at ?? l.created_at ?? null, timeFilter);
+      return matchFilter && matchSearch && matchTime;
+    });
+    rows.sort((a, b) => {
+      if (sort === "name_asc") return (a.lead_name ?? "").localeCompare(b.lead_name ?? "");
+      if (sort === "stage") return a.qualification_status.localeCompare(b.qualification_status);
+      const at = new Date(a.updated_at ?? a.created_at ?? 0).getTime();
+      const bt = new Date(b.updated_at ?? b.created_at ?? 0).getTime();
+      return sort === "oldest" ? at - bt : bt - at;
+    });
+    return rows;
+  }, [leads, filter, search, timeFilter, sort]);
+
 
   return (
     <div className="space-y-4">
@@ -159,7 +210,7 @@ export function LeadsTab() {
             className="pl-9"
           />
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {LEAD_FILTERS.map((f) => (
             <button
               key={f.id}
@@ -174,8 +225,34 @@ export function LeadsTab() {
               {f.label}
             </button>
           ))}
+          <Select value={timeFilter} onValueChange={setTimeFilter}>
+            <SelectTrigger className="h-8 w-[120px] text-xs">
+              <SelectValue placeholder="Time" />
+            </SelectTrigger>
+            <SelectContent>
+              {TIME_FILTERS.map((t) => (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sort} onValueChange={setSort}>
+            <SelectTrigger className="h-8 w-[130px] text-xs">
+              <ArrowUpDown className="mr-1 h-3.5 w-3.5" />
+              <SelectValue placeholder="Sort" />
+            </SelectTrigger>
+            <SelectContent>
+              {SORTS.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
+
 
       <div className="overflow-x-auto rounded-2xl border bg-card shadow-card">
         <table className="w-full text-sm">

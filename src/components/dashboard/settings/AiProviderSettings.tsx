@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Save, Cpu, KeyRound } from "lucide-react";
+import { Save, Cpu, KeyRound, Plug, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { SettingsCard } from "./SettingsForms";
-import { getAiConfig, saveAiProvider } from "@/lib/dashboard.functions";
+import { getAiConfig, saveAiProvider, testAiProvider } from "@/lib/dashboard.functions";
 
 interface Preset {
   id: string;
@@ -41,6 +41,7 @@ export function AiProviderSettings() {
   const qc = useQueryClient();
   const getFn = useServerFn(getAiConfig);
   const saveFn = useServerFn(saveAiProvider);
+  const testFn = useServerFn(testAiProvider);
 
   const { data } = useQuery({ queryKey: ["ai-config"], queryFn: () => getFn() });
   const cfg = (data?.config ?? null) as ConfigRow | null;
@@ -96,6 +97,25 @@ export function AiProviderSettings() {
       toast.success("AI provider settings saved");
     },
     onError: () => toast.error("Failed to save"),
+  });
+
+  const test = useMutation({
+    mutationFn: () =>
+      testFn({
+        data: {
+          provider_mode: mode,
+          custom_provider: provider,
+          custom_base_url: baseUrl || null,
+          custom_model: model || null,
+          custom_api_key: apiKey || "", // empty → server uses the saved key
+        },
+      }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error: string | null };
+      if (res.ok) toast.success("Connection successful");
+      else toast.error(res.error ?? "Connection failed");
+    },
+    onError: () => toast.error("Connection failed"),
   });
 
   return (
@@ -197,9 +217,21 @@ export function AiProviderSettings() {
         </div>
       )}
 
-      <Button onClick={() => save.mutate()} disabled={save.isPending}>
-        <Save className="mr-1 h-4 w-4" /> Save Provider Settings
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={() => save.mutate()} disabled={save.isPending}>
+          <Save className="mr-1 h-4 w-4" /> Save Provider Settings
+        </Button>
+        {mode === "custom" && (
+          <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending}>
+            {test.isPending ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Plug className="mr-1 h-4 w-4" />
+            )}
+            Test connection
+          </Button>
+        )}
+      </div>
     </SettingsCard>
   );
 }

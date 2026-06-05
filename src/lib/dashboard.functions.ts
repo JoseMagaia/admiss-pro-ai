@@ -127,6 +127,7 @@ type MessageThread = {
   last_sender: string | null;
   match_message_content: string | null;
   match_message_at: string | null;
+  match_sender: string | null;
 };
 
 function phoneCandidates(phone: string): string[] {
@@ -155,6 +156,7 @@ function mergeThread(
     last_sender: null,
     match_message_content: null,
     match_message_at: null,
+    match_sender: null,
   };
   threads.set(phone, { ...existing, ...patch });
 }
@@ -203,13 +205,23 @@ export const listMessageThreads = createServerFn({ method: "POST" })
           .range(start, start + 999);
         const rows = ((matches as MessageRow[] | null) ?? []) as MessageRow[];
         for (const msg of rows) {
-          if (!threads.has(msg.phone_number)) {
+          const existing = threads.get(msg.phone_number);
+          if (!existing) {
             mergeThread(threads, msg.phone_number, {
               last_message_content: msg.message_content,
               last_message_at: msg.received_at,
               last_sender: msg.sender,
               match_message_content: msg.message_content,
               match_message_at: msg.received_at,
+              match_sender: msg.sender,
+            });
+          } else if (msg.sender === "lead" && existing.match_sender !== "lead") {
+            // Surface the student's (incoming) matching message instead of an
+            // outgoing AI/agent reply so inbound matches are visible in results.
+            mergeThread(threads, msg.phone_number, {
+              match_message_content: msg.message_content,
+              match_message_at: msg.received_at,
+              match_sender: "lead",
             });
           }
         }
@@ -523,6 +535,87 @@ export const saveAiProvider = createServerFn({ method: "POST" })
     }
     const { error } = await db.from("ai_configuration").insert(rest as never);
     return { ok: !error, error: error?.message ?? null };
+  });
+
+// Test a custom AI provider connection before saving. When the api key is left
+// blank the stored key is used, so an existing connection can be re-verified.
+export const testAiProvider = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        provider_mode: z.enum(["built_in", "custom"]),
+        custom_provider: z.string().max(100).nullable().optional(),
+        custom_base_url: z.string().max(500).nullable().optional(),
+        custom_model: z.string().max(200).nullable().optional(),
+        custom_api_key: z.string().max(500).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+
+    if (data.provider_mode === "built_in") {
+      if (!process.env.LOVABLE_API_KEY) return { ok: false, error: "Built-in AI key is not configured." };
+      return { ok: true, error: null };
+    }
+
+    // Use the saved key when the form leaves it blank.
+    let apiKey = (data.custom_api_key ?? "").trim();
+    const baseUrl = (data.custom_base_url ?? "").trim();
+    const model = (data.custom_model ?? "").trim();
+    const provider = (data.custom_provider ?? "").toLowerCase();
+
+    if (!apiKey) {
+      const db = await admin();
+      const { data: cfg } = await db
+        .from("ai_configuration")
+        .select("custom_api_key")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      apiKey = String((cfg as { custom_api_key?: string } | null)?.custom_api_key ?? "").trim();
+    }
+
+    if (!apiKey) return { ok: false, error: "No API key provided or saved." };
+    if (!model) return { ok: false, error: "Select a model first." };
+
+    try {
+      if (provider === "anthropic") {
+        const url = (baseUrl.replace(/\/+$/, "") || "https://api.anthropic.com") + "/v1/messages";
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({ model, max_tokens: 8, messages: [{ role: "user", content: "ping" }] }),
+        });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          return { ok: false, error: `Provider error ${res.status}: ${t.slice(0, 200)}` };
+        }
+        return { ok: true, error: null };
+      }
+      if (!baseUrl) return { ok: false, error: "Base URL is required for this provider." };
+      const url = baseUrl.replace(/\/+$/, "") + "/chat/completions";
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, max_tokens: 8, messages: [{ role: "user", content: "ping" }] }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        return { ok: false, error: `Provider error ${res.status}: ${t.slice(0, 200)}` };
+      }
+      return { ok: true, error: null };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Connection failed" };
+    }
   });
 
 export const listPromptVersions = createServerFn({ method: "GET" }).handler(async () => {
@@ -1229,6 +1322,84 @@ export const deleteWorkflow = createServerFn({ method: "POST" })
     const db = await admin();
     const { error } = await db.from("workflows").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
+  });
+
+/* Lightweight list of enabled workflows (id + name) usable by any role so
+   agents can assign a workflow to a lead from the Bookings tab. */
+export const listActiveWorkflows = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { workflows: [] };
+  const db = await admin();
+  const { data } = await db
+    .from("workflows")
+    .select("id, name, enabled")
+    .eq("enabled", true)
+    .order("name", { ascending: true });
+  return { workflows: (data ?? []) as Array<{ id: string; name: string }> };
+});
+
+/* Assign and immediately trigger a workflow for a lead by phone. Agents, admins
+   and super admins may do this from the Bookings tab. Sends the first message now. */
+export const triggerLeadWorkflow = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        workflowId: z.string().uuid(),
+        phone: z.string().min(1).max(60),
+        workspaceId: z.string().uuid().nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(ANY_ROLE);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { data: wf } = await db
+      .from("workflows")
+      .select("id, name, enabled")
+      .eq("id", data.workflowId)
+      .maybeSingle();
+    const workflow = wf as { id: string; name: string; enabled: boolean } | null;
+    if (!workflow) return { ok: false, error: "Workflow not found" };
+    if (!workflow.enabled) return { ok: false, error: "This workflow is disabled" };
+
+    const { data: lead } = await db
+      .from("leads")
+      .select("id")
+      .eq("phone_number", data.phone)
+      .maybeSingle();
+
+    const { enrollLeadInWorkflowByName } = await import("./admissions.server");
+    let status: string;
+    try {
+      const res = await enrollLeadInWorkflowByName({
+        workflowName: workflow.name,
+        phone: data.phone,
+        leadId: (lead as { id?: string } | null)?.id ?? null,
+        workspaceId: data.workspaceId ?? null,
+        sendNow: true,
+      });
+      status = res.status;
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Failed to trigger workflow" };
+    }
+
+    if (status === "no_workflow") return { ok: false, error: "Workflow has no message steps configured" };
+    if (status === "already_enrolled") return { ok: false, error: "Lead is already enrolled in this workflow" };
+
+    await db.from("audit_logs").insert({
+      actor_email: me.email ?? null,
+      actor_role: me.role ?? null,
+      action: "workflow_triggered",
+      entity_type: "lead",
+      entity_id: (lead as { id?: string } | null)?.id ?? null,
+      details: { phone: data.phone, workflow: workflow.name },
+    } as never);
+
+    return { ok: true, error: null, status };
   });
 
 /* ===================== MEETING OUTCOMES ===================== */
