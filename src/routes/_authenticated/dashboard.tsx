@@ -56,6 +56,14 @@ type TabId = (typeof ALL_TABS)[number]["id"];
 function Dashboard() {
   const { loading, profile, signOut } = useAuth();
   const [tab, setTab] = useState<TabId>("leads");
+  const [pendingConversation, setPendingConversation] = useState<string | null>(null);
+
+  const openConversation = useCallback((phone: string) => {
+    setPendingConversation(phone);
+    setTab("messages");
+  }, []);
+
+
 
   if (loading) {
     return (
