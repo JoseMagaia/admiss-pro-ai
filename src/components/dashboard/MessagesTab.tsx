@@ -237,6 +237,38 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     onError: () => toast.error("Failed to cancel"),
   });
 
+  const startConv = useMutation({
+    mutationFn: (vars: { phone: string; name: string; workspaceId: string; message: string }) =>
+      startFn({
+        data: {
+          phone: vars.phone,
+          name: vars.name || undefined,
+          workspaceId: vars.workspaceId || undefined,
+          message: vars.message,
+        },
+      }),
+    onSuccess: (r, vars) => {
+      const res = r as { ok: boolean; error?: string };
+      if (!res.ok) {
+        toast.error(res.error ?? "Failed to start conversation");
+        return;
+      }
+      toast.success("Conversation started");
+      setNewOpen(false);
+      setNewPhone("");
+      setNewName("");
+      setNewWorkspace("");
+      setNewMessage("");
+      qc.invalidateQueries({ queryKey: ["messages"] });
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["contacts"] });
+      setActive(vars.phone);
+    },
+    onError: () => toast.error("Failed to start conversation"),
+  });
+
+
   const toggleTakeover = useMutation({
     mutationFn: (enabled: boolean) => takeoverFn({ data: { phone: active!, enabled } }),
     onSuccess: () => {
