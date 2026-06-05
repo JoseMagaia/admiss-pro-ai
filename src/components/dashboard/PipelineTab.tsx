@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { GripVertical } from "lucide-react";
+import { GripVertical, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { listLeads, updateLeadStage } from "@/lib/dashboard.functions";
 import { PIPELINE_COLUMNS, columnForStage, stageLabel } from "@/lib/pipeline";
+import { useDashboardNav } from "@/lib/dashboard-nav";
 import { cn } from "@/lib/utils";
 
 interface Lead {
