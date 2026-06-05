@@ -106,6 +106,7 @@ interface MessageThread {
   last_sender: string | null;
   match_message_content: string | null;
   match_message_at: string | null;
+  match_sender: string | null;
 }
 
 interface Scheduled {
