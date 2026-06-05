@@ -96,6 +96,40 @@ export const deleteLead = createServerFn({ method: "POST" })
 
 /* ------------------------- CONVERSATIONS ------------------------- */
 
+type MessageRow = {
+  id: string;
+  phone_number: string;
+  message_content: string;
+  sender: string;
+  received_at: string;
+};
+
+type ConversationRow = {
+  phone_number: string;
+  human_takeover: boolean;
+  status: string;
+  updated_at?: string | null;
+};
+
+function phoneCandidates(phone: string): string[] {
+  const raw = phone.trim();
+  const digits = raw.replace(/\D/g, "");
+  return Array.from(
+    new Set(
+      [raw, digits, digits ? `+${digits}` : "", digits.startsWith("00") ? `+${digits.slice(2)}` : ""].filter(Boolean),
+    ),
+  );
+}
+
+function mergeThread(
+  threads: Map<string, Record<string, unknown>>,
+  phone: string,
+  patch: Record<string, unknown>,
+) {
+  const existing = threads.get(phone) ?? { phone_number: phone };
+  threads.set(phone, { ...existing, ...patch });
+}
+
 export const listConversations = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { conversations: [] };
   const db = await admin();
@@ -109,6 +143,186 @@ export const listMessages = createServerFn({ method: "GET" }).handler(async () =
   const { data } = await db.from("whatsapp_messages").select("*").order("received_at", { ascending: true }).limit(1000);
   return { messages: data ?? [] };
 });
+
+export const listMessageThreads = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        search: z.string().max(200).optional(),
+        limit: z.number().int().min(10).max(50).optional(),
+        offset: z.number().int().min(0).max(10000).optional(),
+      })
+      .parse(d ?? {}),
+  )
+  .handler(async ({ data }) => {
+    if (!(await isAuthed())) return { threads: [], hasMore: false };
+    const db = await admin();
+    const search = (data.search ?? "").trim();
+    const limit = data.limit ?? 30;
+    const offset = data.offset ?? 0;
+    const needed = offset + limit + 1;
+    const threads = new Map<string, Record<string, unknown>>();
+
+    if (search) {
+      let start = 0;
+      while (threads.size < needed && start < 10000) {
+        const { data: matches } = await db
+          .from("whatsapp_messages")
+          .select("id, phone_number, message_content, sender, received_at")
+          .ilike("message_content", `%${search}%`)
+          .order("received_at", { ascending: false })
+          .range(start, start + 999);
+        const rows = ((matches as MessageRow[] | null) ?? []) as MessageRow[];
+        for (const msg of rows) {
+          if (!threads.has(msg.phone_number)) {
+            mergeThread(threads, msg.phone_number, {
+              last_message_content: msg.message_content,
+              last_message_at: msg.received_at,
+              last_sender: msg.sender,
+              match_message_content: msg.message_content,
+              match_message_at: msg.received_at,
+            });
+          }
+        }
+        if (rows.length < 1000) break;
+        start += 1000;
+      }
+
+      const [{ data: phoneLeads }, { data: nameLeads }, { data: phoneConvs }] = await Promise.all([
+        db.from("leads").select("phone_number, lead_name").ilike("phone_number", `%${search}%`).limit(200),
+        db.from("leads").select("phone_number, lead_name").ilike("lead_name", `%${search}%`).limit(200),
+        db.from("conversations").select("phone_number, human_takeover, status, updated_at").ilike("phone_number", `%${search}%`).limit(200),
+      ]);
+
+      for (const lead of ([...(phoneLeads ?? []), ...(nameLeads ?? [])] as Array<Record<string, unknown>>)) {
+        mergeThread(threads, String(lead.phone_number), { lead_name: lead.lead_name ?? null });
+      }
+      for (const conv of ((phoneConvs as ConversationRow[] | null) ?? []) as ConversationRow[]) {
+        mergeThread(threads, conv.phone_number, {
+          human_takeover: conv.human_takeover,
+          status: conv.status,
+          conversation_updated_at: conv.updated_at ?? null,
+        });
+      }
+    } else {
+      let start = 0;
+      while (threads.size < needed && start < 20000) {
+        const { data: recent } = await db
+          .from("whatsapp_messages")
+          .select("id, phone_number, message_content, sender, received_at")
+          .order("received_at", { ascending: false })
+          .range(start, start + 999);
+        const rows = ((recent as MessageRow[] | null) ?? []) as MessageRow[];
+        for (const msg of rows) {
+          if (!threads.has(msg.phone_number)) {
+            mergeThread(threads, msg.phone_number, {
+              last_message_content: msg.message_content,
+              last_message_at: msg.received_at,
+              last_sender: msg.sender,
+              match_message_content: null,
+              match_message_at: null,
+            });
+          }
+        }
+        if (rows.length < 1000) break;
+        start += 1000;
+      }
+
+      const { data: convs } = await db
+        .from("conversations")
+        .select("phone_number, human_takeover, status, updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(needed + 200);
+      for (const conv of ((convs as ConversationRow[] | null) ?? []) as ConversationRow[]) {
+        mergeThread(threads, conv.phone_number, {
+          human_takeover: conv.human_takeover,
+          status: conv.status,
+          conversation_updated_at: conv.updated_at ?? null,
+        });
+      }
+    }
+
+    const phones = Array.from(threads.keys());
+    if (phones.length) {
+      const [{ data: convRows }, { data: leadRows }] = await Promise.all([
+        db.from("conversations").select("phone_number, human_takeover, status, updated_at").in("phone_number", phones),
+        db.from("leads").select("phone_number, lead_name").in("phone_number", phones),
+      ]);
+      for (const conv of ((convRows as ConversationRow[] | null) ?? []) as ConversationRow[]) {
+        mergeThread(threads, conv.phone_number, {
+          human_takeover: conv.human_takeover,
+          status: conv.status,
+          conversation_updated_at: conv.updated_at ?? null,
+        });
+      }
+      for (const lead of ((leadRows as Array<Record<string, unknown>> | null) ?? [])) {
+        mergeThread(threads, String(lead.phone_number), { lead_name: lead.lead_name ?? null });
+      }
+
+      const missingLatest = phones.filter((phone) => !threads.get(phone)?.last_message_at);
+      await Promise.all(
+        missingLatest.map(async (phone) => {
+          const { data: latest } = await db
+            .from("whatsapp_messages")
+            .select("id, phone_number, message_content, sender, received_at")
+            .eq("phone_number", phone)
+            .order("received_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          const msg = latest as MessageRow | null;
+          if (msg) {
+            mergeThread(threads, phone, {
+              last_message_content: msg.message_content,
+              last_message_at: msg.received_at,
+              last_sender: msg.sender,
+            });
+          }
+        }),
+      );
+    }
+
+    const ordered = Array.from(threads.values()).sort((a, b) => {
+      const aTime = String(a.last_message_at ?? a.match_message_at ?? a.conversation_updated_at ?? "");
+      const bTime = String(b.last_message_at ?? b.match_message_at ?? b.conversation_updated_at ?? "");
+      return new Date(bTime).getTime() - new Date(aTime).getTime();
+    });
+
+    return {
+      threads: ordered.slice(offset, offset + limit),
+      hasMore: ordered.length > offset + limit,
+    };
+  });
+
+export const listConversationMessages = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ phone: z.string().min(1).max(60), limit: z.number().int().min(1).max(500).optional() }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    if (!(await isAuthed())) return { phone: data.phone, messages: [], conversation: null };
+    const db = await admin();
+    const candidates = phoneCandidates(data.phone);
+    const { data: conv } = await db
+      .from("conversations")
+      .select("phone_number, human_takeover, status, updated_at")
+      .in("phone_number", candidates)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const canonicalPhone = (conv as ConversationRow | null)?.phone_number ?? data.phone;
+    const messagePhones = Array.from(new Set([canonicalPhone, ...candidates]));
+    const { data: rows } = await db
+      .from("whatsapp_messages")
+      .select("*")
+      .in("phone_number", messagePhones)
+      .order("received_at", { ascending: false })
+      .limit(data.limit ?? 300);
+    const messages = (((rows as MessageRow[] | null) ?? []) as MessageRow[]).reverse();
+    return {
+      phone: messages.at(-1)?.phone_number ?? canonicalPhone,
+      messages,
+      conversation: conv ?? null,
+    };
+  });
 
 /* -------------------------- APPOINTMENTS ------------------------- */
 
