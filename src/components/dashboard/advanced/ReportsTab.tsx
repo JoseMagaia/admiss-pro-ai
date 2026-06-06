@@ -52,7 +52,7 @@ function Stat({ icon: Icon, label, value, tone }: { icon: typeof Users; label: s
   );
 }
 
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+function ChartCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-2xl border bg-card p-4 shadow-card">
       <h3 className="mb-3 text-sm font-semibold">{title}</h3>
