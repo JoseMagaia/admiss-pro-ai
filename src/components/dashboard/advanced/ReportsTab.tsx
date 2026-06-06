@@ -300,7 +300,7 @@ export function ReportsTab() {
               <div>
                 <h2 className="font-display text-lg font-semibold leading-tight">AI Insights Generator</h2>
                 <p className="text-xs text-muted-foreground">
-                  Chat with your live analytics — ask follow-ups, then save to favorites.
+                  Chat with your live analytics — saved to history automatically. Ask for a report to download it.
                 </p>
               </div>
             </div>
@@ -319,18 +319,8 @@ export function ReportsTab() {
                 </select>
               </label>
               {hasConversation && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => save.mutate()}
-                  disabled={save.isPending}
-                >
-                  {save.isPending ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Star className="mr-1 h-3.5 w-3.5 text-amber-500" />
-                  )}
-                  {activeId ? "Update favorite" : "Save to favorites"}
+                <Button size="sm" variant="outline" onClick={startNew}>
+                  <Plus className="mr-1 h-3.5 w-3.5" /> New analysis
                 </Button>
               )}
             </div>
