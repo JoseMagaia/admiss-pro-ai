@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   Contact as ContactIcon,
   Settings as SettingsIcon,
+  Gauge,
   ArrowLeft,
   LogOut,
   Loader2,
@@ -24,9 +25,10 @@ import { PipelineTab } from "@/components/dashboard/PipelineTab";
 import { OrchestrationTab } from "@/components/dashboard/OrchestrationTab";
 import { MeetingOutcomesTab } from "@/components/dashboard/MeetingOutcomesTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
+import { AdvancedTab } from "@/components/dashboard/advanced/AdvancedTab";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
-import { canAccessTab, ROLE_LABELS } from "@/lib/roles";
+import { canAccessTab, canAccessAdvanced, ROLE_LABELS } from "@/lib/roles";
 import { DashboardNavProvider } from "@/lib/dashboard-nav";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
