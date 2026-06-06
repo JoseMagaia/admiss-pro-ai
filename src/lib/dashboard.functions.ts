@@ -781,7 +781,7 @@ export const testPrompt = createServerFn({ method: "POST" })
 /* --------------------------- DASHBOARD STATS --------------------- */
 
 export const getDashboardStats = createServerFn({ method: "GET" }).handler(async () => {
-  if (!(await isAuthed())) return { leads: 0, qualified: 0, bookings: 0, messages: 0, disqualified: 0 };
+  if (!(await isAuthed())) return { leads: 0, qualified: 0, bookings: 0, messages: 0, onboarding: 0, disqualified: 0 };
   const db = await admin();
   const [
     { count: leadsCount },
