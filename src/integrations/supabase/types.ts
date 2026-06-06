@@ -723,6 +723,36 @@ export type Database = {
         }
         Relationships: []
       }
+      stage_opportunity_settings: {
+        Row: {
+          created_at: string
+          id: string
+          liquidity: number
+          offer_id: string | null
+          stage: string
+          updated_at: string
+          valuation: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          liquidity?: number
+          offer_id?: string | null
+          stage: string
+          updated_at?: string
+          valuation?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          liquidity?: number
+          offer_id?: string | null
+          stage?: string
+          updated_at?: string
+          valuation?: number
+        }
+        Relationships: []
+      }
       user_permissions: {
         Row: {
           created_at: string

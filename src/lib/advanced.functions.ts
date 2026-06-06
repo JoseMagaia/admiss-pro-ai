@@ -123,6 +123,39 @@ export const upsertLeadOpportunity = createServerFn({ method: "POST" })
     return { ok: !error, error: error?.message ?? null };
   });
 
+/* ===================== STAGE OPPORTUNITY SETTINGS ===================== */
+
+export const listStageSettings = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await hasAdvanced())) return { settings: [] };
+  const db = await admin();
+  const { data } = await db.from("stage_opportunity_settings").select("*").limit(100);
+  return { settings: data ?? [] };
+});
+
+export const upsertStageSetting = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        stage: z.string().min(1).max(100),
+        offer_id: z.string().uuid().nullable().optional(),
+        valuation: z.number().min(0).max(1_000_000_000),
+        liquidity: z.number().min(0).max(1_000_000_000),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guardAdvanced();
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { error } = await db
+      .from("stage_opportunity_settings")
+      .upsert(data as never, { onConflict: "stage" });
+    return { ok: !error, error: error?.message ?? null };
+  });
+
 /* ============================ ANALYTICS ============================ */
 
 function dayKey(d: Date): string {
