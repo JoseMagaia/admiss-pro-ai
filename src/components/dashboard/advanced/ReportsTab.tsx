@@ -126,7 +126,7 @@ export function ReportsTab() {
     queryKey: ["report-conversations"],
     queryFn: () => listFn(),
   });
-  const favorites = (convData?.conversations ?? []) as SavedConversation[];
+  const favorites = (convData?.conversations ?? []) as unknown as SavedConversation[];
 
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
