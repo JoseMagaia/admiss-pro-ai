@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { GripVertical, MessageSquare, DollarSign } from "lucide-react";
+import { GripVertical, MessageSquare, DollarSign, TrendingUp, Coins } from "lucide-react";
 import { toast } from "sonner";
 import { listLeads, updateLeadStage } from "@/lib/dashboard.functions";
-import { listOffers, listLeadOpportunities, upsertLeadOpportunity } from "@/lib/advanced.functions";
+import { listOffers, listStageSettings, upsertStageSetting } from "@/lib/advanced.functions";
 import { PIPELINE_COLUMNS, columnForStage, stageLabel } from "@/lib/pipeline";
 import { useDashboardNav } from "@/lib/dashboard-nav";
 import { cn } from "@/lib/utils";
@@ -28,31 +28,43 @@ interface Offer {
   enabled: boolean;
 }
 
-interface Opportunity {
-  lead_id: string;
+interface StageSetting {
+  stage: string;
   offer_id: string | null;
   valuation: number;
   liquidity: number;
 }
 
-interface Draft {
+interface StageDraft {
   offer_id: string | null;
   valuation: number;
   liquidity: number;
 }
+
+// Distinct accent per column so the Opportunities view is easy to scan.
+const STAGE_ACCENTS = [
+  "from-sky-500/15 to-sky-500/5 border-sky-500/40 text-sky-600 dark:text-sky-300",
+  "from-violet-500/15 to-violet-500/5 border-violet-500/40 text-violet-600 dark:text-violet-300",
+  "from-emerald-500/15 to-emerald-500/5 border-emerald-500/40 text-emerald-600 dark:text-emerald-300",
+  "from-amber-500/15 to-amber-500/5 border-amber-500/40 text-amber-600 dark:text-amber-300",
+  "from-pink-500/15 to-pink-500/5 border-pink-500/40 text-pink-600 dark:text-pink-300",
+  "from-cyan-500/15 to-cyan-500/5 border-cyan-500/40 text-cyan-600 dark:text-cyan-300",
+  "from-indigo-500/15 to-indigo-500/5 border-indigo-500/40 text-indigo-600 dark:text-indigo-300",
+  "from-rose-500/15 to-rose-500/5 border-rose-500/40 text-rose-600 dark:text-rose-300",
+];
 
 export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) {
   const qc = useQueryClient();
   const leadsFn = useServerFn(listLeads);
   const stageFn = useServerFn(updateLeadStage);
   const offersFn = useServerFn(listOffers);
-  const oppsFn = useServerFn(listLeadOpportunities);
-  const saveOppFn = useServerFn(upsertLeadOpportunity);
+  const settingsFn = useServerFn(listStageSettings);
+  const saveSettingFn = useServerFn(upsertStageSetting);
   const { openConversation } = useDashboardNav();
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
   const [showOpps, setShowOpps] = useState(false);
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [drafts, setDrafts] = useState<Record<string, StageDraft>>({});
 
   const { data } = useQuery({
     queryKey: ["leads"],
@@ -65,18 +77,37 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
     queryFn: () => offersFn(),
     enabled: canAdvanced && showOpps,
   });
-  const { data: oppsData } = useQuery({
-    queryKey: ["lead-opportunities"],
-    queryFn: () => oppsFn(),
+  const { data: settingsData } = useQuery({
+    queryKey: ["stage-settings"],
+    queryFn: () => settingsFn(),
     enabled: canAdvanced && showOpps,
   });
 
   const offers = ((offersData?.offers ?? []) as unknown as Offer[]).filter((o) => o.enabled);
-  const serverOpps = useMemo(() => {
-    const m = new Map<string, Opportunity>();
-    for (const o of (oppsData?.opportunities ?? []) as unknown as Opportunity[]) m.set(o.lead_id, o);
+
+  const serverSettings = useMemo(() => {
+    const m = new Map<string, StageSetting>();
+    for (const s of (settingsData?.settings ?? []) as unknown as StageSetting[]) m.set(s.stage, s);
     return m;
-  }, [oppsData]);
+  }, [settingsData]);
+
+  // Hydrate local drafts from server settings whenever they load.
+  useEffect(() => {
+    if (!settingsData) return;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      for (const s of (settingsData.settings ?? []) as unknown as StageSetting[]) {
+        if (!next[s.stage]) {
+          next[s.stage] = {
+            offer_id: s.offer_id ?? null,
+            valuation: Number(s.valuation ?? 0),
+            liquidity: Number(s.liquidity ?? 0),
+          };
+        }
+      }
+      return next;
+    });
+  }, [settingsData]);
 
   const move = useMutation({
     mutationFn: (vars: { id: string; stage: string }) => stageFn({ data: vars }),
@@ -98,45 +129,44 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
     onSettled: () => qc.invalidateQueries({ queryKey: ["leads"] }),
   });
 
-  const saveOpp = useMutation({
-    mutationFn: (vars: { lead_id: string } & Draft) => saveOppFn({ data: vars }),
+  const saveSetting = useMutation({
+    mutationFn: (vars: { stage: string } & StageDraft) => saveSettingFn({ data: vars }),
     onSuccess: (r) => {
       const res = r as { ok: boolean; error: string | null };
-      if (!res.ok) return toast.error(res.error ?? "Could not save opportunity");
-      qc.invalidateQueries({ queryKey: ["lead-opportunities"] });
+      if (!res.ok) return toast.error(res.error ?? "Could not save stage settings");
+      qc.invalidateQueries({ queryKey: ["stage-settings"] });
     },
-    onError: () => toast.error("Could not save opportunity"),
+    onError: () => toast.error("Could not save stage settings"),
   });
 
   const leads = (data?.leads ?? []) as Lead[];
 
-  function valueFor(leadId: string): Draft {
-    const d = drafts[leadId];
+  function settingFor(colId: string): StageDraft {
+    const d = drafts[colId];
     if (d) return d;
-    const s = serverOpps.get(leadId);
+    const s = serverSettings.get(colId);
     return { offer_id: s?.offer_id ?? null, valuation: Number(s?.valuation ?? 0), liquidity: Number(s?.liquidity ?? 0) };
   }
 
-  function setDraft(leadId: string, patch: Partial<Draft>) {
-    setDrafts((prev) => ({ ...prev, [leadId]: { ...valueFor(leadId), ...patch } }));
+  function setDraft(colId: string, patch: Partial<StageDraft>) {
+    setDrafts((prev) => ({ ...prev, [colId]: { ...settingFor(colId), ...patch } }));
   }
 
-  function commit(leadId: string) {
-    const v = valueFor(leadId);
-    saveOpp.mutate({ lead_id: leadId, ...v });
+  function commit(colId: string) {
+    saveSetting.mutate({ stage: colId, ...settingFor(colId) });
   }
 
-  function onOfferChange(leadId: string, offerId: string) {
+  function onOfferChange(colId: string, offerId: string) {
     const offer = offers.find((o) => o.id === offerId);
-    const current = valueFor(leadId);
-    const next: Draft = {
+    const current = settingFor(colId);
+    const next: StageDraft = {
       offer_id: offerId || null,
-      // Prefill defaults from the offer when the user hasn't entered values yet.
-      valuation: current.valuation || Number(offer?.default_valuation ?? 0),
-      liquidity: current.liquidity || Number(offer?.expected_liquidity ?? 0),
+      // Prefill the per-lead values from the offer's defaults when picked.
+      valuation: offer ? Number(offer.default_valuation ?? 0) : current.valuation,
+      liquidity: offer ? Number(offer.expected_liquidity ?? 0) : current.liquidity,
     };
-    setDrafts((prev) => ({ ...prev, [leadId]: next }));
-    saveOpp.mutate({ lead_id: leadId, ...next });
+    setDrafts((prev) => ({ ...prev, [colId]: next }));
+    saveSetting.mutate({ stage: colId, ...next });
   }
 
   function onDrop(colId: string) {
@@ -153,16 +183,47 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
 
   const opps = canAdvanced && showOpps;
 
+  const grandTotal = useMemo(() => {
+    if (!opps) return { valuation: 0, liquidity: 0 };
+    return PIPELINE_COLUMNS.reduce(
+      (acc, col) => {
+        const count = leads.filter((l) => columnForStage(l.qualification_status).id === col.id).length;
+        const s = settingFor(col.id);
+        acc.valuation += count * s.valuation;
+        acc.liquidity += count * s.liquidity;
+        return acc;
+      },
+      { valuation: 0, liquidity: 0 },
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opps, leads, drafts, serverSettings]);
+
   return (
     <div className="space-y-3">
       {canAdvanced && (
-        <div className="flex items-center justify-end">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {opps ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 px-3 py-1.5 font-semibold text-emerald-600 dark:text-emerald-300">
+                <TrendingUp className="h-4 w-4" /> Total valuation: {grandTotal.valuation.toLocaleString()}
+              </span>
+              <span className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-amber-500/15 to-amber-500/5 px-3 py-1.5 font-semibold text-amber-600 dark:text-amber-300">
+                <Coins className="h-4 w-4" /> Total liquidity: {grandTotal.liquidity.toLocaleString()}
+              </span>
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              Turn on Opportunities to value each pipeline stage.
+            </span>
+          )}
           <button
             type="button"
             onClick={() => setShowOpps((s) => !s)}
             className={cn(
-              "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
-              opps ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
+              "flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors",
+              opps
+                ? "border-emerald-500/50 bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md"
+                : "text-muted-foreground hover:bg-muted",
             )}
           >
             <DollarSign className="h-4 w-4" />
@@ -172,9 +233,12 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
       )}
 
       <div className="flex gap-4 overflow-x-auto pb-4">
-        {PIPELINE_COLUMNS.map((col) => {
+        {PIPELINE_COLUMNS.map((col, idx) => {
           const colLeads = leads.filter((l) => columnForStage(l.qualification_status).id === col.id);
-          const colTotal = opps ? colLeads.reduce((s, l) => s + valueFor(l.id).valuation, 0) : 0;
+          const s = settingFor(col.id);
+          const colValuation = opps ? colLeads.length * s.valuation : 0;
+          const colLiquidity = opps ? colLeads.length * s.liquidity : 0;
+          const accent = STAGE_ACCENTS[idx % STAGE_ACCENTS.length];
           const colOffers = offers.filter((o) => o.stage === col.id);
           return (
             <div
@@ -187,6 +251,7 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
               onDrop={() => onDrop(col.id)}
               className={cn(
                 "flex w-72 shrink-0 flex-col rounded-2xl border bg-muted/30 transition-colors",
+                opps && cn("bg-gradient-to-b", accent),
                 overCol === col.id && "border-primary bg-primary/5",
               )}
             >
@@ -196,122 +261,119 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
                   {colLeads.length}
                 </span>
               </div>
+
               {opps && (
-                <div className="flex items-center justify-between border-b bg-card/50 px-4 py-2 text-xs">
-                  <span className="text-muted-foreground">Total valuation</span>
-                  <span className="font-semibold text-primary">{colTotal.toLocaleString()}</span>
+                <div className={cn("space-y-2 border-b bg-card/60 px-4 py-3 text-xs")}>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      Offer
+                    </label>
+                    <select
+                      value={s.offer_id ?? ""}
+                      onChange={(e) => onOfferChange(col.id, e.target.value)}
+                      className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                    >
+                      <option value="">No offer</option>
+                      {colOffers.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                        </option>
+                      ))}
+                      {s.offer_id && !colOffers.some((o) => o.id === s.offer_id) &&
+                        offers
+                          .filter((o) => o.id === s.offer_id)
+                          .map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.name}
+                            </option>
+                          ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Valuation / lead
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={s.valuation || ""}
+                        onChange={(e) => setDraft(col.id, { valuation: Number(e.target.value) })}
+                        onBlur={() => commit(col.id)}
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Liquidity / lead
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={s.liquidity || ""}
+                        onChange={(e) => setDraft(col.id, { liquidity: Number(e.target.value) })}
+                        onBlur={() => commit(col.id)}
+                        className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg bg-background/70 px-2.5 py-1.5 font-semibold">
+                    <span className="flex items-center gap-1">
+                      <TrendingUp className="h-3 w-3" /> {colLeads.length} × {s.valuation.toLocaleString()}
+                    </span>
+                    <span>{colValuation.toLocaleString()}</span>
+                  </div>
+                  {s.liquidity > 0 && (
+                    <div className="flex items-center justify-between px-2.5 text-[11px] text-muted-foreground">
+                      <span>Liquidity total</span>
+                      <span>{colLiquidity.toLocaleString()}</span>
+                    </div>
+                  )}
                 </div>
               )}
-              <div className="flex flex-1 flex-col gap-2 p-3">
-                {colLeads.map((l) => {
-                  const v = valueFor(l.id);
-                  return (
-                    <div
-                      key={l.id}
-                      draggable={!opps}
-                      onDragStart={() => setDragId(l.id)}
-                      onDragEnd={() => setDragId(null)}
-                      className={cn(
-                        "group rounded-xl border bg-card p-3 shadow-card",
-                        !opps && "cursor-grab active:cursor-grabbing",
-                        dragId === l.id && "opacity-50",
-                      )}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-sm font-semibold">{l.lead_name ?? l.phone_number}</span>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <button
-                            type="button"
-                            title="Open conversation"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openConversation(l.phone_number);
-                            }}
-                            className="text-muted-foreground opacity-0 transition-colors hover:text-primary group-hover:opacity-100"
-                          >
-                            <MessageSquare className="h-4 w-4" />
-                          </button>
-                          {!opps && (
-                            <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100" />
-                          )}
-                        </div>
-                      </div>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{l.phone_number}</p>
-                      {(l.course_interest || l.country_interest) && (
-                        <p className="mt-2 text-xs text-foreground">
-                          {[l.course_interest, l.country_interest].filter(Boolean).join(" · ")}
-                        </p>
-                      )}
 
-                      {opps ? (
-                        <div className="mt-3 space-y-2 border-t pt-3">
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                              Offer
-                            </label>
-                            <select
-                              value={v.offer_id ?? ""}
-                              onChange={(e) => onOfferChange(l.id, e.target.value)}
-                              className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                            >
-                              <option value="">No offer</option>
-                              {colOffers.map((o) => (
-                                <option key={o.id} value={o.id}>
-                                  {o.name}
-                                </option>
-                              ))}
-                              {/* keep a selected offer visible even if it belongs to another stage */}
-                              {v.offer_id && !colOffers.some((o) => o.id === v.offer_id) &&
-                                offers
-                                  .filter((o) => o.id === v.offer_id)
-                                  .map((o) => (
-                                    <option key={o.id} value={o.id}>
-                                      {o.name}
-                                    </option>
-                                  ))}
-                            </select>
-                          </div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                Valuation
-                              </label>
-                              <input
-                                type="number"
-                                min={0}
-                                value={v.valuation || ""}
-                                onChange={(e) => setDraft(l.id, { valuation: Number(e.target.value) })}
-                                onBlur={() => commit(l.id)}
-                                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                                Liquidity
-                              </label>
-                              <input
-                                type="number"
-                                min={0}
-                                value={v.liquidity || ""}
-                                onChange={(e) => setDraft(l.id, { liquidity: Number(e.target.value) })}
-                                onBlur={() => commit(l.id)}
-                                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="mt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                          {stageLabel(l.qualification_status)}
-                        </p>
-                      )}
+              <div className="flex flex-1 flex-col gap-2 p-3">
+                {colLeads.map((l) => (
+                  <div
+                    key={l.id}
+                    draggable
+                    onDragStart={() => setDragId(l.id)}
+                    onDragEnd={() => setDragId(null)}
+                    className={cn(
+                      "group cursor-grab rounded-xl border bg-card p-3 shadow-card active:cursor-grabbing",
+                      dragId === l.id && "opacity-50",
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-sm font-semibold">{l.lead_name ?? l.phone_number}</span>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          title="Open conversation"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openConversation(l.phone_number);
+                          }}
+                          className="text-muted-foreground opacity-0 transition-colors hover:text-primary group-hover:opacity-100"
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                        </button>
+                        <GripVertical className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                      </div>
                     </div>
-                  );
-                })}
+                    <p className="mt-0.5 text-xs text-muted-foreground">{l.phone_number}</p>
+                    {(l.course_interest || l.country_interest) && (
+                      <p className="mt-2 text-xs text-foreground">
+                        {[l.course_interest, l.country_interest].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
+                    <p className="mt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {stageLabel(l.qualification_status)}
+                    </p>
+                  </div>
+                ))}
                 {colLeads.length === 0 && (
-                  <p className="py-6 text-center text-xs text-muted-foreground">
-                    {opps ? "No leads" : "Drop leads here"}
-                  </p>
+                  <p className="py-6 text-center text-xs text-muted-foreground">Drop leads here</p>
                 )}
               </div>
             </div>
