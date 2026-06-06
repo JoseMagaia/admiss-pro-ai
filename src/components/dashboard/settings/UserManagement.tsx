@@ -18,14 +18,15 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { SettingsCard } from "./SettingsForms";
-import { listUsers, createUser, updateUserRole, deleteUser } from "@/lib/auth.functions";
-import { ALL_ROLES, ROLE_LABELS, type AppRole } from "@/lib/roles";
+import { listUsers, createUser, updateUserRole, deleteUser, setUserPermission } from "@/lib/auth.functions";
+import { ALL_ROLES, ROLE_LABELS, ADVANCED_PERMISSION, type AppRole } from "@/lib/roles";
 
 interface UserRow {
   user_id: string;
   email: string | null;
   full_name: string | null;
   role: string | null;
+  permissions: string[];
   created_at: string;
 }
 
@@ -35,6 +36,7 @@ export function UserManagement() {
   const createFn = useServerFn(createUser);
   const roleFn = useServerFn(updateUserRole);
   const deleteFn = useServerFn(deleteUser);
+  const permFn = useServerFn(setUserPermission);
 
   const { data, isLoading } = useQuery({ queryKey: ["platform-users"], queryFn: () => listFn() });
   const users = (data?.users ?? []) as UserRow[];
@@ -70,6 +72,17 @@ export function UserManagement() {
       invalidate();
     },
     onError: () => toast.error("Failed to update role"),
+  });
+
+  const changePermission = useMutation({
+    mutationFn: (vars: { user_id: string; permission: string; enabled: boolean }) => permFn({ data: vars }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error: string | null };
+      if (!res.ok) return toast.error(res.error ?? "Failed to update access");
+      toast.success("Access updated");
+      invalidate();
+    },
+    onError: () => toast.error("Failed to update access"),
   });
 
   const remove = useMutation({
@@ -141,7 +154,26 @@ export function UserManagement() {
                   <p className="truncate text-sm font-medium">{u.full_name ?? "—"}</p>
                   <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  {u.role !== "super_admin" && (
+                    <label
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                      title="Grants access to the Advanced area (Reports & Opportunities)"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={u.permissions?.includes(ADVANCED_PERMISSION) ?? false}
+                        onChange={(e) =>
+                          changePermission.mutate({
+                            user_id: u.user_id,
+                            permission: ADVANCED_PERMISSION,
+                            enabled: e.target.checked,
+                          })
+                        }
+                      />
+                      Advanced
+                    </label>
+                  )}
                   <select
                     value={u.role ?? "agent"}
                     onChange={(e) => changeRole.mutate({ user_id: u.user_id, role: e.target.value as AppRole })}

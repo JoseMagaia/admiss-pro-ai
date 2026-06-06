@@ -10,6 +10,7 @@ import {
   ClipboardCheck,
   Contact as ContactIcon,
   Settings as SettingsIcon,
+  Gauge,
   ArrowLeft,
   LogOut,
   Loader2,
@@ -24,9 +25,10 @@ import { PipelineTab } from "@/components/dashboard/PipelineTab";
 import { OrchestrationTab } from "@/components/dashboard/OrchestrationTab";
 import { MeetingOutcomesTab } from "@/components/dashboard/MeetingOutcomesTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
+import { AdvancedTab } from "@/components/dashboard/advanced/AdvancedTab";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
-import { canAccessTab, ROLE_LABELS } from "@/lib/roles";
+import { canAccessTab, canAccessAdvanced, ROLE_LABELS } from "@/lib/roles";
 import { DashboardNavProvider } from "@/lib/dashboard-nav";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -48,6 +50,7 @@ const ALL_TABS = [
   { id: "pipeline", label: "Pipeline", icon: KanbanSquare },
   { id: "meeting_outcomes", label: "Meeting Outcomes", icon: ClipboardCheck },
   { id: "orchestration", label: "Orchestration", icon: WorkflowIcon },
+  { id: "advanced", label: "Advanced", icon: Gauge },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
@@ -74,7 +77,10 @@ function Dashboard() {
   }
 
   const role = profile.role;
-  const tabs = ALL_TABS.filter((t) => canAccessTab(role, t.id));
+  const advancedAccess = canAccessAdvanced(role, profile.permissions);
+  const tabs = ALL_TABS.filter((t) =>
+    t.id === "advanced" ? advancedAccess : canAccessTab(role, t.id),
+  );
   const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id ?? "leads";
 
   return (
@@ -161,6 +167,7 @@ function Dashboard() {
 
           {activeTab !== "settings" &&
             activeTab !== "orchestration" &&
+            activeTab !== "advanced" &&
             activeTab !== "meeting_outcomes" && <DashboardStats />}
 
           <div className="mt-6">
@@ -168,9 +175,10 @@ function Dashboard() {
             {activeTab === "messages" && <MessagesTab pendingConversation={pendingConversation} onPendingHandled={() => setPendingConversation(null)} />}
             {activeTab === "contacts" && <ContactsTab />}
             {activeTab === "bookings" && <BookingsTab />}
-            {activeTab === "pipeline" && <PipelineTab />}
+            {activeTab === "pipeline" && <PipelineTab canAdvanced={advancedAccess} />}
             {activeTab === "meeting_outcomes" && <MeetingOutcomesTab />}
             {activeTab === "orchestration" && <OrchestrationTab />}
+            {activeTab === "advanced" && <AdvancedTab />}
             {activeTab === "settings" && <SettingsTab role={role} />}
           </div>
         </div>

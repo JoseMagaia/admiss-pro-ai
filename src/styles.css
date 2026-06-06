@@ -195,3 +195,18 @@
     -webkit-text-fill-color: transparent;
   }
 }
+
+/* AI report preview formatting (no typography plugin in use). */
+.prose-report h1 { font-size: 1.25rem; font-weight: 700; margin: 0.75rem 0 0.5rem; }
+.prose-report h2 { font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.4rem; color: var(--primary); }
+.prose-report h3 { font-size: 0.95rem; font-weight: 600; margin: 0.75rem 0 0.3rem; }
+.prose-report p { margin: 0.4rem 0; }
+.prose-report ul { list-style: disc; margin: 0.4rem 0 0.4rem 1.25rem; }
+.prose-report ol { list-style: decimal; margin: 0.4rem 0 0.4rem 1.25rem; }
+.prose-report li { margin: 0.15rem 0; }
+.prose-report hr { border: none; border-top: 1px solid var(--border); margin: 0.75rem 0; }
+.prose-report code { background: var(--muted); padding: 0.05rem 0.3rem; border-radius: 0.25rem; font-size: 0.8em; }
+.prose-report a { color: var(--primary); text-decoration: underline; }
+.prose-report table { border-collapse: collapse; width: 100%; margin: 0.6rem 0; font-size: 0.85em; }
+.prose-report th, .prose-report td { border: 1px solid var(--border); padding: 0.35rem 0.55rem; text-align: left; }
+.prose-report th { background: var(--muted); font-weight: 600; }
