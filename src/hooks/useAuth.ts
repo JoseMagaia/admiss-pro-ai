@@ -9,9 +9,17 @@ export interface AuthProfile {
   email: string | null;
   full_name: string | null;
   userId: string | null;
+  permissions: string[];
 }
 
-const EMPTY: AuthProfile = { authenticated: false, role: null, email: null, full_name: null, userId: null };
+const EMPTY: AuthProfile = {
+  authenticated: false,
+  role: null,
+  email: null,
+  full_name: null,
+  userId: null,
+  permissions: [],
+};
 
 /**
  * Client-side auth state. Tracks the Supabase session and resolves the user's
