@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Users, GraduationCap, Calendar, MessageSquare, UserX } from "lucide-react";
+import { Users, GraduationCap, Calendar, MessageSquare, UserX, UserCheck } from "lucide-react";
 import { getDashboardStats } from "@/lib/dashboard.functions";
 
 const CARDS = [
@@ -8,6 +8,7 @@ const CARDS = [
   { key: "qualified", label: "Qualified", icon: GraduationCap, color: "text-success bg-success/15" },
   { key: "bookings", label: "Bookings", icon: Calendar, color: "text-accent-foreground bg-accent/20" },
   { key: "messages", label: "Messages", icon: MessageSquare, color: "text-primary bg-chart-4/15" },
+  { key: "onboarding", label: "Onboarding", icon: UserCheck, color: "text-success bg-chart-2/15" },
   { key: "disqualified", label: "Disqualified", icon: UserX, color: "text-destructive bg-destructive/10" },
 ] as const;
 
@@ -20,7 +21,7 @@ export function DashboardStats() {
   });
 
   return (
-    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
       {CARDS.map((c) => (
         <div key={c.key} className="flex items-center gap-3 rounded-xl border bg-card p-3 shadow-card">
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${c.color}`}>

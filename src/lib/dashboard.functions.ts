@@ -781,19 +781,21 @@ export const testPrompt = createServerFn({ method: "POST" })
 /* --------------------------- DASHBOARD STATS --------------------- */
 
 export const getDashboardStats = createServerFn({ method: "GET" }).handler(async () => {
-  if (!(await isAuthed())) return { leads: 0, qualified: 0, bookings: 0, messages: 0, disqualified: 0 };
+  if (!(await isAuthed())) return { leads: 0, qualified: 0, bookings: 0, messages: 0, onboarding: 0, disqualified: 0 };
   const db = await admin();
   const [
     { count: leadsCount },
     { count: qualifiedCount },
     { count: bookingsCount },
     { count: msgCount },
+    { count: onboardingCount },
     { count: disqualifiedCount },
   ] = await Promise.all([
     db.from("leads").select("*", { count: "exact", head: true }),
     db.from("leads").select("*", { count: "exact", head: true }).in("qualification_status", ["QUALIFIED", "BOOKING_REQUEST_CREATED"]),
     db.from("appointments").select("*", { count: "exact", head: true }),
     db.from("whatsapp_messages").select("*", { count: "exact", head: true }),
+    db.from("leads").select("*", { count: "exact", head: true }).eq("qualification_status", "ONBOARDING"),
     db.from("leads").select("*", { count: "exact", head: true }).eq("qualification_status", "DISQUALIFIED"),
   ]);
   return {
@@ -801,6 +803,7 @@ export const getDashboardStats = createServerFn({ method: "GET" }).handler(async
     qualified: qualifiedCount ?? 0,
     bookings: bookingsCount ?? 0,
     messages: msgCount ?? 0,
+    onboarding: onboardingCount ?? 0,
     disqualified: disqualifiedCount ?? 0,
   };
 });

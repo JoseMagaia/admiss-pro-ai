@@ -392,9 +392,10 @@ export const generateChatReply = createServerFn({ method: "POST" })
 You are given a JSON snapshot of the platform's live analytics. Answer using ONLY this data and the conversation so far.
 Guidelines:
 - Respond conversationally and directly to the latest question, referencing earlier turns when relevant.
+- By default keep replies short, conversational and skimmable. Do NOT produce a long formal document/report unless the user explicitly asks for a report, document, write-up, or download on a specific topic. When they do, structure it as a full report with clear headings and sections.
 - Format answers in GitHub-flavored Markdown using headings, bullet lists and tables where useful.
 - When you cite numbers, use the data provided (do not invent figures). If something cannot be answered from the data, say so.
-- Keep insights revenue-focused, concise and skimmable. Do not output code blocks or raw JSON.
+- Keep insights revenue-focused. Do not output code blocks or raw JSON.
 
 Analytics snapshot (last ${analytics.rangeDays} days where time-based):
 ${JSON.stringify(analytics)}`;

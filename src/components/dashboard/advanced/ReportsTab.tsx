@@ -107,6 +107,14 @@ function deriveTitle(messages: ChatMsg[]): string {
   return t.length > 70 ? `${t.slice(0, 67)}…` : t;
 }
 
+// Only offer an in-chat document download when the user explicitly asked for one.
+const DOC_REQUEST_RE =
+  /\b(download|report|document|pdf|word|docx|export|write\s*-?\s*up|generate (a|the) (doc|report|document)|downloadable)\b/i;
+
+function isDocRequest(text: string): boolean {
+  return DOC_REQUEST_RE.test(text);
+}
+
 export function ReportsTab() {
   const queryClient = useQueryClient();
   const dashFn = useServerFn(getReportDashboard);
@@ -144,15 +152,32 @@ export function ReportsTab() {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  const activeIdRef = useRef<string | null>(null);
+  const setActive = (id: string | null) => {
+    activeIdRef.current = id;
+    setActiveId(id);
+  };
+
   const chat = useMutation({
     mutationFn: (msgs: ChatMsg[]) => chatFn({ data: { messages: msgs, days } }),
-    onSuccess: (r) => {
+    onSuccess: async (r, variables) => {
       const res = r as { reply: string; error: string | null };
       if (res.error || !res.reply) {
         toast.error(res.error ?? "No response generated");
         return;
       }
-      setMessages((prev) => [...prev, { role: "assistant", content: res.reply }]);
+      const full: ChatMsg[] = [...variables, { role: "assistant", content: res.reply }];
+      setMessages(full);
+      // Auto-persist so every conversation appears in the history list.
+      try {
+        const saved = (await saveFn({
+          data: { id: activeIdRef.current ?? undefined, title: deriveTitle(full), messages: full },
+        })) as { ok: boolean; id: string | null };
+        if (saved.ok && saved.id) setActive(saved.id);
+        queryClient.invalidateQueries({ queryKey: ["report-conversations"] });
+      } catch {
+        /* history persistence is best-effort */
+      }
     },
     onError: () => toast.error("Failed to get a response"),
     onSettled: () => focusInput(),
@@ -167,24 +192,6 @@ export function ReportsTab() {
     chat.mutate(next);
   };
 
-  const save = useMutation({
-    mutationFn: () =>
-      saveFn({
-        data: { id: activeId ?? undefined, title: deriveTitle(messages), messages },
-      }),
-    onSuccess: (r) => {
-      const res = r as { ok: boolean; id: string | null; error: string | null };
-      if (!res.ok) {
-        toast.error(res.error ?? "Could not save conversation");
-        return;
-      }
-      if (res.id) setActiveId(res.id);
-      toast.success("Saved to favorites");
-      queryClient.invalidateQueries({ queryKey: ["report-conversations"] });
-    },
-    onError: () => toast.error("Could not save conversation"),
-  });
-
   const remove = useMutation({
     mutationFn: (id: string) => deleteFn({ data: { id } }),
     onSuccess: (r, id) => {
@@ -193,8 +200,8 @@ export function ReportsTab() {
         toast.error(res.error ?? "Could not delete");
         return;
       }
-      if (activeId === id) {
-        setActiveId(null);
+      if (activeIdRef.current === id) {
+        setActive(null);
         setMessages([]);
       }
       queryClient.invalidateQueries({ queryKey: ["report-conversations"] });
@@ -203,14 +210,14 @@ export function ReportsTab() {
   });
 
   const startNew = () => {
-    setActiveId(null);
+    setActive(null);
     setMessages([]);
     setInput("");
     focusInput();
   };
 
   const loadFavorite = (c: SavedConversation) => {
-    setActiveId(c.id);
+    setActive(c.id);
     setMessages(Array.isArray(c.messages) ? c.messages : []);
     focusInput();
   };
@@ -220,20 +227,18 @@ export function ReportsTab() {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-        {/* Favorites sidebar */}
+        {/* Conversation history sidebar */}
         <div className="rounded-2xl border bg-card p-3 shadow-card lg:max-h-[640px] lg:overflow-y-auto">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <Star className="h-4 w-4 text-amber-500" />
-              <h3 className="text-sm font-semibold">Favorites</h3>
-            </div>
-            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={startNew}>
-              <Plus className="mr-1 h-3.5 w-3.5" /> New
-            </Button>
+          <Button size="sm" className="mb-3 w-full" onClick={startNew}>
+            <Plus className="mr-1 h-3.5 w-3.5" /> New analysis
+          </Button>
+          <div className="mb-2 flex items-center gap-1.5">
+            <Star className="h-4 w-4 text-amber-500" />
+            <h3 className="text-sm font-semibold">History</h3>
           </div>
           {favorites.length === 0 ? (
             <p className="px-1 py-6 text-center text-xs text-muted-foreground">
-              Save conversations here to revisit and download them later.
+              Your past analyses appear here automatically once you start chatting.
             </p>
           ) : (
             <div className="space-y-1.5">
@@ -295,7 +300,7 @@ export function ReportsTab() {
               <div>
                 <h2 className="font-display text-lg font-semibold leading-tight">AI Insights Generator</h2>
                 <p className="text-xs text-muted-foreground">
-                  Chat with your live analytics — ask follow-ups, then save to favorites.
+                  Chat with your live analytics — saved to history automatically. Ask for a report to download it.
                 </p>
               </div>
             </div>
@@ -314,18 +319,8 @@ export function ReportsTab() {
                 </select>
               </label>
               {hasConversation && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => save.mutate()}
-                  disabled={save.isPending}
-                >
-                  {save.isPending ? (
-                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Star className="mr-1 h-3.5 w-3.5 text-amber-500" />
-                  )}
-                  {activeId ? "Update favorite" : "Save to favorites"}
+                <Button size="sm" variant="outline" onClick={startNew}>
+                  <Plus className="mr-1 h-3.5 w-3.5" /> New analysis
                 </Button>
               )}
             </div>
@@ -360,11 +355,37 @@ export function ReportsTab() {
                   </div>
                 </div>
               ) : (
-                <div key={idx} className="flex justify-start">
+                <div key={idx} className="flex flex-col items-start">
                   <div
                     className="prose-report max-w-[90%] rounded-2xl rounded-bl-sm border bg-background px-4 py-3 text-sm"
                     dangerouslySetInnerHTML={{ __html: markdownToHtml(m.content) }}
                   />
+                  {idx > 0 && messages[idx - 1]?.role === "user" && isDocRequest(messages[idx - 1].content) && (
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => {
+                          const title = deriveTitle([messages[idx - 1]]);
+                          downloadReportAsWord(title, conversationToMarkdown(title, [messages[idx - 1], m]));
+                        }}
+                      >
+                        <FileText className="mr-1 h-3.5 w-3.5" /> Word
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => {
+                          const title = deriveTitle([messages[idx - 1]]);
+                          downloadReportAsPdf(title, conversationToMarkdown(title, [messages[idx - 1], m]));
+                        }}
+                      >
+                        <FileDown className="mr-1 h-3.5 w-3.5" /> PDF
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ),
             )}
