@@ -50,6 +50,7 @@ const ALL_TABS = [
   { id: "pipeline", label: "Pipeline", icon: KanbanSquare },
   { id: "meeting_outcomes", label: "Meeting Outcomes", icon: ClipboardCheck },
   { id: "orchestration", label: "Orchestration", icon: WorkflowIcon },
+  { id: "advanced", label: "Advanced", icon: Gauge },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
