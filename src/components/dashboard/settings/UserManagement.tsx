@@ -74,6 +74,17 @@ export function UserManagement() {
     onError: () => toast.error("Failed to update role"),
   });
 
+  const changePermission = useMutation({
+    mutationFn: (vars: { user_id: string; permission: string; enabled: boolean }) => permFn({ data: vars }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error: string | null };
+      if (!res.ok) return toast.error(res.error ?? "Failed to update access");
+      toast.success("Access updated");
+      invalidate();
+    },
+    onError: () => toast.error("Failed to update access"),
+  });
+
   const remove = useMutation({
     mutationFn: (user_id: string) => deleteFn({ data: { user_id } }),
     onSuccess: (r) => {
