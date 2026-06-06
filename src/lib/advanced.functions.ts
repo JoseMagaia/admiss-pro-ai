@@ -52,6 +52,7 @@ const offerSchema = z.object({
   description: z.string().max(2000).nullable().optional(),
   products: z.string().max(2000).nullable().optional(),
   stage: z.string().min(1).max(100),
+  stages: z.array(z.string().min(1).max(100)).max(50).optional(),
   default_valuation: z.number().min(0).max(1_000_000_000),
   expected_liquidity: z.number().min(0).max(1_000_000_000),
   currency: z.string().min(1).max(8),

@@ -16,6 +16,7 @@ interface OfferRow {
   description: string | null;
   products: string | null;
   stage: string;
+  stages: string[];
   default_valuation: number;
   expected_liquidity: number;
   currency: string;
@@ -27,6 +28,7 @@ const EMPTY: OfferRow = {
   description: "",
   products: "",
   stage: PIPELINE_COLUMNS[0].id,
+  stages: [],
   default_valuation: 0,
   expected_liquidity: 0,
   currency: "USD",
@@ -44,19 +46,28 @@ export function OffersManager() {
   const delFn = useServerFn(deleteOffer);
 
   const { data } = useQuery({ queryKey: ["offers"], queryFn: () => listFn() });
-  const offers = (data?.offers ?? []) as unknown as OfferRow[];
+  const offers = ((data?.offers ?? []) as unknown as OfferRow[]).map((o) => ({
+    ...o,
+    // Fall back to the legacy single stage when no multi-stage list is set yet.
+    stages: o.stages && o.stages.length > 0 ? o.stages : o.stage ? [o.stage] : [],
+  }));
 
   const [editing, setEditing] = useState<OfferRow | null>(null);
 
   const save = useMutation({
-    mutationFn: (o: OfferRow) =>
-      saveFn({
+    mutationFn: (o: OfferRow) => {
+      const stages = o.stages.length > 0 ? o.stages : [PIPELINE_COLUMNS[0].id];
+      return saveFn({
         data: {
           ...o,
+          stages,
+          // Keep the legacy single-stage column in sync for backward compatibility.
+          stage: stages[0],
           default_valuation: Number(o.default_valuation) || 0,
           expected_liquidity: Number(o.expected_liquidity) || 0,
         },
-      }),
+      });
+    },
     onSuccess: (r) => {
       const res = r as { ok: boolean; error: string | null };
       if (!res.ok) return toast.error(res.error ?? "Failed to save offer");
@@ -92,19 +103,30 @@ export function OffersManager() {
             <Label>Offer name</Label>
             <Input value={o.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Premium Admissions Package" />
           </div>
-          <div className="space-y-1.5">
-            <Label>Applies to pipeline stage</Label>
-            <select
-              value={o.stage}
-              onChange={(e) => set({ stage: e.target.value })}
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-            >
-              {PIPELINE_COLUMNS.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Applies to pipeline stages</Label>
+            <div className="grid grid-cols-2 gap-2 rounded-md border border-input bg-background p-3 sm:grid-cols-3">
+              {PIPELINE_COLUMNS.map((c) => {
+                const checked = o.stages.includes(c.id);
+                return (
+                  <label key={c.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) =>
+                        set({
+                          stages: e.target.checked
+                            ? [...o.stages, c.id]
+                            : o.stages.filter((s) => s !== c.id),
+                        })
+                      }
+                    />
+                    {c.label}
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">Select all stages this offer applies to.</p>
           </div>
           <div className="space-y-1.5">
             <Label>Currency</Label>
@@ -179,9 +201,11 @@ export function OffersManager() {
             <div className="flex flex-wrap items-center gap-2">
               <Package className="h-4 w-4 text-primary" />
               <span className="font-semibold">{o.name}</span>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                {stageLabel(o.stage)}
-              </span>
+              {o.stages.map((st) => (
+                <span key={st} className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  {stageLabel(st)}
+                </span>
+              ))}
               <span
                 className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                   o.enabled ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
