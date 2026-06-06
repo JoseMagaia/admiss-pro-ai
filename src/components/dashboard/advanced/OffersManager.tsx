@@ -201,9 +201,11 @@ export function OffersManager() {
             <div className="flex flex-wrap items-center gap-2">
               <Package className="h-4 w-4 text-primary" />
               <span className="font-semibold">{o.name}</span>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                {stageLabel(o.stage)}
-              </span>
+              {o.stages.map((st) => (
+                <span key={st} className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                  {stageLabel(st)}
+                </span>
+              ))}
               <span
                 className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                   o.enabled ? "bg-success/15 text-success" : "bg-muted text-muted-foreground"
