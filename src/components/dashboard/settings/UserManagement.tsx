@@ -18,14 +18,15 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { SettingsCard } from "./SettingsForms";
-import { listUsers, createUser, updateUserRole, deleteUser } from "@/lib/auth.functions";
-import { ALL_ROLES, ROLE_LABELS, type AppRole } from "@/lib/roles";
+import { listUsers, createUser, updateUserRole, deleteUser, setUserPermission } from "@/lib/auth.functions";
+import { ALL_ROLES, ROLE_LABELS, ADVANCED_PERMISSION, type AppRole } from "@/lib/roles";
 
 interface UserRow {
   user_id: string;
   email: string | null;
   full_name: string | null;
   role: string | null;
+  permissions: string[];
   created_at: string;
 }
 
