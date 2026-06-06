@@ -36,6 +36,7 @@ export function UserManagement() {
   const createFn = useServerFn(createUser);
   const roleFn = useServerFn(updateUserRole);
   const deleteFn = useServerFn(deleteUser);
+  const permFn = useServerFn(setUserPermission);
 
   const { data, isLoading } = useQuery({ queryKey: ["platform-users"], queryFn: () => listFn() });
   const users = (data?.users ?? []) as UserRow[];
