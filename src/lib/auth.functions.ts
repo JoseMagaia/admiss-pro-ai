@@ -137,3 +137,38 @@ export const deleteUser = createServerFn({ method: "POST" })
     const { error } = await db.auth.admin.deleteUser(data.user_id);
     return { ok: !error, error: error?.message ?? null };
   });
+
+/** Grants or revokes a granular feature permission for a user. Super admin only. */
+export const setUserPermission = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        user_id: z.string().uuid(),
+        permission: z.string().min(1).max(50).regex(/^[a-z_]+$/),
+        enabled: z.boolean(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const { assertRole } = await import("@/integrations/supabase/role-guard.server");
+    try {
+      await assertRole(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    if (data.enabled) {
+      const { error } = await db
+        .from("user_permissions")
+        .upsert({ user_id: data.user_id, permission: data.permission } as never, {
+          onConflict: "user_id,permission",
+        });
+      return { ok: !error, error: error?.message ?? null };
+    }
+    const { error } = await db
+      .from("user_permissions")
+      .delete()
+      .eq("user_id", data.user_id)
+      .eq("permission", data.permission);
+    return { ok: !error, error: error?.message ?? null };
+  });
