@@ -16,6 +16,7 @@ interface OfferRow {
   description: string | null;
   products: string | null;
   stage: string;
+  stages: string[];
   default_valuation: number;
   expected_liquidity: number;
   currency: string;
@@ -27,6 +28,7 @@ const EMPTY: OfferRow = {
   description: "",
   products: "",
   stage: PIPELINE_COLUMNS[0].id,
+  stages: [],
   default_valuation: 0,
   expected_liquidity: 0,
   currency: "USD",
