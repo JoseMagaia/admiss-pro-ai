@@ -107,6 +107,14 @@ function deriveTitle(messages: ChatMsg[]): string {
   return t.length > 70 ? `${t.slice(0, 67)}…` : t;
 }
 
+// Only offer an in-chat document download when the user explicitly asked for one.
+const DOC_REQUEST_RE =
+  /\b(download|report|document|pdf|word|docx|export|write\s*-?\s*up|generate (a|the) (doc|report|document)|downloadable)\b/i;
+
+function isDocRequest(text: string): boolean {
+  return DOC_REQUEST_RE.test(text);
+}
+
 export function ReportsTab() {
   const queryClient = useQueryClient();
   const dashFn = useServerFn(getReportDashboard);
