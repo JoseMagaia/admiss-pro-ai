@@ -152,15 +152,32 @@ export function ReportsTab() {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  const activeIdRef = useRef<string | null>(null);
+  const setActive = (id: string | null) => {
+    activeIdRef.current = id;
+    setActiveId(id);
+  };
+
   const chat = useMutation({
     mutationFn: (msgs: ChatMsg[]) => chatFn({ data: { messages: msgs, days } }),
-    onSuccess: (r) => {
+    onSuccess: async (r, variables) => {
       const res = r as { reply: string; error: string | null };
       if (res.error || !res.reply) {
         toast.error(res.error ?? "No response generated");
         return;
       }
-      setMessages((prev) => [...prev, { role: "assistant", content: res.reply }]);
+      const full: ChatMsg[] = [...variables, { role: "assistant", content: res.reply }];
+      setMessages(full);
+      // Auto-persist so every conversation appears in the history list.
+      try {
+        const saved = (await saveFn({
+          data: { id: activeIdRef.current ?? undefined, title: deriveTitle(full), messages: full },
+        })) as { ok: boolean; id: string | null };
+        if (saved.ok && saved.id) setActive(saved.id);
+        queryClient.invalidateQueries({ queryKey: ["report-conversations"] });
+      } catch {
+        /* history persistence is best-effort */
+      }
     },
     onError: () => toast.error("Failed to get a response"),
     onSettled: () => focusInput(),
@@ -175,24 +192,6 @@ export function ReportsTab() {
     chat.mutate(next);
   };
 
-  const save = useMutation({
-    mutationFn: () =>
-      saveFn({
-        data: { id: activeId ?? undefined, title: deriveTitle(messages), messages },
-      }),
-    onSuccess: (r) => {
-      const res = r as { ok: boolean; id: string | null; error: string | null };
-      if (!res.ok) {
-        toast.error(res.error ?? "Could not save conversation");
-        return;
-      }
-      if (res.id) setActiveId(res.id);
-      toast.success("Saved to favorites");
-      queryClient.invalidateQueries({ queryKey: ["report-conversations"] });
-    },
-    onError: () => toast.error("Could not save conversation"),
-  });
-
   const remove = useMutation({
     mutationFn: (id: string) => deleteFn({ data: { id } }),
     onSuccess: (r, id) => {
@@ -201,8 +200,8 @@ export function ReportsTab() {
         toast.error(res.error ?? "Could not delete");
         return;
       }
-      if (activeId === id) {
-        setActiveId(null);
+      if (activeIdRef.current === id) {
+        setActive(null);
         setMessages([]);
       }
       queryClient.invalidateQueries({ queryKey: ["report-conversations"] });
@@ -211,14 +210,14 @@ export function ReportsTab() {
   });
 
   const startNew = () => {
-    setActiveId(null);
+    setActive(null);
     setMessages([]);
     setInput("");
     focusInput();
   };
 
   const loadFavorite = (c: SavedConversation) => {
-    setActiveId(c.id);
+    setActive(c.id);
     setMessages(Array.isArray(c.messages) ? c.messages : []);
     focusInput();
   };
