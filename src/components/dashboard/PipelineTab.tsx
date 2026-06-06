@@ -239,7 +239,7 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
           const colValuation = opps ? colLeads.length * s.valuation : 0;
           const colLiquidity = opps ? colLeads.length * s.liquidity : 0;
           const accent = STAGE_ACCENTS[idx % STAGE_ACCENTS.length];
-          const colOffers = offers.filter((o) => o.stage === col.id);
+          const colOffers = offers;
           return (
             <div
               key={col.id}
