@@ -227,20 +227,18 @@ export function ReportsTab() {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-        {/* Favorites sidebar */}
+        {/* Conversation history sidebar */}
         <div className="rounded-2xl border bg-card p-3 shadow-card lg:max-h-[640px] lg:overflow-y-auto">
-          <div className="mb-2 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <Star className="h-4 w-4 text-amber-500" />
-              <h3 className="text-sm font-semibold">Favorites</h3>
-            </div>
-            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={startNew}>
-              <Plus className="mr-1 h-3.5 w-3.5" /> New
-            </Button>
+          <Button size="sm" className="mb-3 w-full" onClick={startNew}>
+            <Plus className="mr-1 h-3.5 w-3.5" /> New analysis
+          </Button>
+          <div className="mb-2 flex items-center gap-1.5">
+            <Star className="h-4 w-4 text-amber-500" />
+            <h3 className="text-sm font-semibold">History</h3>
           </div>
           {favorites.length === 0 ? (
             <p className="px-1 py-6 text-center text-xs text-muted-foreground">
-              Save conversations here to revisit and download them later.
+              Your past analyses appear here automatically once you start chatting.
             </p>
           ) : (
             <div className="space-y-1.5">
