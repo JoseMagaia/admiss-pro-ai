@@ -7,24 +7,29 @@ async function admin() {
   return supabaseAdmin;
 }
 
-/** Returns the signed-in user's profile and role. Any authenticated user. */
+/** Returns the signed-in user's profile, role and granted permissions. */
 export const getMyProfile = createServerFn({ method: "GET" }).handler(async () => {
   const { getRequestUser } = await import("@/integrations/supabase/role-guard.server");
   const user = await getRequestUser();
-  if (!user) return { authenticated: false, role: null, email: null, full_name: null, userId: null };
+  if (!user)
+    return { authenticated: false, role: null, email: null, full_name: null, userId: null, permissions: [] as string[] };
 
   const db = await admin();
-  const { data: profile } = await db.from("profiles").select("full_name").eq("user_id", user.userId).maybeSingle();
+  const [{ data: profile }, { data: perms }] = await Promise.all([
+    db.from("profiles").select("full_name").eq("user_id", user.userId).maybeSingle(),
+    db.from("user_permissions").select("permission").eq("user_id", user.userId),
+  ]);
   return {
     authenticated: true,
     role: user.role,
     email: user.email,
     full_name: profile?.full_name ?? null,
     userId: user.userId,
+    permissions: ((perms ?? []) as { permission: string }[]).map((p) => p.permission),
   };
 });
 
-/** Lists all platform users with their roles. Super admin only. */
+/** Lists all platform users with their roles and permissions. Super admin only. */
 export const listUsers = createServerFn({ method: "GET" }).handler(async () => {
   const { assertRole } = await import("@/integrations/supabase/role-guard.server");
   try {
@@ -33,18 +38,24 @@ export const listUsers = createServerFn({ method: "GET" }).handler(async () => {
     return { users: [], error: (e as Error).message };
   }
   const db = await admin();
-  const [{ data: profiles }, { data: roles }] = await Promise.all([
+  const [{ data: profiles }, { data: roles }, { data: perms }] = await Promise.all([
     db.from("profiles").select("user_id, email, full_name, created_at").order("created_at", { ascending: true }),
     db.from("user_roles").select("user_id, role"),
+    db.from("user_permissions").select("user_id, permission"),
   ]);
   const roleMap = new Map<string, string>();
   for (const r of roles ?? []) roleMap.set(r.user_id, r.role);
+  const permMap = new Map<string, string[]>();
+  for (const p of (perms ?? []) as { user_id: string; permission: string }[]) {
+    permMap.set(p.user_id, [...(permMap.get(p.user_id) ?? []), p.permission]);
+  }
   const users = (profiles ?? []).map((p) => ({
     user_id: p.user_id,
     email: p.email,
     full_name: p.full_name,
     created_at: p.created_at,
     role: roleMap.get(p.user_id) ?? null,
+    permissions: permMap.get(p.user_id) ?? [],
   }));
   return { users, error: null };
 });
