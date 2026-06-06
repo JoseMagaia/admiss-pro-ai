@@ -21,7 +21,7 @@ export function DashboardStats() {
   });
 
   return (
-    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
       {CARDS.map((c) => (
         <div key={c.key} className="flex items-center gap-3 rounded-xl border bg-card p-3 shadow-card">
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${c.color}`}>
