@@ -77,7 +77,10 @@ function Dashboard() {
   }
 
   const role = profile.role;
-  const tabs = ALL_TABS.filter((t) => canAccessTab(role, t.id));
+  const advancedAccess = canAccessAdvanced(role, profile.permissions);
+  const tabs = ALL_TABS.filter((t) =>
+    t.id === "advanced" ? advancedAccess : canAccessTab(role, t.id),
+  );
   const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id ?? "leads";
 
   return (
