@@ -154,7 +154,26 @@ export function UserManagement() {
                   <p className="truncate text-sm font-medium">{u.full_name ?? "—"}</p>
                   <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  {u.role !== "super_admin" && (
+                    <label
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                      title="Grants access to the Advanced area (Reports & Opportunities)"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={u.permissions?.includes(ADVANCED_PERMISSION) ?? false}
+                        onChange={(e) =>
+                          changePermission.mutate({
+                            user_id: u.user_id,
+                            permission: ADVANCED_PERMISSION,
+                            enabled: e.target.checked,
+                          })
+                        }
+                      />
+                      Advanced
+                    </label>
+                  )}
                   <select
                     value={u.role ?? "agent"}
                     onChange={(e) => changeRole.mutate({ user_id: u.user_id, role: e.target.value as AppRole })}
