@@ -359,3 +359,141 @@ ${JSON.stringify(analytics, null, 2)}`;
       return { report: "", error: e instanceof Error ? e.message : "AI request failed" };
     }
   });
+
+/* ===================== CONVERSATIONAL AI CHAT ===================== */
+
+const chatMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().min(1).max(20000),
+});
+
+export const generateChatReply = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        messages: z.array(chatMessageSchema).min(1).max(40),
+        days: z.number().int().min(1).max(365).optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guardAdvanced();
+    } catch (e) {
+      return { reply: "", error: (e as Error).message };
+    }
+
+    const apiKey = process.env.LOVABLE_API_KEY;
+    if (!apiKey) return { reply: "", error: "AI is not configured." };
+
+    const analytics = await buildAnalytics(data.days ?? 30);
+
+    const system = `You are a senior revenue & growth analyst for an international education admissions company, having an ongoing conversation with an admissions manager.
+You are given a JSON snapshot of the platform's live analytics. Answer using ONLY this data and the conversation so far.
+Guidelines:
+- Respond conversationally and directly to the latest question, referencing earlier turns when relevant.
+- Format answers in GitHub-flavored Markdown using headings, bullet lists and tables where useful.
+- When you cite numbers, use the data provided (do not invent figures). If something cannot be answered from the data, say so.
+- Keep insights revenue-focused, concise and skimmable. Do not output code blocks or raw JSON.
+
+Analytics snapshot (last ${analytics.rangeDays} days where time-based):
+${JSON.stringify(analytics)}`;
+
+    try {
+      const res = await fetch(GATEWAY_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
+        body: JSON.stringify({
+          model: "google/gemini-3-flash-preview",
+          temperature: 0.4,
+          messages: [{ role: "system", content: system }, ...data.messages],
+        }),
+      });
+      if (!res.ok) {
+        let msg = `AI error ${res.status}`;
+        if (res.status === 429) msg = "Rate limit reached. Please retry shortly.";
+        if (res.status === 402) msg = "AI credits exhausted. Add credits in workspace settings.";
+        return { reply: "", error: msg };
+      }
+      const json = await res.json();
+      const reply = json?.choices?.[0]?.message?.content ?? "";
+      return { reply, error: reply ? null : "Empty response from AI." };
+    } catch (e) {
+      return { reply: "", error: e instanceof Error ? e.message : "AI request failed" };
+    }
+  });
+
+/* ===================== SAVED CONVERSATIONS (FAVORITES) ===================== */
+
+export const listConversations = createServerFn({ method: "GET" }).handler(async () => {
+  let user;
+  try {
+    user = await guardAdvanced();
+  } catch {
+    return { conversations: [] };
+  }
+  const db = await admin();
+  const { data } = await db
+    .from("report_conversations")
+    .select("*")
+    .eq("user_id", user.userId)
+    .order("updated_at", { ascending: false })
+    .limit(200);
+  return { conversations: data ?? [] };
+});
+
+export const saveConversation = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid().optional(),
+        title: z.string().min(1).max(200),
+        messages: z.array(chatMessageSchema).min(1).max(60),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    let user;
+    try {
+      user = await guardAdvanced();
+    } catch (e) {
+      return { ok: false, id: null, error: (e as Error).message };
+    }
+    const db = await admin();
+    if (data.id) {
+      const { error } = await db
+        .from("report_conversations")
+        .update({ title: data.title, messages: data.messages } as never)
+        .eq("id", data.id)
+        .eq("user_id", user.userId);
+      return { ok: !error, id: data.id, error: error?.message ?? null };
+    }
+    const { data: inserted, error } = await db
+      .from("report_conversations")
+      .insert({ title: data.title, messages: data.messages, user_id: user.userId } as never)
+      .select("id")
+      .single();
+    return {
+      ok: !error,
+      id: (inserted as { id: string } | null)?.id ?? null,
+      error: error?.message ?? null,
+    };
+  });
+
+export const deleteConversation = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    let user;
+    try {
+      user = await guardAdvanced();
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { error } = await db
+      .from("report_conversations")
+      .delete()
+      .eq("id", data.id)
+      .eq("user_id", user.userId);
+    return { ok: !error, error: error?.message ?? null };
+  });
