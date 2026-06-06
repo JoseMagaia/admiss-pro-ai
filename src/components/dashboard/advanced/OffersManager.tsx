@@ -46,19 +46,28 @@ export function OffersManager() {
   const delFn = useServerFn(deleteOffer);
 
   const { data } = useQuery({ queryKey: ["offers"], queryFn: () => listFn() });
-  const offers = (data?.offers ?? []) as unknown as OfferRow[];
+  const offers = ((data?.offers ?? []) as unknown as OfferRow[]).map((o) => ({
+    ...o,
+    // Fall back to the legacy single stage when no multi-stage list is set yet.
+    stages: o.stages && o.stages.length > 0 ? o.stages : o.stage ? [o.stage] : [],
+  }));
 
   const [editing, setEditing] = useState<OfferRow | null>(null);
 
   const save = useMutation({
-    mutationFn: (o: OfferRow) =>
-      saveFn({
+    mutationFn: (o: OfferRow) => {
+      const stages = o.stages.length > 0 ? o.stages : [PIPELINE_COLUMNS[0].id];
+      return saveFn({
         data: {
           ...o,
+          stages,
+          // Keep the legacy single-stage column in sync for backward compatibility.
+          stage: stages[0],
           default_valuation: Number(o.default_valuation) || 0,
           expected_liquidity: Number(o.expected_liquidity) || 0,
         },
-      }),
+      });
+    },
     onSuccess: (r) => {
       const res = r as { ok: boolean; error: string | null };
       if (!res.ok) return toast.error(res.error ?? "Failed to save offer");
