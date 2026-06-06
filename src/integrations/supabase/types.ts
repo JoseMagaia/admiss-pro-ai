@@ -337,6 +337,39 @@ export type Database = {
         }
         Relationships: []
       }
+      lead_opportunities: {
+        Row: {
+          created_at: string
+          id: string
+          lead_id: string
+          liquidity: number
+          notes: string | null
+          offer_id: string | null
+          updated_at: string
+          valuation: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          lead_id: string
+          liquidity?: number
+          notes?: string | null
+          offer_id?: string | null
+          updated_at?: string
+          valuation?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          lead_id?: string
+          liquidity?: number
+          notes?: string | null
+          offer_id?: string | null
+          updated_at?: string
+          valuation?: number
+        }
+        Relationships: []
+      }
       leads: {
         Row: {
           academic_status: string | null
@@ -454,6 +487,48 @@ export type Database = {
           recorded_by?: string | null
           updated_at?: string
           workflow_triggered?: string | null
+        }
+        Relationships: []
+      }
+      offers: {
+        Row: {
+          created_at: string
+          currency: string
+          default_valuation: number
+          description: string | null
+          enabled: boolean
+          expected_liquidity: number
+          id: string
+          name: string
+          products: string | null
+          stage: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string
+          default_valuation?: number
+          description?: string | null
+          enabled?: boolean
+          expected_liquidity?: number
+          id?: string
+          name: string
+          products?: string | null
+          stage?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string
+          default_valuation?: number
+          description?: string | null
+          enabled?: boolean
+          expected_liquidity?: number
+          id?: string
+          name?: string
+          products?: string | null
+          stage?: string
+          updated_at?: string
         }
         Relationships: []
       }
@@ -648,6 +723,27 @@ export type Database = {
         }
         Relationships: []
       }
+      user_permissions: {
+        Row: {
+          created_at: string
+          id: string
+          permission: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          permission: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          permission?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -810,6 +906,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      has_permission: {
+        Args: { _permission: string; _user_id: string }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
