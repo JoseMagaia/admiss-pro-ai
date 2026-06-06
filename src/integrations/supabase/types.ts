@@ -502,6 +502,7 @@ export type Database = {
           name: string
           products: string | null
           stage: string
+          stages: string[]
           updated_at: string
         }
         Insert: {
@@ -515,6 +516,7 @@ export type Database = {
           name: string
           products?: string | null
           stage?: string
+          stages?: string[]
           updated_at?: string
         }
         Update: {
@@ -528,6 +530,7 @@ export type Database = {
           name?: string
           products?: string | null
           stage?: string
+          stages?: string[]
           updated_at?: string
         }
         Relationships: []
