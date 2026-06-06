@@ -103,19 +103,30 @@ export function OffersManager() {
             <Label>Offer name</Label>
             <Input value={o.name} onChange={(e) => set({ name: e.target.value })} placeholder="e.g. Premium Admissions Package" />
           </div>
-          <div className="space-y-1.5">
-            <Label>Applies to pipeline stage</Label>
-            <select
-              value={o.stage}
-              onChange={(e) => set({ stage: e.target.value })}
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-            >
-              {PIPELINE_COLUMNS.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Applies to pipeline stages</Label>
+            <div className="grid grid-cols-2 gap-2 rounded-md border border-input bg-background p-3 sm:grid-cols-3">
+              {PIPELINE_COLUMNS.map((c) => {
+                const checked = o.stages.includes(c.id);
+                return (
+                  <label key={c.id} className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) =>
+                        set({
+                          stages: e.target.checked
+                            ? [...o.stages, c.id]
+                            : o.stages.filter((s) => s !== c.id),
+                        })
+                      }
+                    />
+                    {c.label}
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">Select all stages this offer applies to.</p>
           </div>
           <div className="space-y-1.5">
             <Label>Currency</Label>
