@@ -44,3 +44,27 @@ export function canAccessSettingsSection(role: AppRole | null | undefined, secti
   if (!role) return false;
   return SETTINGS_ACCESS[section]?.includes(role) ?? false;
 }
+
+/* ----------------------- GRANULAR PERMISSIONS ----------------------- */
+// Feature access granted per-user by a super admin (beyond their base role).
+export const ADVANCED_PERMISSION = "advanced";
+
+export const PERMISSION_LABELS: Record<string, string> = {
+  [ADVANCED_PERMISSION]: "Advanced (Reports & Opportunities)",
+};
+
+export const ALL_PERMISSIONS = [ADVANCED_PERMISSION] as const;
+
+// The Advanced area is always available to super admins, and to any user the
+// super admin has granted the "advanced" permission to.
+export function canAccessAdvanced(
+  role: AppRole | null | undefined,
+  permissions: string[] | null | undefined,
+): boolean {
+  if (role === "super_admin") return true;
+  return (permissions ?? []).includes(ADVANCED_PERMISSION);
+}
+
+// Advanced sub-sections (mirrors the Settings sub-menu pattern).
+export const ADVANCED_SECTIONS = ["reports", "opportunities"] as const;
+export type AdvancedSection = (typeof ADVANCED_SECTIONS)[number];
