@@ -368,11 +368,37 @@ export function ReportsTab() {
                   </div>
                 </div>
               ) : (
-                <div key={idx} className="flex justify-start">
+                <div key={idx} className="flex flex-col items-start">
                   <div
                     className="prose-report max-w-[90%] rounded-2xl rounded-bl-sm border bg-background px-4 py-3 text-sm"
                     dangerouslySetInnerHTML={{ __html: markdownToHtml(m.content) }}
                   />
+                  {idx > 0 && messages[idx - 1]?.role === "user" && isDocRequest(messages[idx - 1].content) && (
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => {
+                          const title = deriveTitle([messages[idx - 1]]);
+                          downloadReportAsWord(title, conversationToMarkdown(title, [messages[idx - 1], m]));
+                        }}
+                      >
+                        <FileText className="mr-1 h-3.5 w-3.5" /> Word
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => {
+                          const title = deriveTitle([messages[idx - 1]]);
+                          downloadReportAsPdf(title, conversationToMarkdown(title, [messages[idx - 1], m]));
+                        }}
+                      >
+                        <FileDown className="mr-1 h-3.5 w-3.5" /> PDF
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ),
             )}
