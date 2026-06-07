@@ -37,7 +37,7 @@ export function LeadWorkflowManager({
 }: {
   phone: string;
   /** Optional custom trigger button. Defaults to a small outline button. */
-  trigger?: React.ReactNode;
+  trigger?: ReactNode;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
