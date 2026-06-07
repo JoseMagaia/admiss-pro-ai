@@ -566,10 +566,12 @@ export function ReportsTab() {
             {!hasConversation && (
               <div className="py-6">
                 <p className="mb-3 text-sm text-muted-foreground">
-                  Start a conversation about your platform data. Try one of these:
+                  {mode === "agentic"
+                    ? "Ask the assistant to take action — it proposes each change for you to approve. Try one of these:"
+                    : "Start a conversation about your platform data. Try one of these:"}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {PROMPT_SUGGESTIONS.map((s) => (
+                  {promptSuggestions.map((s) => (
                     <button
                       key={s}
                       onClick={() => send(s)}
