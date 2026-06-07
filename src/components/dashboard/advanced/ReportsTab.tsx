@@ -342,12 +342,16 @@ export function ReportsTab() {
     setActive(null);
     setMessages([]);
     setInput("");
+    setPendingActions([]);
+    setActionResults({});
     focusInput();
   };
 
   const loadFavorite = (c: SavedConversation) => {
     setActive(c.id);
     setMessages(Array.isArray(c.messages) ? c.messages : []);
+    setPendingActions([]);
+    setActionResults({});
     focusInput();
   };
 
