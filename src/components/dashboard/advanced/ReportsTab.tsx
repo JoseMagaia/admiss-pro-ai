@@ -66,12 +66,61 @@ interface Analytics {
 type ChatMsg = { role: "user" | "assistant"; content: string };
 type SavedConversation = { id: string; title: string; messages: ChatMsg[]; updated_at: string };
 
-const PROMPT_SUGGESTIONS = [
+type ProposedAction = { id: string; name: string; args: Record<string, unknown> };
+type ActionResult = { ok: boolean; msg: string };
+type AiMode = "insights" | "agentic";
+type ModelMode = "built_in" | "ai_settings" | "custom";
+
+const ACTION_LABELS: Record<string, string> = {
+  move_lead_stage: "Move lead stage",
+  update_lead: "Update lead",
+  assign_workflow: "Assign workflow",
+  remove_workflow: "Remove workflow",
+  set_opportunity: "Set opportunity values",
+};
+
+function describeAction(a: ProposedAction): string {
+  const g = (k: string) => (a.args[k] != null ? String(a.args[k]) : "");
+  switch (a.name) {
+    case "move_lead_stage":
+      return `Move ${g("phone")} → ${g("qualification_status")}`;
+    case "update_lead":
+      return `Update ${g("phone")} (${Object.keys(a.args)
+        .filter((k) => k !== "phone")
+        .join(", ")})`;
+    case "assign_workflow":
+      return `Assign "${g("workflow_name")}" to ${g("phone")}${g("goal_at") ? ` · goal ${g("goal_at")}` : ""}`;
+    case "remove_workflow":
+      return `Remove "${g("workflow_name")}" from ${g("phone")}`;
+    case "set_opportunity":
+      return `${g("phone")} → valuation ${g("valuation") || 0}, liquidity ${g("liquidity") || 0}`;
+    default:
+      return a.name;
+  }
+}
+
+const BUILTIN_MODELS = [
+  { id: "google/gemini-3-flash-preview", label: "Gemini 3 Flash (default)" },
+  { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  { id: "openai/gpt-5-mini", label: "GPT-5 mini" },
+  { id: "openai/gpt-5", label: "GPT-5" },
+];
+
+const BUILD_PROMPT_SUGGESTIONS = [
   "Summarise lead volume trends and where leads drop off in the pipeline.",
   "When are students most active? Recommend the best times to message.",
   "Analyse qualification vs disqualification and how to improve revenue.",
   "Which courses and destinations drive the most qualified leads?",
 ];
+
+const AGENT_PROMPT_SUGGESTIONS = [
+  "Move every qualified lead with no booking into onboarding.",
+  "Assign the re-engagement workflow to leads inactive over a week.",
+  "Find leads asking about scholarships and add a note to follow up.",
+  "Set opportunity values for the most engaged leads.",
+];
+
+const PROMPT_SUGGESTIONS = BUILD_PROMPT_SUGGESTIONS;
 
 function Stat({ icon: Icon, label, value, tone }: { icon: typeof Users; label: string; value: string; tone: string }) {
   return (
