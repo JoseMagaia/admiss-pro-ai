@@ -28,6 +28,7 @@ import {
   TRIGGER_TYPES,
   TIME_UNITS,
   BOOKING_STATUSES,
+  STEP_ANCHORS,
   type TriggerType,
   type TriggerConfig,
 } from "@/lib/orchestration";
@@ -76,8 +77,32 @@ function unitShort(unit: string): string {
   return TIME_UNITS.find((u) => u.id === unit)?.label.toLowerCase() ?? unit;
 }
 
+function stepTiming(d: {
+  anchor?: string;
+  delayValue?: number;
+  delayUnit?: string;
+  offsetValue?: number;
+  offsetUnit?: string;
+}): string {
+  const anchor = d.anchor ?? "wait";
+  if (anchor === "before_goal")
+    return `${d.offsetValue ?? 0} ${unitShort(d.offsetUnit ?? "days")} before goal date`;
+  if (anchor === "before_appointment")
+    return `${d.offsetValue ?? 0} ${unitShort(d.offsetUnit ?? "days")} before appointment`;
+  return `wait ${d.delayValue ?? 0} ${unitShort(d.delayUnit ?? "minutes")} before sending`;
+}
+
 function MessageNode({ data, selected }: NodeProps) {
-  const d = data as { content?: string; delayValue?: number; delayUnit?: string; index?: number };
+  const d = data as {
+    content?: string;
+    delayValue?: number;
+    delayUnit?: string;
+    anchor?: string;
+    offsetValue?: number;
+    offsetUnit?: string;
+    index?: number;
+  };
+  const countdown = (d.anchor ?? "wait") !== "wait";
   return (
     <div
       className={`w-52 rounded-xl border-2 bg-card px-4 py-2 shadow-card ${selected ? "border-primary" : "border-border"}`}
@@ -87,8 +112,11 @@ function MessageNode({ data, selected }: NodeProps) {
         <MessageSquare className="h-3.5 w-3.5" /> Message {(d.index ?? 0) + 1}
       </div>
       <p className="mt-1 line-clamp-2 text-xs text-foreground/80">{d.content || "(empty message)"}</p>
-      <p className="mt-1 text-[10px] text-muted-foreground">
-        wait {d.delayValue ?? 0} {unitShort(d.delayUnit ?? "minutes")} before sending
+      <p
+        className={`mt-1 text-[10px] ${countdown ? "font-semibold text-accent-foreground" : "text-muted-foreground"}`}
+      >
+        {countdown ? "⏳ " : ""}
+        {stepTiming(d)}
       </p>
       <Handle type="source" position={Position.Bottom} />
     </div>
@@ -219,8 +247,11 @@ export function WorkflowBuilder({
       position: { x: 80, y },
       data: {
         content: "",
+        anchor: "wait",
         delayValue: messageCount === 0 ? 0 : 1,
         delayUnit: messageCount === 0 ? "minutes" : "days",
+        offsetValue: 1,
+        offsetUnit: "days",
         index: messageCount,
       },
     };
@@ -477,28 +508,77 @@ export function WorkflowBuilder({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Wait before sending</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    min={0}
-                    value={Number((selected.data as { delayValue?: number }).delayValue ?? 0)}
-                    onChange={(e) => updateSelected({ delayValue: Math.max(0, Number(e.target.value)) })}
-                    className="w-24"
-                  />
-                  <select
-                    value={String((selected.data as { delayUnit?: string }).delayUnit ?? "minutes")}
-                    onChange={(e) => updateSelected({ delayUnit: e.target.value })}
-                    className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    {TIME_UNITS.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Label>Scheduling</Label>
+                <select
+                  value={String((selected.data as { anchor?: string }).anchor ?? "wait")}
+                  onChange={(e) => updateSelected({ anchor: e.target.value })}
+                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {STEP_ANCHORS.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-muted-foreground">
+                  {STEP_ANCHORS.find(
+                    (a) => a.id === ((selected.data as { anchor?: string }).anchor ?? "wait"),
+                  )?.help}
+                </p>
               </div>
+              {((selected.data as { anchor?: string }).anchor ?? "wait") === "wait" ? (
+                <div className="space-y-1.5">
+                  <Label>Wait before sending</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={Number((selected.data as { delayValue?: number }).delayValue ?? 0)}
+                      onChange={(e) => updateSelected({ delayValue: Math.max(0, Number(e.target.value)) })}
+                      className="w-24"
+                    />
+                    <select
+                      value={String((selected.data as { delayUnit?: string }).delayUnit ?? "minutes")}
+                      onChange={(e) => updateSelected({ delayUnit: e.target.value })}
+                      className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {TIME_UNITS.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label>Send before the target date</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      value={Number((selected.data as { offsetValue?: number }).offsetValue ?? 0)}
+                      onChange={(e) => updateSelected({ offsetValue: Math.max(0, Number(e.target.value)) })}
+                      className="w-24"
+                    />
+                    <select
+                      value={String((selected.data as { offsetUnit?: string }).offsetUnit ?? "days")}
+                      onChange={(e) => updateSelected({ offsetUnit: e.target.value })}
+                      className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {TIME_UNITS.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    The goal date is set per lead when you assign this workflow. Appointment dates come from
+                    the lead&apos;s bookings.
+                  </p>
+                </div>
+              )}
               <Button variant="ghost" size="sm" className="text-destructive" onClick={deleteSelected}>
                 <Trash2 className="mr-1 h-4 w-4" /> Delete step
               </Button>

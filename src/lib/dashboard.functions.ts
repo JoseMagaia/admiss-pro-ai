@@ -1811,5 +1811,145 @@ export const listContacts = createServerFn({ method: "GET" }).handler(async () =
   return { contacts: data ?? [] };
 });
 
+/* ===================== LEAD ↔ WORKFLOW ASSIGNMENTS ===================== */
+
+/* List the workflows a single lead is enrolled in, plus the catalogue of
+   enabled workflows available to assign. Admin + super. */
+export const listLeadWorkflows = createServerFn({ method: "GET" })
+  .inputValidator((d: unknown) => z.object({ phone: z.string().min(1).max(60) }).parse(d))
+  .handler(async ({ data }) => {
+    if (!(await isAdminOrSuper())) return { assigned: [], available: [] };
+    const db = await admin();
+    const { data: enr } = await db
+      .from("workflow_enrollments")
+      .select("id, workflow_id, status, current_step, goal_at, next_run_at, updated_at")
+      .eq("phone_number", data.phone)
+      .order("updated_at", { ascending: false })
+      .limit(100);
+    const enrollments = (enr ?? []) as Array<{
+      id: string;
+      workflow_id: string;
+      status: string;
+      current_step: number;
+      goal_at: string | null;
+      next_run_at: string | null;
+    }>;
+    const { data: wfRows } = await db
+      .from("workflows")
+      .select("id, name, enabled")
+      .order("name", { ascending: true });
+    const workflows = (wfRows ?? []) as Array<{ id: string; name: string; enabled: boolean }>;
+    const nameById = new Map(workflows.map((w) => [w.id, w.name]));
+    const assigned = enrollments.map((e) => ({
+      ...e,
+      name: nameById.get(e.workflow_id) ?? "Unknown workflow",
+    }));
+    const available = workflows.filter((w) => w.enabled).map((w) => ({ id: w.id, name: w.name }));
+    return { assigned, available };
+  });
+
+/* Assign (enroll) a lead into a workflow with an optional goal/deadline date for
+   countdown-anchored steps. Does NOT send immediately — the sequence is
+   scheduled per its step timing. Admin + super. */
+export const assignLeadWorkflow = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        phone: z.string().min(1).max(60),
+        workflowId: z.string().uuid(),
+        goalAt: z.string().min(1).max(40).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(["super_admin", "admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { data: wf } = await db
+      .from("workflows")
+      .select("id, name, enabled")
+      .eq("id", data.workflowId)
+      .maybeSingle();
+    const workflow = wf as { id: string; name: string; enabled: boolean } | null;
+    if (!workflow) return { ok: false, error: "Workflow not found" };
+    if (!workflow.enabled) return { ok: false, error: "This workflow is disabled" };
+
+    let goalIso: string | null = null;
+    if (data.goalAt) {
+      const g = new Date(data.goalAt);
+      if (isNaN(g.getTime())) return { ok: false, error: "Invalid goal date" };
+      goalIso = g.toISOString();
+    }
+
+    const { data: lead } = await db
+      .from("leads")
+      .select("id")
+      .eq("phone_number", data.phone)
+      .maybeSingle();
+
+    const { enrollLeadInWorkflowByName } = await import("./admissions.server");
+    let status: string;
+    try {
+      const res = await enrollLeadInWorkflowByName({
+        workflowName: workflow.name,
+        phone: data.phone,
+        leadId: (lead as { id?: string } | null)?.id ?? null,
+        sendNow: false,
+        goalAt: goalIso,
+      });
+      status = res.status;
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Failed to assign workflow" };
+    }
+
+    if (status === "no_workflow") return { ok: false, error: "Workflow has no message steps configured" };
+    if (status === "already_enrolled") return { ok: false, error: "Lead is already enrolled in this workflow" };
+
+    await db.from("audit_logs").insert({
+      actor_email: me.email ?? null,
+      actor_role: me.role ?? null,
+      action: "workflow_assigned",
+      entity_type: "lead",
+      entity_id: (lead as { id?: string } | null)?.id ?? null,
+      details: { phone: data.phone, workflow: workflow.name, goal_at: goalIso },
+    } as never);
+
+    return { ok: true, error: null, status };
+  });
+
+/* Remove a lead from a workflow (deletes that enrollment). Admin + super. */
+export const removeLeadWorkflow = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ phone: z.string().min(1).max(60), workflowId: z.string().uuid() }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(["super_admin", "admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { error } = await db
+      .from("workflow_enrollments")
+      .delete()
+      .eq("phone_number", data.phone)
+      .eq("workflow_id", data.workflowId);
+    if (error) return { ok: false, error: error.message };
+    await db.from("audit_logs").insert({
+      actor_email: me.email ?? null,
+      actor_role: me.role ?? null,
+      action: "workflow_unassigned",
+      entity_type: "lead",
+      details: { phone: data.phone, workflow_id: data.workflowId },
+    } as never);
+    return { ok: true, error: null };
+  });
+
+
 
 

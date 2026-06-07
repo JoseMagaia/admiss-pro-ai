@@ -613,19 +613,31 @@ function stageBeyondAi(stage?: string | null): boolean {
 /* ===================== ORCHESTRATION WORKFLOWS ===================== */
 
 import { PIPELINE_COLUMNS } from "./pipeline";
-import { DEFAULT_AGENT_ID, delayToMs } from "./orchestration";
+import { DEFAULT_AGENT_ID, delayToMs, type StepAnchor } from "./orchestration";
 import { runResponderAgent } from "./ai-engine.server";
 
 export interface WorkflowStep {
   content: string;
-  /** Delay before sending this step, in milliseconds. */
+  /** Delay before sending this step, in milliseconds (used by the "wait" anchor). */
   delayMs: number;
+  /** How this step is scheduled: relative wait, or countdown to a target date. */
+  anchor: StepAnchor;
+  /** For countdown anchors: how long before the target date to send, in ms. */
+  offsetMs: number;
 }
 
 interface GraphNode {
   id: string;
   type?: string;
-  data?: { content?: string; delayMinutes?: number; delayValue?: number; delayUnit?: string };
+  data?: {
+    content?: string;
+    delayMinutes?: number;
+    delayValue?: number;
+    delayUnit?: string;
+    anchor?: string;
+    offsetValue?: number;
+    offsetUnit?: string;
+  };
 }
 interface GraphEdge {
   source: string;
@@ -645,6 +657,61 @@ function nodeDelayMs(data?: GraphNode["data"]): number {
   return Math.max(0, Number(data?.delayMinutes ?? 0)) * 60_000;
 }
 
+// Resolve the countdown offset (ms) for goal/appointment anchored steps.
+function nodeOffsetMs(data?: GraphNode["data"]): number {
+  if (data && data.offsetValue !== undefined && data.offsetUnit) {
+    return delayToMs(Number(data.offsetValue), String(data.offsetUnit));
+  }
+  return 0;
+}
+
+// Compute when a step should next run, honoring its scheduling anchor.
+// Falls back to a relative delay when an anchored target date is unavailable,
+// and never schedules in the past.
+export function stepNextRunAt(
+  step: WorkflowStep | undefined,
+  goalAtIso: string | null,
+  apptAtIso: string | null,
+): Date {
+  const now = Date.now();
+  if (!step) return new Date(now);
+  if (step.anchor === "before_goal" && goalAtIso) {
+    const t = new Date(goalAtIso).getTime();
+    if (!Number.isNaN(t)) return new Date(Math.max(now, t - step.offsetMs));
+  }
+  if (step.anchor === "before_appointment" && apptAtIso) {
+    const t = new Date(apptAtIso).getTime();
+    if (!Number.isNaN(t)) return new Date(Math.max(now, t - step.offsetMs));
+  }
+  const rel = step.anchor === "wait" ? step.delayMs : step.offsetMs;
+  return new Date(now + Math.max(0, rel));
+}
+
+// Find the most relevant appointment date for a lead: the soonest upcoming one,
+// otherwise the most recent past appointment. Returns null when none exist.
+async function getLeadAppointmentAt(phone: string): Promise<string | null> {
+  const db = await admin();
+  const nowIso = new Date().toISOString();
+  const { data: future } = await db
+    .from("appointments")
+    .select("appointment_date")
+    .eq("phone_number", phone)
+    .not("appointment_date", "is", null)
+    .gte("appointment_date", nowIso)
+    .order("appointment_date", { ascending: true })
+    .limit(1);
+  const f = (future as Array<{ appointment_date: string }> | null)?.[0]?.appointment_date;
+  if (f) return f;
+  const { data: past } = await db
+    .from("appointments")
+    .select("appointment_date")
+    .eq("phone_number", phone)
+    .not("appointment_date", "is", null)
+    .order("appointment_date", { ascending: false })
+    .limit(1);
+  return (past as Array<{ appointment_date: string }> | null)?.[0]?.appointment_date ?? null;
+}
+
 // Resolve the ordered message steps from a saved visual graph. Walks the edges
 // starting from the trigger node; falls back to node array order.
 export function orderedSteps(graph: unknown): WorkflowStep[] {
@@ -658,6 +725,8 @@ export function orderedSteps(graph: unknown): WorkflowStep[] {
   const toStep = (n: GraphNode): WorkflowStep => ({
     content: String(n.data?.content ?? "").trim(),
     delayMs: nodeDelayMs(n.data),
+    anchor: (n.data?.anchor as StepAnchor) ?? "wait",
+    offsetMs: nodeOffsetMs(n.data),
   });
 
   if (trigger && edges.length > 0) {
@@ -948,17 +1017,20 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
       continue;
     }
 
-    const firstDelayMs = steps[0]?.delayMs ?? 0;
+    const step0 = steps[0];
     for (const lead of candidates) {
       if (enrolledSet.has(lead.phone_number)) continue;
       enrolledSet.add(lead.phone_number);
+      const apptAt =
+        step0?.anchor === "before_appointment" ? await getLeadAppointmentAt(lead.phone_number) : null;
+      const runAt = stepNextRunAt(step0, null, apptAt);
       await db.from("workflow_enrollments").insert({
         workflow_id: wf.id,
         lead_id: lead.id,
         phone_number: lead.phone_number,
         current_step: 0,
         status: "active",
-        next_run_at: new Date(Date.now() + firstDelayMs).toISOString(),
+        next_run_at: runAt.toISOString(),
       } as never);
       enrolled += 1;
     }
@@ -998,12 +1070,18 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
         .update({ current_step: nextStep, status: "completed", next_run_at: null, last_step_at: new Date().toISOString() } as never)
         .eq("id", enr.id as string);
     } else {
-      const nextDelayMs = steps[nextStep]?.delayMs ?? 0;
+      const nextStepObj = steps[nextStep];
+      const goalAt = (enr.goal_at as string | null) ?? null;
+      const apptAt =
+        nextStepObj?.anchor === "before_appointment"
+          ? await getLeadAppointmentAt(String(enr.phone_number))
+          : null;
+      const runAt = stepNextRunAt(nextStepObj, goalAt, apptAt);
       await db
         .from("workflow_enrollments")
         .update({
           current_step: nextStep,
-          next_run_at: new Date(Date.now() + nextDelayMs).toISOString(),
+          next_run_at: runAt.toISOString(),
           last_step_at: new Date().toISOString(),
         } as never)
         .eq("id", enr.id as string);
@@ -1028,6 +1106,8 @@ export async function enrollLeadInWorkflowByName(params: {
   /** Extra delay (ms) before the first message becomes due. Used to honour the
    *  meeting-outcome edit window so the sequence only fires once the countdown ends. */
   startDelayMs?: number;
+  /** Optional per-lead goal/deadline date for countdown-anchored steps. */
+  goalAt?: string | null;
 }): Promise<{ status: "enrolled" | "already_enrolled" | "no_workflow" | "no_steps"; workflowId?: string }> {
   const db = await admin();
   const { data: rows } = await db.from("workflows").select("*").eq("enabled", true);
@@ -1061,7 +1141,7 @@ export async function enrollLeadInWorkflowByName(params: {
     .maybeSingle();
   if (existing) return { status: "already_enrolled", workflowId: target.id as string };
 
-  const firstDelayMs = steps[0]?.delayMs ?? 0;
+  const goalAt = params.goalAt ?? null;
 
   // Immediate activation: send the first message now and advance the sequence so
   // the lead starts receiving the follow-up the moment the outcome is recorded.
@@ -1076,11 +1156,15 @@ export async function enrollLeadInWorkflowByName(params: {
         current_step: nextStep,
         status: "completed",
         reacted: false,
+        goal_at: goalAt,
         next_run_at: null,
         last_step_at: new Date().toISOString(),
       } as never);
     } else {
-      const nextDelayMs = steps[nextStep]?.delayMs ?? 0;
+      const nextStepObj = steps[nextStep];
+      const apptAt =
+        nextStepObj?.anchor === "before_appointment" ? await getLeadAppointmentAt(params.phone) : null;
+      const runAt = stepNextRunAt(nextStepObj, goalAt, apptAt);
       await db.from("workflow_enrollments").insert({
         workflow_id: target.id,
         lead_id: params.leadId ?? null,
@@ -1088,7 +1172,8 @@ export async function enrollLeadInWorkflowByName(params: {
         current_step: nextStep,
         status: "active",
         reacted: false,
-        next_run_at: new Date(Date.now() + nextDelayMs).toISOString(),
+        goal_at: goalAt,
+        next_run_at: runAt.toISOString(),
         last_step_at: new Date().toISOString(),
       } as never);
     }
@@ -1096,6 +1181,11 @@ export async function enrollLeadInWorkflowByName(params: {
   }
 
   const startDelayMs = Math.max(0, params.startDelayMs ?? 0);
+  const step0 = steps[0];
+  const apptAt = step0?.anchor === "before_appointment" ? await getLeadAppointmentAt(params.phone) : null;
+  let runAtMs = stepNextRunAt(step0, goalAt, apptAt).getTime();
+  // The meeting-outcome edit window only applies to plain relative-wait steps.
+  if (step0?.anchor === "wait") runAtMs += startDelayMs;
   await db.from("workflow_enrollments").insert({
     workflow_id: target.id,
     lead_id: params.leadId ?? null,
@@ -1103,7 +1193,8 @@ export async function enrollLeadInWorkflowByName(params: {
     current_step: 0,
     status: "active",
     reacted: false,
-    next_run_at: new Date(Date.now() + startDelayMs + firstDelayMs).toISOString(),
+    goal_at: goalAt,
+    next_run_at: new Date(runAtMs).toISOString(),
   } as never);
   return { status: "enrolled", workflowId: target.id as string };
 }

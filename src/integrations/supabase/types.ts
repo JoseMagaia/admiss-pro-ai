@@ -862,6 +862,7 @@ export type Database = {
         Row: {
           created_at: string
           current_step: number
+          goal_at: string | null
           id: string
           last_step_at: string | null
           lead_id: string | null
@@ -875,6 +876,7 @@ export type Database = {
         Insert: {
           created_at?: string
           current_step?: number
+          goal_at?: string | null
           id?: string
           last_step_at?: string | null
           lead_id?: string | null
@@ -888,6 +890,7 @@ export type Database = {
         Update: {
           created_at?: string
           current_step?: number
+          goal_at?: string | null
           id?: string
           last_step_at?: string | null
           lead_id?: string | null

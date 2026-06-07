@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { GripVertical, MessageSquare, DollarSign, TrendingUp, Coins } from "lucide-react";
+import {
+  GripVertical,
+  MessageSquare,
+  DollarSign,
+  TrendingUp,
+  Coins,
+  Workflow as WorkflowIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { listLeads, updateLeadStage } from "@/lib/dashboard.functions";
 import { listOffers, listStageSettings, upsertStageSetting } from "@/lib/advanced.functions";
 import { PIPELINE_COLUMNS, columnForStage, stageLabel } from "@/lib/pipeline";
 import { useDashboardNav } from "@/lib/dashboard-nav";
+import { useAuth } from "@/hooks/useAuth";
+import { LeadWorkflowManager } from "./LeadWorkflowManager";
 import { cn } from "@/lib/utils";
 
 interface Lead {
@@ -55,6 +64,8 @@ const STAGE_ACCENTS = [
 
 export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) {
   const qc = useQueryClient();
+  const { profile } = useAuth();
+  const canManageWorkflows = profile.role === "super_admin" || profile.role === "admin";
   const leadsFn = useServerFn(listLeads);
   const stageFn = useServerFn(updateLeadStage);
   const offersFn = useServerFn(listOffers);
@@ -347,6 +358,26 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-sm font-semibold">{l.lead_name ?? l.phone_number}</span>
                       <div className="flex shrink-0 items-center gap-1">
+                        {canManageWorkflows && (
+                          <span
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
+                            draggable={false}
+                          >
+                            <LeadWorkflowManager
+                              phone={l.phone_number}
+                              trigger={
+                                <button
+                                  type="button"
+                                  title="Manage workflows"
+                                  className="text-muted-foreground opacity-0 transition-colors hover:text-primary group-hover:opacity-100"
+                                >
+                                  <WorkflowIcon className="h-4 w-4" />
+                                </button>
+                              }
+                            />
+                          </span>
+                        )}
                         <button
                           type="button"
                           title="Open conversation"

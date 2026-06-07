@@ -1,0 +1,1 @@
+ALTER TABLE public.workflow_enrollments ADD COLUMN IF NOT EXISTS goal_at timestamptz;

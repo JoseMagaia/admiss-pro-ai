@@ -25,14 +25,22 @@ import {
   Plus,
   Trash2,
   Send,
+  Wand2,
+  Check,
+  X,
+  Settings2,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   getReportDashboard,
   generateChatReply,
+  generateAgentReply,
+  executeAgentAction,
   listConversations,
   saveConversation,
   deleteConversation,
@@ -58,12 +66,61 @@ interface Analytics {
 type ChatMsg = { role: "user" | "assistant"; content: string };
 type SavedConversation = { id: string; title: string; messages: ChatMsg[]; updated_at: string };
 
-const PROMPT_SUGGESTIONS = [
+type ProposedAction = { id: string; name: string; args: Record<string, unknown> };
+type ActionResult = { ok: boolean; msg: string };
+type AiMode = "insights" | "agentic";
+type ModelMode = "built_in" | "ai_settings" | "custom";
+
+const ACTION_LABELS: Record<string, string> = {
+  move_lead_stage: "Move lead stage",
+  update_lead: "Update lead",
+  assign_workflow: "Assign workflow",
+  remove_workflow: "Remove workflow",
+  set_opportunity: "Set opportunity values",
+};
+
+function describeAction(a: ProposedAction): string {
+  const g = (k: string) => (a.args[k] != null ? String(a.args[k]) : "");
+  switch (a.name) {
+    case "move_lead_stage":
+      return `Move ${g("phone")} → ${g("qualification_status")}`;
+    case "update_lead":
+      return `Update ${g("phone")} (${Object.keys(a.args)
+        .filter((k) => k !== "phone")
+        .join(", ")})`;
+    case "assign_workflow":
+      return `Assign "${g("workflow_name")}" to ${g("phone")}${g("goal_at") ? ` · goal ${g("goal_at")}` : ""}`;
+    case "remove_workflow":
+      return `Remove "${g("workflow_name")}" from ${g("phone")}`;
+    case "set_opportunity":
+      return `${g("phone")} → valuation ${g("valuation") || 0}, liquidity ${g("liquidity") || 0}`;
+    default:
+      return a.name;
+  }
+}
+
+const BUILTIN_MODELS = [
+  { id: "google/gemini-3-flash-preview", label: "Gemini 3 Flash (default)" },
+  { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  { id: "openai/gpt-5-mini", label: "GPT-5 mini" },
+  { id: "openai/gpt-5", label: "GPT-5" },
+];
+
+const BUILD_PROMPT_SUGGESTIONS = [
   "Summarise lead volume trends and where leads drop off in the pipeline.",
   "When are students most active? Recommend the best times to message.",
   "Analyse qualification vs disqualification and how to improve revenue.",
   "Which courses and destinations drive the most qualified leads?",
 ];
+
+const AGENT_PROMPT_SUGGESTIONS = [
+  "Move every qualified lead with no booking into onboarding.",
+  "Assign the re-engagement workflow to leads inactive over a week.",
+  "Find leads asking about scholarships and add a note to follow up.",
+  "Set opportunity values for the most engaged leads.",
+];
+
+
 
 function Stat({ icon: Icon, label, value, tone }: { icon: typeof Users; label: string; value: string; tone: string }) {
   return (
@@ -119,6 +176,8 @@ export function ReportsTab() {
   const queryClient = useQueryClient();
   const dashFn = useServerFn(getReportDashboard);
   const chatFn = useServerFn(generateChatReply);
+  const agentFn = useServerFn(generateAgentReply);
+  const execFn = useServerFn(executeAgentAction);
   const listFn = useServerFn(listConversations);
   const saveFn = useServerFn(saveConversation);
   const deleteFn = useServerFn(deleteConversation);
@@ -141,6 +200,33 @@ export function ReportsTab() {
   const [input, setInput] = useState("");
   const [days, setDays] = useState(30);
 
+  // Agentic + model controls
+  const [mode, setMode] = useState<AiMode>("insights");
+  const [pendingActions, setPendingActions] = useState<ProposedAction[]>([]);
+  const [actionResults, setActionResults] = useState<Record<string, ActionResult>>({});
+  const [showModelCfg, setShowModelCfg] = useState(false);
+  const [modelMode, setModelMode] = useState<ModelMode>("built_in");
+  const [builtInModel, setBuiltInModel] = useState(BUILTIN_MODELS[0].id);
+  const [customProvider, setCustomProvider] = useState("");
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [customModel, setCustomModel] = useState("");
+  const [customApiKey, setCustomApiKey] = useState("");
+
+  const buildModelConfig = () => {
+    if (modelMode === "custom")
+      return {
+        mode: "custom" as const,
+        provider: customProvider || null,
+        baseUrl: customBaseUrl || null,
+        model: customModel || null,
+        apiKey: customApiKey || null,
+      };
+    if (modelMode === "ai_settings") return { mode: "ai_settings" as const };
+    return { mode: "built_in" as const, model: builtInModel || null };
+  };
+
+  const promptSuggestions = mode === "agentic" ? AGENT_PROMPT_SUGGESTIONS : BUILD_PROMPT_SUGGESTIONS;
+
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
 
@@ -159,15 +245,29 @@ export function ReportsTab() {
   };
 
   const chat = useMutation({
-    mutationFn: (msgs: ChatMsg[]) => chatFn({ data: { messages: msgs, days } }),
+    mutationFn: (msgs: ChatMsg[]) => {
+      const model = buildModelConfig();
+      return mode === "agentic"
+        ? agentFn({ data: { messages: msgs, days, model } })
+        : chatFn({ data: { messages: msgs, days, model } });
+    },
     onSuccess: async (r, variables) => {
-      const res = r as { reply: string; error: string | null };
-      if (res.error || !res.reply) {
-        toast.error(res.error ?? "No response generated");
+      const res = r as { reply: string; error: string | null; actions?: ProposedAction[] };
+      if (res.error) {
+        toast.error(res.error);
         return;
       }
-      const full: ChatMsg[] = [...variables, { role: "assistant", content: res.reply }];
+      const actions = res.actions ?? [];
+      if (!res.reply && actions.length === 0) {
+        toast.error("No response generated");
+        return;
+      }
+      const full: ChatMsg[] = [
+        ...variables,
+        { role: "assistant", content: res.reply || "Prepared actions for your approval." },
+      ];
       setMessages(full);
+      if (mode === "agentic" && actions.length > 0) setPendingActions(actions);
       // Auto-persist so every conversation appears in the history list.
       try {
         const saved = (await saveFn({
@@ -182,6 +282,35 @@ export function ReportsTab() {
     onError: () => toast.error("Failed to get a response"),
     onSettled: () => focusInput(),
   });
+
+  const runAction = useMutation({
+    mutationFn: (action: ProposedAction) =>
+      execFn({ data: { name: action.name as never, args: action.args } }),
+    onSuccess: (r, action) => {
+      const res = r as { ok: boolean; error: string | null; result?: string };
+      setActionResults((prev) => ({
+        ...prev,
+        [action.id]: { ok: res.ok, msg: res.ok ? res.result ?? "Done" : res.error ?? "Failed" },
+      }));
+      if (res.ok) {
+        toast.success(res.result ?? "Action applied");
+        queryClient.invalidateQueries({ queryKey: ["leads"] });
+        queryClient.invalidateQueries({ queryKey: ["report-dashboard"] });
+        queryClient.invalidateQueries({ queryKey: ["workflow-states"] });
+        queryClient.invalidateQueries({ queryKey: ["lead-workflows"] });
+      } else {
+        toast.error(res.error ?? "Action failed");
+      }
+    },
+    onError: (_e, action) => {
+      setActionResults((prev) => ({ ...prev, [action.id]: { ok: false, msg: "Action failed" } }));
+      toast.error("Action failed");
+    },
+  });
+
+  const dismissAction = (id: string) => {
+    setActionResults((prev) => ({ ...prev, [id]: { ok: false, msg: "Dismissed" } }));
+  };
 
   const send = (text: string) => {
     const content = text.trim();
@@ -213,12 +342,16 @@ export function ReportsTab() {
     setActive(null);
     setMessages([]);
     setInput("");
+    setPendingActions([]);
+    setActionResults({});
     focusInput();
   };
 
   const loadFavorite = (c: SavedConversation) => {
     setActive(c.id);
     setMessages(Array.isArray(c.messages) ? c.messages : []);
+    setPendingActions([]);
+    setActionResults({});
     focusInput();
   };
 
@@ -294,47 +427,151 @@ export function ReportsTab() {
 
         {/* Conversational generator */}
         <div className="flex min-h-[480px] flex-col rounded-2xl border bg-card shadow-card">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-primary" />
-              <div>
-                <h2 className="font-display text-lg font-semibold leading-tight">AI Insights Generator</h2>
-                <p className="text-xs text-muted-foreground">
-                  Chat with your live analytics — saved to history automatically. Ask for a report to download it.
-                </p>
+          <div className="space-y-3 border-b p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {mode === "agentic" ? (
+                  <Wand2 className="h-5 w-5 text-accent-foreground" />
+                ) : (
+                  <Sparkles className="h-5 w-5 text-primary" />
+                )}
+                <div>
+                  <h2 className="font-display text-lg font-semibold leading-tight">AI Insights Generator</h2>
+                  <p className="text-xs text-muted-foreground">
+                    {mode === "agentic"
+                      ? "Ask the assistant to act on leads, pipeline & workflows — every action needs your approval."
+                      : "Chat with your live analytics — saved to history automatically. Ask for a report to download it."}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  Timeframe
+                  <select
+                    value={days}
+                    onChange={(e) => setDays(Number(e.target.value))}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                  >
+                    <option value={7}>7 days</option>
+                    <option value={30}>30 days</option>
+                    <option value={90}>90 days</option>
+                    <option value={365}>12 months</option>
+                  </select>
+                </label>
+                <Button
+                  size="sm"
+                  variant={showModelCfg ? "default" : "outline"}
+                  className="h-8 gap-1 px-2 text-xs"
+                  onClick={() => setShowModelCfg((s) => !s)}
+                >
+                  <Settings2 className="h-3.5 w-3.5" /> Model
+                </Button>
+                {hasConversation && (
+                  <Button size="sm" variant="outline" onClick={startNew}>
+                    <Plus className="mr-1 h-3.5 w-3.5" /> New analysis
+                  </Button>
+                )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                Timeframe
-                <select
-                  value={days}
-                  onChange={(e) => setDays(Number(e.target.value))}
-                  className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-                >
-                  <option value={7}>7 days</option>
-                  <option value={30}>30 days</option>
-                  <option value={90}>90 days</option>
-                  <option value={365}>12 months</option>
-                </select>
-              </label>
-              {hasConversation && (
-                <Button size="sm" variant="outline" onClick={startNew}>
-                  <Plus className="mr-1 h-3.5 w-3.5" /> New analysis
-                </Button>
-              )}
+
+            {/* Mode toggle */}
+            <div className="inline-flex rounded-lg border bg-muted/40 p-0.5 text-xs">
+              <button
+                onClick={() => setMode("insights")}
+                className={`flex items-center gap-1 rounded-md px-3 py-1.5 font-medium transition-colors ${
+                  mode === "insights" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                <Sparkles className="h-3.5 w-3.5" /> Insights
+              </button>
+              <button
+                onClick={() => setMode("agentic")}
+                className={`flex items-center gap-1 rounded-md px-3 py-1.5 font-medium transition-colors ${
+                  mode === "agentic"
+                    ? "bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shadow-sm"
+                    : "text-muted-foreground"
+                }`}
+              >
+                <Zap className="h-3.5 w-3.5" /> Agentic
+              </button>
             </div>
+
+            {/* Model config */}
+            {showModelCfg && (
+              <div className="space-y-2 rounded-xl border bg-muted/30 p-3">
+                <Label className="text-xs">AI model provider</Label>
+                <select
+                  value={modelMode}
+                  onChange={(e) => setModelMode(e.target.value as ModelMode)}
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                >
+                  <option value="built_in">Built-in Lovable AI</option>
+                  <option value="ai_settings">Use AI Settings provider</option>
+                  <option value="custom">Custom provider (own API)</option>
+                </select>
+                {modelMode === "built_in" && (
+                  <select
+                    value={builtInModel}
+                    onChange={(e) => setBuiltInModel(e.target.value)}
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  >
+                    {BUILTIN_MODELS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {modelMode === "ai_settings" && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Uses the custom provider configured in AI Settings, or the built-in model if none is set.
+                  </p>
+                )}
+                {modelMode === "custom" && (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input
+                      value={customProvider}
+                      onChange={(e) => setCustomProvider(e.target.value)}
+                      placeholder="Provider name (e.g. openai)"
+                      className="h-8 text-xs"
+                    />
+                    <Input
+                      value={customModel}
+                      onChange={(e) => setCustomModel(e.target.value)}
+                      placeholder="Model (e.g. gpt-4o-mini)"
+                      className="h-8 text-xs"
+                    />
+                    <Input
+                      value={customBaseUrl}
+                      onChange={(e) => setCustomBaseUrl(e.target.value)}
+                      placeholder="Base URL (https://api.openai.com/v1)"
+                      className="h-8 text-xs sm:col-span-2"
+                    />
+                    <Input
+                      type="password"
+                      value={customApiKey}
+                      onChange={(e) => setCustomApiKey(e.target.value)}
+                      placeholder="API key"
+                      className="h-8 text-xs sm:col-span-2"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
 
           {/* Thread */}
           <div ref={threadRef} className="flex-1 space-y-4 overflow-y-auto p-4 lg:max-h-[440px]">
             {!hasConversation && (
               <div className="py-6">
                 <p className="mb-3 text-sm text-muted-foreground">
-                  Start a conversation about your platform data. Try one of these:
+                  {mode === "agentic"
+                    ? "Ask the assistant to take action — it proposes each change for you to approve. Try one of these:"
+                    : "Start a conversation about your platform data. Try one of these:"}
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {PROMPT_SUGGESTIONS.map((s) => (
+                  {promptSuggestions.map((s) => (
                     <button
                       key={s}
                       onClick={() => send(s)}
@@ -390,9 +627,65 @@ export function ReportsTab() {
               ),
             )}
 
+            {mode === "agentic" && pendingActions.length > 0 && (
+              <div className="rounded-2xl border border-violet-500/40 bg-violet-500/5 p-3">
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-violet-600 dark:text-violet-300">
+                  <Zap className="h-3.5 w-3.5" /> Proposed actions — approve to apply
+                </p>
+                <div className="space-y-2">
+                  {pendingActions.map((a) => {
+                    const result = actionResults[a.id];
+                    return (
+                      <div
+                        key={a.id}
+                        className="flex items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium">{ACTION_LABELS[a.name] ?? a.name}</p>
+                          <p className="truncate text-[11px] text-muted-foreground">{describeAction(a)}</p>
+                          {result && (
+                            <p
+                              className={`mt-0.5 text-[10px] font-medium ${
+                                result.ok ? "text-success" : "text-muted-foreground"
+                              }`}
+                            >
+                              {result.ok ? "✓ " : "• "}
+                              {result.msg}
+                            </p>
+                          )}
+                        </div>
+                        {!result && (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Button
+                              size="sm"
+                              className="h-7 gap-1 bg-success px-2 text-xs text-success-foreground hover:bg-success/90"
+                              disabled={runAction.isPending}
+                              onClick={() => runAction.mutate(a)}
+                            >
+                              <Check className="h-3.5 w-3.5" /> Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                              onClick={() => dismissAction(a.id)}
+                              aria-label="Dismiss action"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {chat.isPending && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Analysing your data…
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
+                {mode === "agentic" ? "Thinking and preparing actions…" : "Analysing your data…"}
               </div>
             )}
           </div>

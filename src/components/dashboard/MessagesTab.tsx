@@ -50,6 +50,7 @@ import {
   listWorkspaces,
   startConversation,
 } from "@/lib/dashboard.functions";
+import { LeadWorkflowManager } from "./LeadWorkflowManager";
 import { cn } from "@/lib/utils";
 
 /** Compare phone numbers by their digits only, ignoring +, spaces, dashes, etc. */
@@ -442,6 +443,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                 <span className="truncate">{active}</span>
               </span>
               <div className="flex items-center gap-3">
+                {canPause && activePhone && <LeadWorkflowManager phone={activePhone} />}
                 {canPause && workflowState && (
                   <Button
                     size="sm"
