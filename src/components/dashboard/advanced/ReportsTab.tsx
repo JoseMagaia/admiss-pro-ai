@@ -427,37 +427,139 @@ export function ReportsTab() {
 
         {/* Conversational generator */}
         <div className="flex min-h-[480px] flex-col rounded-2xl border bg-card shadow-card">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b p-4">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-primary" />
-              <div>
-                <h2 className="font-display text-lg font-semibold leading-tight">AI Insights Generator</h2>
-                <p className="text-xs text-muted-foreground">
-                  Chat with your live analytics — saved to history automatically. Ask for a report to download it.
-                </p>
+          <div className="space-y-3 border-b p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                {mode === "agentic" ? (
+                  <Wand2 className="h-5 w-5 text-accent-foreground" />
+                ) : (
+                  <Sparkles className="h-5 w-5 text-primary" />
+                )}
+                <div>
+                  <h2 className="font-display text-lg font-semibold leading-tight">AI Insights Generator</h2>
+                  <p className="text-xs text-muted-foreground">
+                    {mode === "agentic"
+                      ? "Ask the assistant to act on leads, pipeline & workflows — every action needs your approval."
+                      : "Chat with your live analytics — saved to history automatically. Ask for a report to download it."}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  Timeframe
+                  <select
+                    value={days}
+                    onChange={(e) => setDays(Number(e.target.value))}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                  >
+                    <option value={7}>7 days</option>
+                    <option value={30}>30 days</option>
+                    <option value={90}>90 days</option>
+                    <option value={365}>12 months</option>
+                  </select>
+                </label>
+                <Button
+                  size="sm"
+                  variant={showModelCfg ? "default" : "outline"}
+                  className="h-8 gap-1 px-2 text-xs"
+                  onClick={() => setShowModelCfg((s) => !s)}
+                >
+                  <Settings2 className="h-3.5 w-3.5" /> Model
+                </Button>
+                {hasConversation && (
+                  <Button size="sm" variant="outline" onClick={startNew}>
+                    <Plus className="mr-1 h-3.5 w-3.5" /> New analysis
+                  </Button>
+                )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                Timeframe
-                <select
-                  value={days}
-                  onChange={(e) => setDays(Number(e.target.value))}
-                  className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-                >
-                  <option value={7}>7 days</option>
-                  <option value={30}>30 days</option>
-                  <option value={90}>90 days</option>
-                  <option value={365}>12 months</option>
-                </select>
-              </label>
-              {hasConversation && (
-                <Button size="sm" variant="outline" onClick={startNew}>
-                  <Plus className="mr-1 h-3.5 w-3.5" /> New analysis
-                </Button>
-              )}
+
+            {/* Mode toggle */}
+            <div className="inline-flex rounded-lg border bg-muted/40 p-0.5 text-xs">
+              <button
+                onClick={() => setMode("insights")}
+                className={`flex items-center gap-1 rounded-md px-3 py-1.5 font-medium transition-colors ${
+                  mode === "insights" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground"
+                }`}
+              >
+                <Sparkles className="h-3.5 w-3.5" /> Insights
+              </button>
+              <button
+                onClick={() => setMode("agentic")}
+                className={`flex items-center gap-1 rounded-md px-3 py-1.5 font-medium transition-colors ${
+                  mode === "agentic"
+                    ? "bg-gradient-to-r from-violet-500 to-fuchsia-500 text-white shadow-sm"
+                    : "text-muted-foreground"
+                }`}
+              >
+                <Zap className="h-3.5 w-3.5" /> Agentic
+              </button>
             </div>
+
+            {/* Model config */}
+            {showModelCfg && (
+              <div className="space-y-2 rounded-xl border bg-muted/30 p-3">
+                <Label className="text-xs">AI model provider</Label>
+                <select
+                  value={modelMode}
+                  onChange={(e) => setModelMode(e.target.value as ModelMode)}
+                  className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                >
+                  <option value="built_in">Built-in Lovable AI</option>
+                  <option value="ai_settings">Use AI Settings provider</option>
+                  <option value="custom">Custom provider (own API)</option>
+                </select>
+                {modelMode === "built_in" && (
+                  <select
+                    value={builtInModel}
+                    onChange={(e) => setBuiltInModel(e.target.value)}
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+                  >
+                    {BUILTIN_MODELS.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {modelMode === "ai_settings" && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Uses the custom provider configured in AI Settings, or the built-in model if none is set.
+                  </p>
+                )}
+                {modelMode === "custom" && (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input
+                      value={customProvider}
+                      onChange={(e) => setCustomProvider(e.target.value)}
+                      placeholder="Provider name (e.g. openai)"
+                      className="h-8 text-xs"
+                    />
+                    <Input
+                      value={customModel}
+                      onChange={(e) => setCustomModel(e.target.value)}
+                      placeholder="Model (e.g. gpt-4o-mini)"
+                      className="h-8 text-xs"
+                    />
+                    <Input
+                      value={customBaseUrl}
+                      onChange={(e) => setCustomBaseUrl(e.target.value)}
+                      placeholder="Base URL (https://api.openai.com/v1)"
+                      className="h-8 text-xs sm:col-span-2"
+                    />
+                    <Input
+                      type="password"
+                      value={customApiKey}
+                      onChange={(e) => setCustomApiKey(e.target.value)}
+                      placeholder="API key"
+                      className="h-8 text-xs sm:col-span-2"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
 
           {/* Thread */}
           <div ref={threadRef} className="flex-1 space-y-4 overflow-y-auto p-4 lg:max-h-[440px]">
