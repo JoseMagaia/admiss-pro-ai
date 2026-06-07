@@ -631,3 +631,315 @@ export const deleteConversation = createServerFn({ method: "POST" })
       .eq("user_id", user.userId);
     return { ok: !error, error: error?.message ?? null };
   });
+
+/* ===================== AGENTIC MODE (PROPOSE + CONFIRM) ===================== */
+
+// Function/tool catalogue the assistant may propose. Nothing here executes
+// automatically — proposed calls are returned to the UI for explicit approval.
+const AGENT_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "move_lead_stage",
+      description: "Move a lead to a different pipeline qualification status.",
+      parameters: {
+        type: "object",
+        properties: {
+          phone: { type: "string", description: "The lead's phone number." },
+          qualification_status: {
+            type: "string",
+            description:
+              "The new qualification status, e.g. NEW_LEAD, IN_PROGRESS, QUALIFIED, BOOKING_REQUEST_CREATED, ONBOARDING, DISQUALIFIED. Prefer a value already seen in leadDirectory.",
+          },
+        },
+        required: ["phone", "qualification_status"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_lead",
+      description: "Update editable fields on a lead.",
+      parameters: {
+        type: "object",
+        properties: {
+          phone: { type: "string" },
+          lead_name: { type: "string" },
+          course_interest: { type: "string" },
+          country_interest: { type: "string" },
+          notes: { type: "string" },
+        },
+        required: ["phone"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "assign_workflow",
+      description: "Enrol a lead into an outbound workflow by its exact name.",
+      parameters: {
+        type: "object",
+        properties: {
+          phone: { type: "string" },
+          workflow_name: { type: "string" },
+          goal_at: {
+            type: "string",
+            description: "Optional ISO date for countdown steps (e.g. 2026-07-01).",
+          },
+        },
+        required: ["phone", "workflow_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "remove_workflow",
+      description: "Remove a lead from a workflow by its exact name.",
+      parameters: {
+        type: "object",
+        properties: { phone: { type: "string" }, workflow_name: { type: "string" } },
+        required: ["phone", "workflow_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_opportunity",
+      description: "Set the opportunity valuation and expected liquidity for a lead.",
+      parameters: {
+        type: "object",
+        properties: {
+          phone: { type: "string" },
+          valuation: { type: "number" },
+          liquidity: { type: "number" },
+        },
+        required: ["phone"],
+      },
+    },
+  },
+] as const;
+
+export const generateAgentReply = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        messages: z.array(chatMessageSchema).min(1).max(40),
+        days: z.number().int().min(1).max(365).optional(),
+        model: modelConfigSchema,
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guardAdvanced();
+    } catch (e) {
+      return { reply: "", actions: [], error: (e as Error).message };
+    }
+
+    const target = await resolveAiTarget(data.model);
+    if ("error" in target) return { reply: "", actions: [], error: target.error };
+
+    const analytics = await buildAnalytics(data.days ?? 30, { includeContent: true });
+    const db = await admin();
+    const { data: wfRows } = await db
+      .from("workflows")
+      .select("name, enabled")
+      .eq("enabled", true)
+      .limit(200);
+    const workflowNames = ((wfRows ?? []) as Array<{ name: string }>).map((w) => w.name);
+
+    const system = `You are an agentic operations assistant for an international education admissions platform.
+You can both answer questions AND take actions on the platform by calling the provided tools.
+You are given a JSON analytics snapshot including a "leadDirectory" (leads with phone, name, stage, interests) and a "messageLog" (recent message contents/timestamps). Use these to identify the right lead phone numbers.
+Available workflow names for assign/remove: ${JSON.stringify(workflowNames)}.
+Rules:
+- When the user asks you to change something (move a lead, edit a lead, assign/remove a workflow, set opportunity values), call the appropriate tool with concrete arguments. You may call several tools in one turn.
+- Each tool call is only a PROPOSAL — a human will approve or reject it before it runs. Briefly describe what you are proposing in your text reply.
+- Only act on leads that exist in the data. If you cannot find the lead or required info, ask for clarification instead of guessing.
+- For analysis-only questions, just answer in concise Markdown without calling tools.
+
+Analytics snapshot (last ${analytics.rangeDays} days where time-based):
+${JSON.stringify(analytics)}`;
+
+    try {
+      const res = await fetch(target.url, {
+        method: "POST",
+        headers: target.headers,
+        body: JSON.stringify({
+          model: target.model,
+          temperature: 0.3,
+          tools: AGENT_TOOLS,
+          tool_choice: "auto",
+          messages: [{ role: "system", content: system }, ...data.messages],
+        }),
+      });
+      if (!res.ok) {
+        let msg = `AI error ${res.status}`;
+        if (res.status === 429) msg = "Rate limit reached. Please retry shortly.";
+        if (res.status === 402) msg = "AI credits exhausted. Add credits in workspace settings.";
+        return { reply: "", actions: [], error: msg };
+      }
+      const json = await res.json();
+      const message = json?.choices?.[0]?.message ?? {};
+      const reply = String(message.content ?? "");
+      const rawCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+      const actions = rawCalls
+        .map((c: { id?: string; function?: { name?: string; arguments?: string } }) => {
+          let args: Record<string, unknown> = {};
+          try {
+            args = JSON.parse(c.function?.arguments ?? "{}");
+          } catch {
+            args = {};
+          }
+          return { id: c.id ?? crypto.randomUUID(), name: c.function?.name ?? "", args };
+        })
+        .filter((a: { name: string }) => a.name);
+      return {
+        reply: reply || (actions.length ? "I've prepared the following actions for your approval." : ""),
+        actions,
+        error: null,
+      };
+    } catch (e) {
+      return { reply: "", actions: [], error: e instanceof Error ? e.message : "AI request failed" };
+    }
+  });
+
+// Execute a single approved agent action. Validated per-action and audit-logged.
+export const executeAgentAction = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        name: z.enum([
+          "move_lead_stage",
+          "update_lead",
+          "assign_workflow",
+          "remove_workflow",
+          "set_opportunity",
+        ]),
+        args: z.record(z.string(), z.unknown()),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    let user;
+    try {
+      user = await guardAdvanced();
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const args = data.args as Record<string, unknown>;
+    const phone = typeof args.phone === "string" ? args.phone.trim() : "";
+    if (!phone) return { ok: false, error: "Action is missing a lead phone number." };
+
+    const { data: leadRow } = await db
+      .from("leads")
+      .select("id")
+      .eq("phone_number", phone)
+      .maybeSingle();
+    const leadId = (leadRow as { id?: string } | null)?.id ?? null;
+
+    const audit = async (action: string, details: Record<string, unknown>) => {
+      await db.from("audit_logs").insert({
+        actor_email: user.email ?? null,
+        actor_role: user.role ?? null,
+        action,
+        entity_type: "lead",
+        entity_id: leadId,
+        details: { ...details, phone, via: "ai_agent" },
+      } as never);
+    };
+
+    try {
+      if (data.name === "move_lead_stage") {
+        const status =
+          typeof args.qualification_status === "string" ? args.qualification_status.trim() : "";
+        if (!status) return { ok: false, error: "Missing qualification status." };
+        if (!leadId) return { ok: false, error: "Lead not found." };
+        const { error } = await db
+          .from("leads")
+          .update({ qualification_status: status } as never)
+          .eq("phone_number", phone);
+        if (error) return { ok: false, error: error.message };
+        await audit("ai_lead_stage_changed", { qualification_status: status });
+        return { ok: true, error: null, result: `Moved to ${status}` };
+      }
+
+      if (data.name === "update_lead") {
+        if (!leadId) return { ok: false, error: "Lead not found." };
+        const patch: Record<string, string> = {};
+        for (const f of ["lead_name", "course_interest", "country_interest", "notes"]) {
+          if (typeof args[f] === "string" && args[f]) patch[f] = String(args[f]).slice(0, 2000);
+        }
+        if (Object.keys(patch).length === 0) return { ok: false, error: "No fields to update." };
+        const { error } = await db.from("leads").update(patch as never).eq("phone_number", phone);
+        if (error) return { ok: false, error: error.message };
+        await audit("ai_lead_updated", { fields: Object.keys(patch) });
+        return { ok: true, error: null, result: `Updated ${Object.keys(patch).join(", ")}` };
+      }
+
+      if (data.name === "assign_workflow") {
+        const wfName = typeof args.workflow_name === "string" ? args.workflow_name.trim() : "";
+        if (!wfName) return { ok: false, error: "Missing workflow name." };
+        let goalIso: string | null = null;
+        if (typeof args.goal_at === "string" && args.goal_at) {
+          const g = new Date(args.goal_at);
+          if (!isNaN(g.getTime())) goalIso = g.toISOString();
+        }
+        const { enrollLeadInWorkflowByName } = await import("./admissions.server");
+        const res = await enrollLeadInWorkflowByName({
+          workflowName: wfName,
+          phone,
+          leadId,
+          sendNow: false,
+          goalAt: goalIso,
+        });
+        if (res.status === "no_workflow")
+          return { ok: false, error: "Workflow not found or has no steps." };
+        if (res.status === "already_enrolled")
+          return { ok: false, error: "Lead is already in this workflow." };
+        await audit("ai_workflow_assigned", { workflow: wfName, goal_at: goalIso });
+        return { ok: true, error: null, result: `Assigned "${wfName}"` };
+      }
+
+      if (data.name === "remove_workflow") {
+        const wfName = typeof args.workflow_name === "string" ? args.workflow_name.trim() : "";
+        if (!wfName) return { ok: false, error: "Missing workflow name." };
+        const { data: wf } = await db
+          .from("workflows")
+          .select("id")
+          .ilike("name", wfName)
+          .maybeSingle();
+        const wfId = (wf as { id?: string } | null)?.id;
+        if (!wfId) return { ok: false, error: "Workflow not found." };
+        const { error } = await db
+          .from("workflow_enrollments")
+          .delete()
+          .eq("phone_number", phone)
+          .eq("workflow_id", wfId);
+        if (error) return { ok: false, error: error.message };
+        await audit("ai_workflow_unassigned", { workflow: wfName });
+        return { ok: true, error: null, result: `Removed "${wfName}"` };
+      }
+
+      if (data.name === "set_opportunity") {
+        if (!leadId) return { ok: false, error: "Lead not found." };
+        const valuation = Math.max(0, Math.min(1_000_000_000, Number(args.valuation ?? 0)));
+        const liquidity = Math.max(0, Math.min(1_000_000_000, Number(args.liquidity ?? 0)));
+        const { error } = await db
+          .from("lead_opportunities")
+          .upsert({ lead_id: leadId, valuation, liquidity } as never, { onConflict: "lead_id" });
+        if (error) return { ok: false, error: error.message };
+        await audit("ai_opportunity_set", { valuation, liquidity });
+        return { ok: true, error: null, result: `Set valuation ${valuation}, liquidity ${liquidity}` };
+      }
+
+      return { ok: false, error: "Unknown action." };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Action failed" };
+    }
+  });
