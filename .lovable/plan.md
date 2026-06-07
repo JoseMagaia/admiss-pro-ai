@@ -1,57 +1,65 @@
-Goal: ship five improvements without breaking existing behavior or losing data. No destructive schema changes — the Disqualified stage and new conversations reuse existing tables/columns.
+# Advanced platform upgrades
 
-## 1. Click-to-message from every lead-info surface
+Three independent features, all additive. Nothing existing is removed; new fields default to current behavior.
 
-Add a shared way to jump to the Messages tab with a specific conversation open.
+## 1. Workflow "time to a goal" (countdown) steps
 
-- In `src/routes/_authenticated/dashboard.tsx`: create a small React context (`DashboardNavContext`) providing `openConversation(phone: string)`. It sets the active tab to `messages` and stores a `pendingConversation` phone in state. Wrap the main content with the provider.
-- In `MessagesTab.tsx`: read the context, and on mount / when `pendingConversation` changes, set `active` to that phone (and clear the pending value). This works even on mobile (opens the thread directly).
-- Wire click handlers (cursor-pointer + a small message icon) into:
-  - `PipelineTab.tsx` — each kanban card calls `openConversation(l.phone_number)` (kept separate from the drag handle so dragging still works).
-  - `ContactsTab.tsx` — each row / a message button per contact.
-  - `LeadsTab.tsx` — make the phone/name cell or a new action button open the conversation.
-- If the phone has no message history yet, Messages still opens that thread (empty timeline) so the agent can send the first message.
+Today each message step only has a relative "wait" delay. We add a per-step **anchor** so steps can fire relative to a deadline.
 
-## 2. Full-text search inside Messages
+**Database** (`workflow_enrollments`): add nullable `goal_at timestamptz`. Backfill not needed.
 
-In `MessagesTab.tsx`, change `filteredConvs` so a search term matches when the phone number OR any message body in that conversation contains the term. Keep the existing phone match. (Search stays client-side over the already-loaded messages — no backend change.)
+**Step data model** (stored in workflow `graph` JSON, backward compatible):
+- `anchor`: `"wait"` (default, = today's behavior), `"before_goal"`, or `"before_appointment"`.
+- existing `delayValue`/`delayUnit` keep meaning "wait" timing.
+- new `offsetValue`/`offsetUnit` mean "how long before the goal/appointment".
 
-## 3. Disqualified pipeline stage + summary card
+**Builder UI** (`WorkflowBuilder.tsx`): in the step editor add an anchor selector. For `before_goal`/`before_appointment` show an offset (value + unit) and "send before the date" wording. Message node card shows the anchor. Add an optional **default goal offset** note; the per-lead goal date itself is set at assignment time (feature 2).
 
-- `src/lib/pipeline.ts`: add `DISQUALIFIED` to `QUALIFICATION_STAGES`, a `STAGE_LABELS` entry ("Disqualified"), a new `PIPELINE_COLUMNS` entry `{ id: "disqualified", label: "Disqualified", stages: ["DISQUALIFIED"] }`, and a `LEAD_FILTERS` entry.
-- `src/components/dashboard/StageBadge.tsx`: add a `disqualified` color style (muted/destructive tone).
-- `src/lib/meeting-outcomes.ts`: change the `not_qualified` outcome `stage` from `NEW_LEAD` to `DISQUALIFIED` so recording "Not Qualified" moves the lead into the new column (existing leads already at NEW_LEAD are untouched).
-- Summary cards: extend `getDashboardStats` in `dashboard.functions.ts` to also return `disqualified` (count of leads with `qualification_status = 'DISQUALIFIED'`). In `DashboardStats.tsx` add a "Disqualified" card and adjust the grid to fit 5 cards responsively.
+**Engine** (`admissions.server.ts`): extend `WorkflowStep` to carry `anchor` + `offsetMs`. `orderedSteps` reads the new fields. In `processWorkflows` advance logic, compute `next_run_at`:
+- `wait`: `now + delayMs` (unchanged path).
+- `before_goal`: `goal_at − offsetMs` (skip/stop if no `goal_at`).
+- `before_appointment`: look up the lead's next appointment date, `apptDate − offsetMs`.
+If the computed time is already past, it runs on the next tick (clamped to now). Enrollment insert stores `goal_at` when provided.
 
-## 4. Agent-initiated new conversation for an unregistered lead
+## 2. Assign multiple workflows to a lead (chat + pipeline)
 
-Let an agent start a brand-new conversation that creates full lead data just like an inbound lead, sending through a chosen Chatwoot workspace.
+Leads can already have multiple enrollments; we add management UI + scoped server functions (admin + super, matching existing `pauseLeadWorkflow`).
 
-- New server helper in `admissions.server.ts`: `createChatwootConversation({ creds, inboxId, phone, name })` — best-effort POST to Chatwoot to create a contact + conversation, returning the new `conversation_id` (or null if Chatwoot isn't configured). Reuses existing `resolveWorkspace` / `resolveCreds`; reads the workspace `chatwoot_inbox_id`.
-- New server fn `startConversation` in `dashboard.functions.ts` (role: any authenticated): validates `{ phone, name?, workspaceId?, message }`. It:
-  1. Rejects if a lead with that phone already exists (tells the agent to use the existing conversation).
-  2. Calls `getOrCreateLead(phone, conversationId, null, workspaceId)` so the lead appears in Leads, Pipeline, Contacts exactly like a normal lead.
-  3. Inserts a `conversations` row (workspace_id, chatwoot_conversation_id, `human_takeover: true`, assigned_agent) so AI doesn't auto-reply to an agent-started thread.
-  4. Logs the first outbound message via `whatsapp_messages` and delivers it through Chatwoot (`deliverHumanMessage` / `sendChatwootReply`).
-  5. Writes an `audit_logs` entry.
-- UI in `MessagesTab.tsx`: add a "New conversation" button above the conversation list opening a dialog with phone, optional name, workspace `Select` (from `listWorkspaces`), and first message. On success, invalidate `leads`/`conversations`/`messages` and open the new thread.
+**Server functions** (`dashboard.functions.ts`):
+- `listLeadWorkflows({ phone })` → that lead's enrollments joined to workflow name/status/step + active workflow list to pick from.
+- `assignLeadWorkflow({ phone, workflowId, goalAt? })` → enroll (reuses existing enroll helper), stores `goal_at`, audit-logged.
+- `removeLeadWorkflow({ phone, workflowId })` → stop/remove that enrollment, audit-logged.
 
-## 5. Recent meeting outcomes visibility / edit button
+**Shared component** `LeadWorkflowManager.tsx`: lists assigned workflows with remove buttons, an "add workflow" picker, and an optional goal-date input. Used in:
+- **Messages chat window** (`MessagesTab.tsx`): a popover/section in the open conversation.
+- **Pipeline kanban lead card** (`PipelineTab.tsx`): a control on the card/its detail.
 
-In `MeetingOutcomesTab.tsx`, the recent-outcomes table currently sits in the right cell of a `lg:grid-cols-[420px_1fr]` grid and gets clipped, hiding the Edit countdown/Delete columns. Restructure so the "Record Meeting Outcome" form and the "Recent Outcomes" table stack vertically (form on top, full-width table below) — or at minimum give the table its own full-width row under the grid. This guarantees the Edit (countdown) and Delete actions are always visible. Keep all existing columns, the 1-minute edit window logic, and delete behavior intact.
+## 3. AI Insights: bigger snapshot, agentic mode, model choice
 
-## Technical notes
+**Expanded snapshot** (`advanced.functions.ts buildAnalytics`): add an optional richer block with recent message contents + timestamps (bounded count) and light per-lead detail, so the assistant can answer content/timing questions. Size-capped to protect tokens.
 
-- No schema/migration needed: `DISQUALIFIED` is just a new `qualification_status` string value; new conversations reuse `leads`/`conversations`/`whatsapp_messages`.
-- Click-to-message uses a context rather than URL params to avoid touching routing; tab + active-thread state stays in React.
-- `startConversation` is guarded so AI stays paused on agent-started threads (human_takeover true), matching how `sendHumanMessage` behaves.
-- All new server reads/writes go through the existing `admin()` + `guard()`/`isAuthed()` helpers; tokens are never exposed to the browser.
+**Agentic mode (confirm each action)**:
+- New `generateAgentReply` server fn (guarded by existing `guardAdvanced`) calls the gateway with a tool schema for safe actions: move lead stage, edit lead fields, assign/remove workflow, set opportunity values. It does **not** execute — it returns proposed actions.
+- UI renders each proposed action as a card with **Approve / Dismiss**. Approve calls `executeAgentAction({ action, args })` (also `guardAdvanced`) which performs the single DB change and is audit-logged.
+- A toggle switches the panel between "Insights" (current chat) and "Agentic" mode.
 
-## Verification
+**Model provider choice**: in the Insights panel add a selector — **Built-in**, **Use AI Settings provider** (reads `ai_configuration` custom provider), or **Custom** (enter provider/base URL/model/key for that session). Passed through to `generateChatReply`/`generateAgentReply`; default stays built-in so current behavior is unchanged.
 
-- Build passes (run automatically).
-- Click a Pipeline card / Contact / Lead → Messages opens that thread.
-- Search "scholarship" in Messages → conversations containing that word in any message appear.
-- Pipeline shows a Disqualified column; recording "Not Qualified" moves a lead there; summary cards show the Disqualified count.
-- "New conversation" with a fresh number creates a lead (visible in Leads/Pipeline/Contacts) and sends the first message via the chosen workspace.
-- Meeting Outcomes: recent list and its Edit countdown + Delete are fully visible without horizontal clipping.
+**Access**: agentic + custom-model gated by the Advanced permission (same as the Advanced tab).
+
+## Technical notes / safety
+- All new DB columns are nullable with safe defaults; one migration for `workflow_enrollments.goal_at`.
+- Step `anchor` defaults to `wait`, so every existing workflow runs identically.
+- Agentic writes go one-at-a-time only after explicit approval; each is validated with Zod and audit-logged.
+- No changes to the cron auth, webhook, or existing trigger types.
+
+## Files
+- Migration: `workflow_enrollments.goal_at`
+- `src/lib/orchestration.ts` (anchor constants/types, offset helper)
+- `src/lib/admissions.server.ts` (steps + processing)
+- `src/lib/dashboard.functions.ts` (lead-workflow assign/remove/list, enroll goal_at)
+- `src/components/dashboard/orchestration/WorkflowBuilder.tsx` (anchor UI)
+- `src/components/dashboard/LeadWorkflowManager.tsx` (new, shared)
+- `src/components/dashboard/MessagesTab.tsx` + `PipelineTab.tsx` (mount manager)
+- `src/lib/advanced.functions.ts` (snapshot, agent reply, execute action, model override)
+- `src/components/dashboard/advanced/ReportsTab.tsx` (mode toggle, approvals, model picker)

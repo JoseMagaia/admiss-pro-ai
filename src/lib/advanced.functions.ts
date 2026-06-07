@@ -188,7 +188,10 @@ function bucketByHour(timestamps: string[]): { hour: number; count: number }[] {
 }
 
 // Builds a structured analytics snapshot used by both the dashboard and the AI report.
-async function buildAnalytics(days = 14) {
+// When opts.includeContent is true it also attaches a bounded sample of recent
+// message contents/timestamps and a lead directory so the assistant can answer
+// content-specific questions and (in agentic mode) reference leads by phone.
+async function buildAnalytics(days = 14, opts: { includeContent?: boolean } = {}) {
   const db = await admin();
   const since = new Date();
   since.setUTCDate(since.getUTCDate() - days);
@@ -202,7 +205,13 @@ async function buildAnalytics(days = 14) {
     { data: opportunities },
     { data: offers },
   ] = await Promise.all([
-    db.from("leads").select("qualification_status, created_at, course_interest, country_interest").limit(5000),
+    db
+      .from("leads")
+      .select(
+        "id, phone_number, lead_name, qualification_status, created_at, updated_at, course_interest, country_interest",
+      )
+      .order("updated_at", { ascending: false })
+      .limit(5000),
     db.from("whatsapp_messages").select("received_at, sender").gte("received_at", sinceIso).limit(20000),
     db.from("whatsapp_messages").select("*", { count: "exact", head: true }),
     db.from("appointments").select("*", { count: "exact", head: true }),
@@ -211,8 +220,12 @@ async function buildAnalytics(days = 14) {
   ]);
 
   const leadRows = (leads ?? []) as {
+    id: string;
+    phone_number: string;
+    lead_name: string | null;
     qualification_status: string;
     created_at: string;
+    updated_at: string;
     course_interest: string | null;
     country_interest: string | null;
   }[];
@@ -273,6 +286,46 @@ async function buildAnalytics(days = 14) {
   ).length;
   const disqualified = leadRows.filter((l) => l.qualification_status === "DISQUALIFIED").length;
 
+  // Optional deep content: recent message bodies with timestamps + a lead
+  // directory. Bounded to keep the prompt within token limits.
+  let messageLog: Array<{ phone: string; sender: string; at: string; text: string }> | undefined;
+  let leadDirectory:
+    | Array<{
+        phone: string;
+        name: string | null;
+        stage: string;
+        course: string | null;
+        country: string | null;
+        updated_at: string;
+      }>
+    | undefined;
+  if (opts.includeContent) {
+    const { data: detailed } = await db
+      .from("whatsapp_messages")
+      .select("phone_number, sender, received_at, message_content")
+      .order("received_at", { ascending: false })
+      .limit(120);
+    messageLog = ((detailed ?? []) as Array<{
+      phone_number: string;
+      sender: string;
+      received_at: string;
+      message_content: string;
+    }>).map((m) => ({
+      phone: m.phone_number,
+      sender: m.sender,
+      at: m.received_at,
+      text: String(m.message_content ?? "").slice(0, 500),
+    }));
+    leadDirectory = leadRows.slice(0, 80).map((l) => ({
+      phone: l.phone_number,
+      name: l.lead_name,
+      stage: l.qualification_status,
+      course: l.course_interest,
+      country: l.country_interest,
+      updated_at: l.updated_at,
+    }));
+  }
+
   return {
     rangeDays: days,
     totals: {
@@ -290,6 +343,8 @@ async function buildAnalytics(days = 14) {
     messagesByHour,
     topCourses,
     topCountries,
+    ...(messageLog ? { messageLog } : {}),
+    ...(leadDirectory ? { leadDirectory } : {}),
   };
 }
 
@@ -302,6 +357,80 @@ export const getReportDashboard = createServerFn({ method: "GET" }).handler(asyn
 /* ========================== AI REPORT ========================== */
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+
+// Optional per-request AI provider override. Defaults to the built-in Lovable AI.
+const modelConfigSchema = z
+  .object({
+    mode: z.enum(["built_in", "ai_settings", "custom"]).optional(),
+    provider: z.string().max(40).nullable().optional(),
+    baseUrl: z.string().max(500).nullable().optional(),
+    model: z.string().max(160).nullable().optional(),
+    apiKey: z.string().max(2000).nullable().optional(),
+  })
+  .optional();
+
+type ModelConfig = z.infer<typeof modelConfigSchema>;
+
+type AiTarget = { url: string; headers: Record<string, string>; model: string };
+
+// Resolve which AI endpoint + credentials to use:
+//  - built_in: Lovable AI gateway (default)
+//  - custom: a provider/base URL/model/key supplied per conversation
+//  - ai_settings: the custom provider configured in AI Settings, else built-in
+async function resolveAiTarget(cfg?: ModelConfig): Promise<AiTarget | { error: string }> {
+  const mode = cfg?.mode ?? "built_in";
+  const lovableKey = process.env.LOVABLE_API_KEY;
+
+  if (mode === "custom") {
+    if (!cfg?.baseUrl || !cfg?.apiKey || !cfg?.model) {
+      return { error: "Custom provider needs a base URL, model and API key." };
+    }
+    return {
+      url: cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
+      model: cfg.model,
+    };
+  }
+
+  if (mode === "ai_settings") {
+    const db = await admin();
+    const { data } = await db
+      .from("ai_configuration")
+      .select("*")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const c = data as Record<string, unknown> | null;
+    if (c && c.provider_mode === "custom" && c.custom_base_url && c.custom_api_key) {
+      return {
+        url: String(c.custom_base_url).replace(/\/+$/, "") + "/chat/completions",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${String(c.custom_api_key)}`,
+        },
+        model: String(c.custom_model || c.model || "gpt-4o-mini"),
+      };
+    }
+    if (!lovableKey) return { error: "AI is not configured." };
+    return {
+      url: GATEWAY_URL,
+      headers: { "Content-Type": "application/json", "Lovable-API-Key": lovableKey },
+      model: String(c?.model || "google/gemini-3-flash-preview"),
+    };
+  }
+
+  // built_in (default)
+  if (!lovableKey) return { error: "AI is not configured." };
+  return {
+    url: GATEWAY_URL,
+    headers: { "Content-Type": "application/json", "Lovable-API-Key": lovableKey },
+    model: cfg?.model || "google/gemini-3-flash-preview",
+  };
+}
+
+
+
+
 
 export const generateReport = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
@@ -374,6 +503,8 @@ export const generateChatReply = createServerFn({ method: "POST" })
       .object({
         messages: z.array(chatMessageSchema).min(1).max(40),
         days: z.number().int().min(1).max(365).optional(),
+        deepContent: z.boolean().optional(),
+        model: modelConfigSchema,
       })
       .parse(d),
   )
@@ -384,13 +515,14 @@ export const generateChatReply = createServerFn({ method: "POST" })
       return { reply: "", error: (e as Error).message };
     }
 
-    const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) return { reply: "", error: "AI is not configured." };
+    const target = await resolveAiTarget(data.model);
+    if ("error" in target) return { reply: "", error: target.error };
 
-    const analytics = await buildAnalytics(data.days ?? 30);
+    const analytics = await buildAnalytics(data.days ?? 30, { includeContent: data.deepContent ?? true });
 
     const system = `You are a senior revenue & growth analyst for an international education admissions company, having an ongoing conversation with an admissions manager.
 You are given a JSON snapshot of the platform's live analytics. Answer using ONLY this data and the conversation so far.
+The snapshot may include a "messageLog" (recent WhatsApp message contents with timestamps and the lead's phone) and a "leadDirectory" (recent leads with phone, name, stage and interests) — use these to answer questions about specific message contents, timing, or particular leads.
 Guidelines:
 - Respond conversationally and directly to the latest question, referencing earlier turns when relevant.
 - By default keep replies short, conversational and skimmable. Do NOT produce a long formal document/report unless the user explicitly asks for a report, document, write-up, or download on a specific topic. When they do, structure it as a full report with clear headings and sections.
@@ -402,11 +534,11 @@ Analytics snapshot (last ${analytics.rangeDays} days where time-based):
 ${JSON.stringify(analytics)}`;
 
     try {
-      const res = await fetch(GATEWAY_URL, {
+      const res = await fetch(target.url, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
+        headers: target.headers,
         body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
+          model: target.model,
           temperature: 0.4,
           messages: [{ role: "system", content: system }, ...data.messages],
         }),

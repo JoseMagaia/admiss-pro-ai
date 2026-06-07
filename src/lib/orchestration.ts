@@ -58,3 +58,32 @@ export interface TriggerConfig {
 export function triggerTypeLabel(id: string | null | undefined): string {
   return TRIGGER_TYPES.find((t) => t.id === id)?.label ?? "Manual only";
 }
+
+/* ----------------------- STEP TIMING ANCHORS ----------------------- */
+// How a message/action step is scheduled. "wait" keeps the original
+// behavior (a relative delay from the previous step). The other anchors
+// count down to a target date so a step fires a chosen amount of time
+// *before* that date (a goal date set per lead, or the lead's appointment).
+export const STEP_ANCHORS = [
+  {
+    id: "wait",
+    label: "Wait (relative delay)",
+    help: "Send this step a fixed amount of time after the previous step.",
+  },
+  {
+    id: "before_goal",
+    label: "Before goal date",
+    help: "Count down to the lead's goal date and send this many time units before it.",
+  },
+  {
+    id: "before_appointment",
+    label: "Before appointment",
+    help: "Count down to the lead's appointment and send this many time units before it.",
+  },
+] as const;
+
+export type StepAnchor = (typeof STEP_ANCHORS)[number]["id"];
+
+export function stepAnchorLabel(id: string | null | undefined): string {
+  return STEP_ANCHORS.find((a) => a.id === id)?.label ?? "Wait (relative delay)";
+}
