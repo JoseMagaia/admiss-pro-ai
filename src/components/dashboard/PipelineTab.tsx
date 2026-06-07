@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { GripVertical, MessageSquare, DollarSign, TrendingUp, Coins } from "lucide-react";
+import {
+  GripVertical,
+  MessageSquare,
+  DollarSign,
+  TrendingUp,
+  Coins,
+  Workflow as WorkflowIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { listLeads, updateLeadStage } from "@/lib/dashboard.functions";
 import { listOffers, listStageSettings, upsertStageSetting } from "@/lib/advanced.functions";
@@ -9,7 +16,6 @@ import { PIPELINE_COLUMNS, columnForStage, stageLabel } from "@/lib/pipeline";
 import { useDashboardNav } from "@/lib/dashboard-nav";
 import { useAuth } from "@/hooks/useAuth";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
-import { Workflow as WorkflowIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Lead {
