@@ -120,7 +120,7 @@ const AGENT_PROMPT_SUGGESTIONS = [
   "Set opportunity values for the most engaged leads.",
 ];
 
-const PROMPT_SUGGESTIONS = BUILD_PROMPT_SUGGESTIONS;
+
 
 function Stat({ icon: Icon, label, value, tone }: { icon: typeof Users; label: string; value: string; tone: string }) {
   return (
