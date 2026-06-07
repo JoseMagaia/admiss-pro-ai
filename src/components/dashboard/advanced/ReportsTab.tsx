@@ -176,6 +176,8 @@ export function ReportsTab() {
   const queryClient = useQueryClient();
   const dashFn = useServerFn(getReportDashboard);
   const chatFn = useServerFn(generateChatReply);
+  const agentFn = useServerFn(generateAgentReply);
+  const execFn = useServerFn(executeAgentAction);
   const listFn = useServerFn(listConversations);
   const saveFn = useServerFn(saveConversation);
   const deleteFn = useServerFn(deleteConversation);
@@ -197,6 +199,33 @@ export function ReportsTab() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [days, setDays] = useState(30);
+
+  // Agentic + model controls
+  const [mode, setMode] = useState<AiMode>("insights");
+  const [pendingActions, setPendingActions] = useState<ProposedAction[]>([]);
+  const [actionResults, setActionResults] = useState<Record<string, ActionResult>>({});
+  const [showModelCfg, setShowModelCfg] = useState(false);
+  const [modelMode, setModelMode] = useState<ModelMode>("built_in");
+  const [builtInModel, setBuiltInModel] = useState(BUILTIN_MODELS[0].id);
+  const [customProvider, setCustomProvider] = useState("");
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
+  const [customModel, setCustomModel] = useState("");
+  const [customApiKey, setCustomApiKey] = useState("");
+
+  const buildModelConfig = () => {
+    if (modelMode === "custom")
+      return {
+        mode: "custom" as const,
+        provider: customProvider || null,
+        baseUrl: customBaseUrl || null,
+        model: customModel || null,
+        apiKey: customApiKey || null,
+      };
+    if (modelMode === "ai_settings") return { mode: "ai_settings" as const };
+    return { mode: "built_in" as const, model: builtInModel || null };
+  };
+
+  const promptSuggestions = mode === "agentic" ? AGENT_PROMPT_SUGGESTIONS : BUILD_PROMPT_SUGGESTIONS;
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
