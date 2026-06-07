@@ -627,9 +627,65 @@ export function ReportsTab() {
               ),
             )}
 
+            {mode === "agentic" && pendingActions.length > 0 && (
+              <div className="rounded-2xl border border-violet-500/40 bg-violet-500/5 p-3">
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-violet-600 dark:text-violet-300">
+                  <Zap className="h-3.5 w-3.5" /> Proposed actions — approve to apply
+                </p>
+                <div className="space-y-2">
+                  {pendingActions.map((a) => {
+                    const result = actionResults[a.id];
+                    return (
+                      <div
+                        key={a.id}
+                        className="flex items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium">{ACTION_LABELS[a.name] ?? a.name}</p>
+                          <p className="truncate text-[11px] text-muted-foreground">{describeAction(a)}</p>
+                          {result && (
+                            <p
+                              className={`mt-0.5 text-[10px] font-medium ${
+                                result.ok ? "text-success" : "text-muted-foreground"
+                              }`}
+                            >
+                              {result.ok ? "✓ " : "• "}
+                              {result.msg}
+                            </p>
+                          )}
+                        </div>
+                        {!result && (
+                          <div className="flex shrink-0 items-center gap-1">
+                            <Button
+                              size="sm"
+                              className="h-7 gap-1 bg-success px-2 text-xs text-success-foreground hover:bg-success/90"
+                              disabled={runAction.isPending}
+                              onClick={() => runAction.mutate(a)}
+                            >
+                              <Check className="h-3.5 w-3.5" /> Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                              onClick={() => dismissAction(a.id)}
+                              aria-label="Dismiss action"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {chat.isPending && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Analysing your data…
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
+                {mode === "agentic" ? "Thinking and preparing actions…" : "Analysing your data…"}
               </div>
             )}
           </div>
