@@ -245,15 +245,29 @@ export function ReportsTab() {
   };
 
   const chat = useMutation({
-    mutationFn: (msgs: ChatMsg[]) => chatFn({ data: { messages: msgs, days } }),
+    mutationFn: (msgs: ChatMsg[]) => {
+      const model = buildModelConfig();
+      return mode === "agentic"
+        ? agentFn({ data: { messages: msgs, days, model } })
+        : chatFn({ data: { messages: msgs, days, model } });
+    },
     onSuccess: async (r, variables) => {
-      const res = r as { reply: string; error: string | null };
-      if (res.error || !res.reply) {
-        toast.error(res.error ?? "No response generated");
+      const res = r as { reply: string; error: string | null; actions?: ProposedAction[] };
+      if (res.error) {
+        toast.error(res.error);
         return;
       }
-      const full: ChatMsg[] = [...variables, { role: "assistant", content: res.reply }];
+      const actions = res.actions ?? [];
+      if (!res.reply && actions.length === 0) {
+        toast.error("No response generated");
+        return;
+      }
+      const full: ChatMsg[] = [
+        ...variables,
+        { role: "assistant", content: res.reply || "Prepared actions for your approval." },
+      ];
       setMessages(full);
+      if (mode === "agentic" && actions.length > 0) setPendingActions(actions);
       // Auto-persist so every conversation appears in the history list.
       try {
         const saved = (await saveFn({
@@ -268,6 +282,35 @@ export function ReportsTab() {
     onError: () => toast.error("Failed to get a response"),
     onSettled: () => focusInput(),
   });
+
+  const runAction = useMutation({
+    mutationFn: (action: ProposedAction) =>
+      execFn({ data: { name: action.name as never, args: action.args } }),
+    onSuccess: (r, action) => {
+      const res = r as { ok: boolean; error: string | null; result?: string };
+      setActionResults((prev) => ({
+        ...prev,
+        [action.id]: { ok: res.ok, msg: res.ok ? res.result ?? "Done" : res.error ?? "Failed" },
+      }));
+      if (res.ok) {
+        toast.success(res.result ?? "Action applied");
+        queryClient.invalidateQueries({ queryKey: ["leads"] });
+        queryClient.invalidateQueries({ queryKey: ["report-dashboard"] });
+        queryClient.invalidateQueries({ queryKey: ["workflow-states"] });
+        queryClient.invalidateQueries({ queryKey: ["lead-workflows"] });
+      } else {
+        toast.error(res.error ?? "Action failed");
+      }
+    },
+    onError: (_e, action) => {
+      setActionResults((prev) => ({ ...prev, [action.id]: { ok: false, msg: "Action failed" } }));
+      toast.error("Action failed");
+    },
+  });
+
+  const dismissAction = (id: string) => {
+    setActionResults((prev) => ({ ...prev, [id]: { ok: false, msg: "Dismissed" } }));
+  };
 
   const send = (text: string) => {
     const content = text.trim();
