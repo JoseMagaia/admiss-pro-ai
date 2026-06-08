@@ -234,6 +234,9 @@ export function AiProviderSettings() {
           </Button>
         )}
       </div>
-    </SettingsCard>
+      </SettingsCard>
+
+      <AiProviderFallback />
+    </div>
   );
 }
