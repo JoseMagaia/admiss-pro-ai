@@ -48,27 +48,47 @@ export interface ChatwootCreds {
 
 export async function loadAiContext(): Promise<AiContext> {
   const db = await admin();
-  const [{ data: config }, { data: vars }, { data: settings }] = await Promise.all([
+  const [{ data: config }, { data: vars }, { data: settings }, { data: pool }] = await Promise.all([
     db.from("ai_configuration").select("*").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
     db.from("ai_variables").select("variable_name, variable_value"),
     db.from("education_settings").select("*").limit(1).maybeSingle(),
+    db.from("ai_provider_pool").select("*").eq("enabled", true).order("priority", { ascending: true }),
   ]);
 
   const variables: Record<string, string> = {};
   for (const v of vars ?? []) variables[v.variable_name] = v.variable_value;
 
   const cfg = config as Record<string, unknown> | null;
+  const builtInModel = (config?.model as string) ?? "google/gemini-3-flash-preview";
+
+  // Build the prioritized fallback chain when rotation is enabled and at least
+  // one provider is configured. Built-in Lovable AI is always appended last.
+  let fallbackChain: import("./ai-engine.server").AiFallbackTarget[] | null = null;
+  if (cfg?.fallback_enabled && Array.isArray(pool) && pool.length > 0) {
+    const chain = (pool as Array<Record<string, unknown>>)
+      .map((row) => ({
+        provider: String(row.provider ?? ""),
+        baseUrl: (row.base_url as string) ?? null,
+        apiKey: (row.api_key as string) ?? null,
+        models: Array.isArray(row.models) ? (row.models as string[]).filter(Boolean) : [],
+      }))
+      .filter((t) => t.provider && (t.provider.toLowerCase() === "built_in" || (t.apiKey && t.models.length > 0)));
+    chain.push({ provider: "built_in", baseUrl: null, apiKey: null, models: [builtInModel] });
+    fallbackChain = chain;
+  }
+
   const provider: ProviderConfig = {
     mode: (cfg?.provider_mode as "built_in" | "custom") ?? "built_in",
     custom_provider: (cfg?.custom_provider as string) ?? null,
     custom_base_url: (cfg?.custom_base_url as string) ?? null,
     custom_model: (cfg?.custom_model as string) ?? null,
     custom_api_key: (cfg?.custom_api_key as string) ?? null,
+    fallbackChain,
   };
 
   return {
     systemPrompt: config?.system_prompt ?? "You are an admissions assistant.",
-    model: config?.model ?? "google/gemini-3-flash-preview",
+    model: builtInModel,
     temperature: Number(config?.temperature ?? 0.7),
     variables,
     settings: settings ?? null,
