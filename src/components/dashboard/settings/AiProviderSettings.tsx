@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { SettingsCard } from "./SettingsForms";
+import { AiProviderFallback } from "./AiProviderFallback";
 import { getAiConfig, saveAiProvider, testAiProvider } from "@/lib/dashboard.functions";
 
 interface Preset {
