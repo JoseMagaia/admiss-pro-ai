@@ -214,6 +214,10 @@ export interface ProviderConfig {
   custom_base_url?: string | null;
   custom_model?: string | null;
   custom_api_key?: string | null;
+  // When set & non-empty, the engine rotates through this prioritized chain of
+  // providers/models on rate limits or failures instead of using the single
+  // provider above. The built-in Lovable AI should be appended as the last entry.
+  fallbackChain?: AiFallbackTarget[] | null;
 }
 
 export interface RunQualificationArgs {
