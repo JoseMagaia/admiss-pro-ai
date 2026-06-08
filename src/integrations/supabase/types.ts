@@ -21,6 +21,7 @@ export type Database = {
           custom_base_url: string | null
           custom_model: string | null
           custom_provider: string | null
+          fallback_enabled: boolean
           id: string
           model: string
           provider_mode: string
@@ -34,6 +35,7 @@ export type Database = {
           custom_base_url?: string | null
           custom_model?: string | null
           custom_provider?: string | null
+          fallback_enabled?: boolean
           id?: string
           model?: string
           provider_mode?: string
@@ -47,11 +49,51 @@ export type Database = {
           custom_base_url?: string | null
           custom_model?: string | null
           custom_provider?: string | null
+          fallback_enabled?: boolean
           id?: string
           model?: string
           provider_mode?: string
           system_prompt?: string
           temperature?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ai_provider_pool: {
+        Row: {
+          api_key: string | null
+          base_url: string | null
+          created_at: string
+          enabled: boolean
+          id: string
+          label: string
+          models: string[]
+          priority: number
+          provider: string
+          updated_at: string
+        }
+        Insert: {
+          api_key?: string | null
+          base_url?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          label?: string
+          models?: string[]
+          priority?: number
+          provider?: string
+          updated_at?: string
+        }
+        Update: {
+          api_key?: string | null
+          base_url?: string | null
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          label?: string
+          models?: string[]
+          priority?: number
+          provider?: string
           updated_at?: string
         }
         Relationships: []
