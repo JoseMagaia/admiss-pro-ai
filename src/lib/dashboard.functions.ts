@@ -618,6 +618,204 @@ export const testAiProvider = createServerFn({ method: "POST" })
     }
   });
 
+/* --------------- AI PROVIDER FALLBACK POOL (rotation) --------------- */
+
+// List the prioritized provider pool. API keys are never returned to the
+// browser — only a boolean indicating whether a key is stored.
+export const listAiProviders = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { providers: [], fallbackEnabled: false };
+  const db = await admin();
+  const [{ data: pool }, { data: cfg }] = await Promise.all([
+    db.from("ai_provider_pool").select("*").order("priority", { ascending: true }),
+    db.from("ai_configuration").select("fallback_enabled").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  const providers = ((pool as Array<Record<string, unknown>>) ?? []).map((p) => ({
+    id: p.id as string,
+    priority: Number(p.priority ?? 0),
+    label: (p.label as string) ?? "",
+    provider: (p.provider as string) ?? "openai",
+    base_url: (p.base_url as string) ?? "",
+    models: Array.isArray(p.models) ? (p.models as string[]) : [],
+    enabled: Boolean(p.enabled),
+    has_key: Boolean(p.api_key),
+  }));
+  return { providers, fallbackEnabled: Boolean((cfg as { fallback_enabled?: boolean } | null)?.fallback_enabled) };
+});
+
+const providerPoolSchema = z.object({
+  id: z.string().uuid().optional(),
+  label: z.string().max(120).optional(),
+  provider: z.string().min(1).max(100),
+  base_url: z.string().max(500).nullable().optional(),
+  models: z.array(z.string().min(1).max(200)).max(25),
+  api_key: z.string().max(2000).nullable().optional(),
+  enabled: z.boolean().optional(),
+  priority: z.number().int().min(0).max(1000).optional(),
+});
+
+export const saveAiProviderPool = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => providerPoolSchema.parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { id, ...rest } = data;
+    const row: Record<string, unknown> = {
+      label: rest.label ?? "",
+      provider: rest.provider,
+      base_url: rest.base_url ?? null,
+      models: rest.models ?? [],
+      enabled: rest.enabled ?? true,
+    };
+    if (rest.priority !== undefined) row.priority = rest.priority;
+    // Don't overwrite a stored key with a blank value (UI sends "" when unchanged).
+    if (rest.api_key && rest.api_key.trim()) row.api_key = rest.api_key.trim();
+
+    if (id) {
+      const { error } = await db.from("ai_provider_pool").update(row as never).eq("id", id);
+      return { ok: !error, error: error?.message ?? null };
+    }
+    // New rows append to the end of the priority order.
+    if (row.priority === undefined) {
+      const { data: last } = await db
+        .from("ai_provider_pool")
+        .select("priority")
+        .order("priority", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      row.priority = (Number((last as { priority?: number } | null)?.priority ?? -1) || 0) + 1;
+    }
+    const { error } = await db.from("ai_provider_pool").insert(row as never);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+export const deleteAiProvider = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { error } = await db.from("ai_provider_pool").delete().eq("id", data.id);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+export const reorderAiProviders = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ order: z.array(z.string().uuid()).max(50) }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    await Promise.all(
+      data.order.map((id, idx) => db.from("ai_provider_pool").update({ priority: idx } as never).eq("id", id)),
+    );
+    return { ok: true, error: null };
+  });
+
+export const setFallbackEnabled = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ enabled: z.boolean() }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const { data: cfg } = await db
+      .from("ai_configuration")
+      .select("id")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const id = (cfg as { id?: string } | null)?.id;
+    if (id) {
+      const { error } = await db.from("ai_configuration").update({ fallback_enabled: data.enabled } as never).eq("id", id);
+      return { ok: !error, error: error?.message ?? null };
+    }
+    const { error } = await db.from("ai_configuration").insert({ fallback_enabled: data.enabled } as never);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+// Test one pooled provider/model. Uses the stored key when api_key is blank.
+export const testAiProviderPool = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid().optional(),
+        provider: z.string().min(1).max(100),
+        base_url: z.string().max(500).nullable().optional(),
+        model: z.string().min(1).max(200),
+        api_key: z.string().max(2000).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const provider = (data.provider ?? "").toLowerCase();
+    const baseUrl = (data.base_url ?? "").trim();
+    const model = (data.model ?? "").trim();
+    let apiKey = (data.api_key ?? "").trim();
+
+    if (provider === "built_in") {
+      if (!process.env.LOVABLE_API_KEY) return { ok: false, error: "Built-in AI key is not configured." };
+      return { ok: true, error: null };
+    }
+
+    if (!apiKey && data.id) {
+      const db = await admin();
+      const { data: row } = await db.from("ai_provider_pool").select("api_key").eq("id", data.id).maybeSingle();
+      apiKey = String((row as { api_key?: string } | null)?.api_key ?? "").trim();
+    }
+    if (!apiKey) return { ok: false, error: "No API key provided or saved." };
+    if (!model) return { ok: false, error: "Add at least one model first." };
+
+    try {
+      if (provider === "anthropic") {
+        const url = (baseUrl.replace(/\/+$/, "") || "https://api.anthropic.com") + "/v1/messages";
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+          body: JSON.stringify({ model, max_tokens: 8, messages: [{ role: "user", content: "ping" }] }),
+        });
+        if (!res.ok) {
+          const t = await res.text().catch(() => "");
+          return { ok: false, error: `Provider error ${res.status}: ${t.slice(0, 200)}` };
+        }
+        return { ok: true, error: null };
+      }
+      if (!baseUrl) return { ok: false, error: "Base URL is required for this provider." };
+      const url = baseUrl.replace(/\/+$/, "") + "/chat/completions";
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({ model, max_tokens: 8, messages: [{ role: "user", content: "ping" }] }),
+      });
+      if (!res.ok) {
+        const t = await res.text().catch(() => "");
+        return { ok: false, error: `Provider error ${res.status}: ${t.slice(0, 200)}` };
+      }
+      return { ok: true, error: null };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : "Connection failed" };
+    }
+  });
+
+
+
 export const listPromptVersions = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { versions: [] };
   const db = await admin();
