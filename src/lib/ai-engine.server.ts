@@ -436,10 +436,23 @@ export async function runQualification(args: RunQualificationArgs): Promise<RunQ
 
   const temperature = args.temperature ?? 0.7;
   const provider = args.provider;
-  const useCustom = provider?.mode === "custom";
+  const chain = provider?.fallbackChain;
+  const useChain = Array.isArray(chain) && chain.length > 0;
+  const useCustom = !useChain && provider?.mode === "custom";
 
   let modelUsed = args.model;
   let result: ChatResult;
+
+  // Prioritized provider fallback rotation.
+  if (useChain) {
+    const outcome = await runChatChain(chain!, temperature, promptUsed, args.userMessage);
+    if (!outcome.result.ok) {
+      return fallback(outcome.result.error ?? "All AI providers failed", "Thanks for reaching out! An advisor will get back to you shortly.");
+    }
+    const decisionFromChain = safeParseDecision(outcome.result.content, fallbackStage);
+    return { decision: decisionFromChain, promptUsed, modelUsed: outcome.modelUsed };
+  }
+
 
   try {
     if (useCustom) {
