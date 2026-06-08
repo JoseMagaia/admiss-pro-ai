@@ -576,9 +576,19 @@ export async function runResponderAgent(args: RunResponderArgs): Promise<RunResp
 
   const temperature = args.temperature ?? 0.7;
   const provider = args.provider;
-  const useCustom = provider?.mode === "custom";
+  const chain = provider?.fallbackChain;
+  const useChain = Array.isArray(chain) && chain.length > 0;
+  const useCustom = !useChain && provider?.mode === "custom";
   let modelUsed = args.model;
   let result: ChatResult;
+
+  // Prioritized provider fallback rotation.
+  if (useChain) {
+    const outcome = await runChatChain(chain!, temperature, prompt, args.userMessage);
+    if (!outcome.result.ok) return { reply: "", modelUsed: outcome.modelUsed, error: outcome.result.error ?? "All AI providers failed" };
+    return { reply: outcome.result.content.trim(), modelUsed: outcome.modelUsed };
+  }
+
 
   try {
     if (useCustom) {
