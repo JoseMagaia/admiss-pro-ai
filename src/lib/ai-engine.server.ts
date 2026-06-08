@@ -239,6 +239,8 @@ interface ChatResult {
   ok: boolean;
   content: string;
   error?: string;
+  status?: number;
+  rateLimited?: boolean;
 }
 
 // Built-in Lovable AI gateway (no user key required).
@@ -261,7 +263,7 @@ async function callBuiltIn(model: string, temperature: number, system: string, u
     let msg = `AI gateway error ${res.status}`;
     if (res.status === 429) msg = "Rate limit reached. Please retry shortly.";
     if (res.status === 402) msg = "AI credits exhausted. Add credits in workspace settings.";
-    return { ok: false, content: "", error: msg };
+    return { ok: false, content: "", error: msg, status: res.status, rateLimited: res.status === 429 || res.status === 402 };
   }
   const data = await res.json();
   return { ok: true, content: data?.choices?.[0]?.message?.content ?? "" };
@@ -291,7 +293,13 @@ async function callOpenAiCompatible(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    return { ok: false, content: "", error: `Provider error ${res.status}: ${text.slice(0, 300)}` };
+    return {
+      ok: false,
+      content: "",
+      error: `Provider error ${res.status}: ${text.slice(0, 300)}`,
+      status: res.status,
+      rateLimited: res.status === 429 || res.status === 402,
+    };
   }
   const data = await res.json();
   return { ok: true, content: data?.choices?.[0]?.message?.content ?? "" };
@@ -324,13 +332,85 @@ async function callAnthropic(
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    return { ok: false, content: "", error: `Anthropic error ${res.status}: ${text.slice(0, 300)}` };
+    return {
+      ok: false,
+      content: "",
+      error: `Anthropic error ${res.status}: ${text.slice(0, 300)}`,
+      status: res.status,
+      rateLimited: res.status === 429 || res.status === 402,
+    };
   }
   const data = await res.json();
   const content = Array.isArray(data?.content)
     ? data.content.map((c: { text?: string }) => c?.text ?? "").join("")
     : "";
   return { ok: true, content };
+}
+
+/* ===================== PROVIDER FALLBACK ROTATION =====================
+   A prioritized chain of providers. Each entry can list several models to
+   try in order. When a provider/model hits a rate limit (or any failure)
+   the engine rotates to the next model, then the next provider, and finally
+   to the built-in Lovable AI as the last resort. */
+export interface AiFallbackTarget {
+  provider: string; // "built_in" | "anthropic" | preset id (openai-compatible)
+  baseUrl?: string | null;
+  apiKey?: string | null;
+  models: string[]; // free models to rotate through, in order
+}
+
+async function callTarget(
+  target: AiFallbackTarget,
+  model: string,
+  temperature: number,
+  system: string,
+  user: string,
+): Promise<ChatResult> {
+  const name = (target.provider ?? "").toLowerCase();
+  if (name === "built_in" || name === "lovable") {
+    return callBuiltIn(model, temperature, system, user);
+  }
+  const key = (target.apiKey ?? "").trim();
+  const baseUrl = (target.baseUrl ?? "").trim();
+  if (!key) return { ok: false, content: "", error: "Missing API key" };
+  if (name === "anthropic") {
+    return callAnthropic(baseUrl || "https://api.anthropic.com", key, model, temperature, system, user);
+  }
+  if (!baseUrl) return { ok: false, content: "", error: "Missing base URL" };
+  return callOpenAiCompatible(baseUrl, key, model, temperature, system, user);
+}
+
+interface ChainOutcome {
+  result: ChatResult;
+  modelUsed: string;
+  attempts: number;
+}
+
+// Walk the chain trying each model of each provider until one succeeds.
+async function runChatChain(
+  chain: AiFallbackTarget[],
+  temperature: number,
+  system: string,
+  user: string,
+): Promise<ChainOutcome> {
+  let last: ChatResult = { ok: false, content: "", error: "No AI providers configured." };
+  let modelUsed = "";
+  let attempts = 0;
+  for (const target of chain) {
+    const models = target.models.length ? target.models : [""];
+    for (const m of models) {
+      attempts += 1;
+      modelUsed = m || target.provider;
+      try {
+        last = await callTarget(target, m, temperature, system, user);
+      } catch (e) {
+        last = { ok: false, content: "", error: e instanceof Error ? e.message : "AI request failed" };
+      }
+      if (last.ok) return { result: last, modelUsed, attempts };
+      // Not ok → rotate to the next model / provider (rate limits or hard failures).
+    }
+  }
+  return { result: last, modelUsed, attempts };
 }
 
 export async function runQualification(args: RunQualificationArgs): Promise<RunQualificationResult> {
