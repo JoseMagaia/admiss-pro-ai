@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { SettingsCard } from "./SettingsForms";
+import { AiProviderFallback } from "./AiProviderFallback";
 import { getAiConfig, saveAiProvider, testAiProvider } from "@/lib/dashboard.functions";
 
 interface Preset {
@@ -119,10 +120,11 @@ export function AiProviderSettings() {
   });
 
   return (
-    <SettingsCard
-      title="AI Provider"
-      description="Choose between Lovable's built-in AI or your own provider and API key. Applies instantly to the assistant."
-    >
+    <div className="space-y-6">
+      <SettingsCard
+        title="AI Provider"
+        description="Choose between Lovable's built-in AI or your own provider and API key. Applies instantly to the assistant."
+      >
       {/* Mode toggle */}
       <div className="grid gap-3 sm:grid-cols-2">
         <button
@@ -232,6 +234,9 @@ export function AiProviderSettings() {
           </Button>
         )}
       </div>
-    </SettingsCard>
+      </SettingsCard>
+
+      <AiProviderFallback />
+    </div>
   );
 }
