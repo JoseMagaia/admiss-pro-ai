@@ -65,11 +65,11 @@ export async function loadAiContext(): Promise<AiContext> {
   // one provider is configured. Built-in Lovable AI is always appended last.
   let fallbackChain: import("./ai-engine.server").AiFallbackTarget[] | null = null;
   if (cfg?.fallback_enabled && Array.isArray(pool) && pool.length > 0) {
-    const chain = (pool as Array<Record<string, unknown>>)
+    const chain: import("./ai-engine.server").AiFallbackTarget[] = (pool as Array<Record<string, unknown>>)
       .map((row) => ({
         provider: String(row.provider ?? ""),
-        baseUrl: (row.base_url as string) ?? null,
-        apiKey: (row.api_key as string) ?? null,
+        baseUrl: (row.base_url as string | null) ?? null,
+        apiKey: (row.api_key as string | null) ?? null,
         models: Array.isArray(row.models) ? (row.models as string[]).filter(Boolean) : [],
       }))
       .filter((t) => t.provider && (t.provider.toLowerCase() === "built_in" || (t.apiKey && t.models.length > 0)));
