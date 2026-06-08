@@ -120,10 +120,11 @@ export function AiProviderSettings() {
   });
 
   return (
-    <SettingsCard
-      title="AI Provider"
-      description="Choose between Lovable's built-in AI or your own provider and API key. Applies instantly to the assistant."
-    >
+    <div className="space-y-6">
+      <SettingsCard
+        title="AI Provider"
+        description="Choose between Lovable's built-in AI or your own provider and API key. Applies instantly to the assistant."
+      >
       {/* Mode toggle */}
       <div className="grid gap-3 sm:grid-cols-2">
         <button
