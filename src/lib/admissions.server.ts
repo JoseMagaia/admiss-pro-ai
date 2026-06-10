@@ -682,6 +682,7 @@ export async function processInboundMessage(params: {
     humanTakeover: false,
     error,
   };
+  });
 }
 
 // Deliver a single manual/scheduled message to a contact and log it.
