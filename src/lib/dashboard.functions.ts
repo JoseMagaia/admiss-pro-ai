@@ -1325,18 +1325,28 @@ export const setEvolutionWebhook = createServerFn({ method: "POST" })
 
     const base = data.evolution_url.trim().replace(/\/+$/, "");
     const url = `${base}/webhook/set/${encodeURIComponent(data.evolution_instance.trim())}`;
-    try {
-      const res = await fetch(url, {
+
+    // Webhook config payload. Older Evolution v2 builds accept a flat body while
+    // newer ones require it wrapped in a `webhook` object — try flat first, then
+    // retry wrapped so this works across versions.
+    const config = {
+      enabled: true,
+      url: data.webhookUrl,
+      webhookByEvents: false,
+      webhookBase64: false,
+      events: ["MESSAGES_UPSERT"],
+    };
+    const post = (body: unknown) =>
+      fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: apiKey },
-        body: JSON.stringify({
-          enabled: true,
-          url: data.webhookUrl,
-          webhookByEvents: false,
-          webhookBase64: false,
-          events: ["MESSAGES_UPSERT"],
-        }),
+        body: JSON.stringify(body),
       });
+    try {
+      let res = await post(config);
+      if (!res.ok && (res.status === 400 || res.status === 404)) {
+        res = await post({ webhook: config });
+      }
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         return { ok: false, error: `Evolution returned ${res.status}. ${text.slice(0, 200)}` };
