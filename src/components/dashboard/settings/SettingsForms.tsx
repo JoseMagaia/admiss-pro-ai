@@ -133,6 +133,23 @@ export function ProgramSettingsForm() {
 
 export function ChatwootSettingsForm() {
   const { form, set, save } = useSettingsForm();
+  const testFn = useServerFn(testWorkspaceConnection);
+  const test = useMutation({
+    mutationFn: () =>
+      testFn({
+        data: {
+          provider_type: "chatwoot",
+          chatwoot_url: form.chatwoot_url,
+          chatwoot_account_id: form.chatwoot_account_id,
+          chatwoot_api_token: form.chatwoot_api_token,
+        } as never,
+      }),
+    onSuccess: (r) => {
+      if ((r as { ok: boolean }).ok) toast.success("Connection successful");
+      else toast.error((r as { error?: string }).error ?? "Connection failed");
+    },
+    onError: () => toast.error("Connection test failed"),
+  });
   return (
     <SettingsCard
       title="Chatwoot Integration"
@@ -147,9 +164,15 @@ export function ChatwootSettingsForm() {
       <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground">
         Set your Chatwoot webhook to: <code className="font-mono">/api/public/chatwoot-webhook</code> on this app's domain.
       </div>
-      <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
-        <Save className="mr-1 h-4 w-4" /> Save
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
+          <Save className="mr-1 h-4 w-4" /> Save
+        </Button>
+        <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending}>
+          {test.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <PlugZap className="mr-1 h-4 w-4" />}
+          Test Connection
+        </Button>
+      </div>
     </SettingsCard>
   );
 }
