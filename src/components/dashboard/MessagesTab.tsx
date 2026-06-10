@@ -236,8 +236,15 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeMsgs.length, active]);
 
+  // Default the composer's "send from" selector to the conversation's workspace
+  // whenever the open conversation (or its stored workspace) changes.
+  useEffect(() => {
+    setSendWorkspace((activeConv?.workspace_id as string | null) ?? "");
+  }, [active, activeConv?.workspace_id]);
+
   const send = useMutation({
-    mutationFn: (message: string) => sendFn({ data: { phone: activePhone!, message } }),
+    mutationFn: (message: string) =>
+      sendFn({ data: { phone: activePhone!, message, workspaceId: sendWorkspace || undefined } }),
     onSuccess: (r) => {
       const res = r as { ok: boolean; error?: string };
       if (res.ok) {
