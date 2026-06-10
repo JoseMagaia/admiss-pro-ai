@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Save, Trash2, Star, Plug, MessageCircle, Copy, Webhook } from "lucide-react";
+import { Plus, Save, Trash2, Star, Plug, MessageCircle, Copy, Webhook, Loader2, PlugZap } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import {
   upsertWorkspace,
   deleteWorkspace,
   setEvolutionWebhook,
+  testWorkspaceConnection,
 } from "@/lib/dashboard.functions";
 
 type ProviderType = "chatwoot" | "evolution";
@@ -65,6 +66,7 @@ function WorkspaceEditor({
   const qc = useQueryClient();
   const saveFn = useServerFn(upsertWorkspace);
   const webhookFn = useServerFn(setEvolutionWebhook);
+  const testFn = useServerFn(testWorkspaceConnection);
   const [form, setForm] = useState<Workspace>(initial);
   useEffect(() => setForm(initial), [initial]);
 
@@ -83,6 +85,29 @@ function WorkspaceEditor({
     },
     onError: () => toast.error("Failed to save"),
   });
+
+  const test = useMutation({
+    mutationFn: () =>
+      testFn({
+        data: {
+          id: form.id,
+          provider_type: form.provider_type,
+          chatwoot_url: form.chatwoot_url,
+          chatwoot_account_id: form.chatwoot_account_id,
+          chatwoot_api_token: form.chatwoot_api_token,
+          evolution_url: form.evolution_url,
+          evolution_api_key: form.evolution_api_key,
+          evolution_instance: form.evolution_instance,
+        } as never,
+      }),
+    onSuccess: (r) => {
+      if ((r as { ok: boolean }).ok) toast.success("Connection successful");
+      else toast.error((r as { error?: string }).error ?? "Connection failed");
+    },
+    onError: () => toast.error("Connection test failed"),
+  });
+
+
 
   const setWebhook = useMutation({
     mutationFn: () =>
@@ -236,9 +261,17 @@ function WorkspaceEditor({
           settings
         </label>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button onClick={() => save.mutate()} disabled={save.isPending || !form.name}>
           <Save className="mr-1 h-4 w-4" /> Save Workspace
+        </Button>
+        <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending}>
+          {test.isPending ? (
+            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+          ) : (
+            <PlugZap className="mr-1 h-4 w-4" />
+          )}
+          Test Connection
         </Button>
         {onCancel && (
           <Button variant="ghost" onClick={onCancel}>
@@ -246,6 +279,7 @@ function WorkspaceEditor({
           </Button>
         )}
       </div>
+
     </div>
   );
 }

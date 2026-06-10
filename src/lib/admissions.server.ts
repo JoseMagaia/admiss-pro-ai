@@ -297,15 +297,22 @@ export async function applyDecision(lead: LeadRecord, decision: QualificationDec
 
 // Send a message to a WhatsApp contact through Chatwoot using the given
 // credentials (workspace-aware, with education_settings fallback).
+export interface SendResult {
+  ok: boolean;
+  error?: string;
+}
+
 export async function sendChatwootReply(
   creds: ChatwootCreds | null,
   conversationId: string | null | undefined,
   message: string,
-): Promise<boolean> {
-  if (!conversationId) return false;
+): Promise<SendResult> {
   if (!creds) {
     console.warn("Chatwoot not configured; reply not sent to WhatsApp.");
-    return false;
+    return { ok: false, error: "Chatwoot isn't set up for this inbox yet." };
+  }
+  if (!conversationId) {
+    return { ok: false, error: "No active Chatwoot conversation for this contact yet." };
   }
   const base = String(creds.url).replace(/\/$/, "");
   const url = `${base}/api/v1/accounts/${creds.accountId}/conversations/${conversationId}/messages`;
@@ -318,10 +325,19 @@ export async function sendChatwootReply(
       },
       body: JSON.stringify({ content: message, message_type: "outgoing" }),
     });
-    return res.ok;
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, error: "Chatwoot rejected the API token (check it in settings)." };
+      }
+      if (res.status === 404) {
+        return { ok: false, error: "Chatwoot couldn't find this conversation or inbox." };
+      }
+      return { ok: false, error: `Chatwoot returned an error (${res.status}).` };
+    }
+    return { ok: true };
   } catch (e) {
     console.error("Chatwoot reply failed:", e);
-    return false;
+    return { ok: false, error: "Couldn't reach the Chatwoot server." };
   }
 }
 
@@ -396,15 +412,15 @@ export async function sendEvolutionReply(
   workspace: WorkspaceRow | null,
   phone: string,
   message: string,
-): Promise<boolean> {
+): Promise<SendResult> {
   if (!workspace?.evolution_url || !workspace.evolution_api_key || !workspace.evolution_instance) {
     console.warn("Evolution API not configured; reply not sent to WhatsApp.");
-    return false;
+    return { ok: false, error: "Evolution API isn't fully set up for this inbox yet." };
   }
   const base = String(workspace.evolution_url).replace(/\/$/, "");
   const url = `${base}/message/sendText/${encodeURIComponent(workspace.evolution_instance)}`;
   const number = toEvolutionNumber(phone);
-  if (!number) return false;
+  if (!number) return { ok: false, error: "The contact's phone number is invalid." };
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -414,10 +430,19 @@ export async function sendEvolutionReply(
       },
       body: JSON.stringify({ number, text: message }),
     });
-    return res.ok;
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, error: "Evolution rejected the API key (check it in settings)." };
+      }
+      if (res.status === 404) {
+        return { ok: false, error: "Evolution instance not found (check the instance name)." };
+      }
+      return { ok: false, error: `Evolution returned an error (${res.status}).` };
+    }
+    return { ok: true };
   } catch (e) {
     console.error("Evolution reply failed:", e);
-    return false;
+    return { ok: false, error: "Couldn't reach the Evolution API server." };
   }
 }
 
@@ -431,9 +456,12 @@ export async function sendWorkspaceMessage(params: {
   phone: string;
   conversationId: string | null | undefined;
   message: string;
-}): Promise<boolean> {
+}): Promise<SendResult> {
   const { workspace, creds, phone, conversationId, message } = params;
-  if (workspace?.provider_type === "evolution") {
+  if (!workspace) {
+    return { ok: false, error: "No inbox is connected to send from." };
+  }
+  if (workspace.provider_type === "evolution") {
     return sendEvolutionReply(workspace, phone, message);
   }
   return sendChatwootReply(creds, conversationId, message);
@@ -734,8 +762,12 @@ export async function deliverHumanMessage(params: {
     .update({ human_takeover: true, status: "pending", updated_at: new Date().toISOString() } as never)
     .eq("phone_number", phone);
 
-  if (!sent) {
-    return { ok: false, error: "Could not deliver via the selected workspace. Message logged to the conversation." };
+  if (!sent.ok) {
+    const reason = sent.error ?? "the connection could not be reached";
+    return {
+      ok: false,
+      error: `Message saved but not delivered: ${reason}`,
+    };
   }
   return { ok: true };
 }

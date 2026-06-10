@@ -1339,9 +1339,95 @@ export const setEvolutionWebhook = createServerFn({ method: "POST" })
     }
   });
 
+// Test connectivity to a workspace's connection provider (Chatwoot or
+// Evolution API) without sending a real message. Mirrors the AI provider test:
+// returns { ok, error } with a short, end-user-friendly reason on failure.
+// Uses the stored credential when the form sends the masked placeholder.
+export const testWorkspaceConnection = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid().optional(),
+        provider_type: z.enum(["chatwoot", "evolution"]),
+        chatwoot_url: z.string().max(500).nullable().optional(),
+        chatwoot_account_id: z.string().max(100).nullable().optional(),
+        chatwoot_api_token: z.string().max(500).nullable().optional(),
+        evolution_url: z.string().max(500).nullable().optional(),
+        evolution_api_key: z.string().max(500).nullable().optional(),
+        evolution_instance: z.string().max(200).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
 
+    const resolveSavedKey = async (field: "chatwoot_api_token" | "evolution_api_key") => {
+      if (!data.id) return "";
+      const db = await admin();
+      const { data: row } = await db
+        .from("chatwoot_workspaces")
+        .select(field)
+        .eq("id", data.id)
+        .maybeSingle();
+      return String((row as Record<string, string> | null)?.[field] ?? "");
+    };
 
-/* ===================== ORCHESTRATION: RESPONDER AGENTS ===================== */
+    try {
+      if (data.provider_type === "evolution") {
+        const base = (data.evolution_url ?? "").trim().replace(/\/+$/, "");
+        const instance = (data.evolution_instance ?? "").trim();
+        let apiKey = (data.evolution_api_key ?? "").trim();
+        if (!apiKey || apiKey === "********") apiKey = (await resolveSavedKey("evolution_api_key")).trim();
+        if (!base) return { ok: false, error: "Enter the Evolution API base URL first." };
+        if (!instance) return { ok: false, error: "Enter the instance name first." };
+        if (!apiKey) return { ok: false, error: "Enter the Evolution API key first." };
+
+        const url = `${base}/instance/connectionState/${encodeURIComponent(instance)}`;
+        const res = await fetch(url, { headers: { apikey: apiKey } });
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403)
+            return { ok: false, error: "The API key was rejected. Double-check it." };
+          if (res.status === 404)
+            return { ok: false, error: "Instance not found. Check the instance name." };
+          return { ok: false, error: `Evolution returned an error (${res.status}).` };
+        }
+        const json = (await res.json().catch(() => null)) as
+          | { instance?: { state?: string }; state?: string }
+          | null;
+        const state = json?.instance?.state ?? json?.state ?? "";
+        if (state && state !== "open") {
+          return { ok: false, error: `Connected, but the WhatsApp instance is "${state}" (not open).` };
+        }
+        return { ok: true, error: null };
+      }
+
+      // Chatwoot
+      const base = (data.chatwoot_url ?? "").trim().replace(/\/+$/, "");
+      const accountId = (data.chatwoot_account_id ?? "").trim();
+      let token = (data.chatwoot_api_token ?? "").trim();
+      if (!token || token === "********") token = (await resolveSavedKey("chatwoot_api_token")).trim();
+      if (!base) return { ok: false, error: "Enter the Chatwoot base URL first." };
+      if (!accountId) return { ok: false, error: "Enter the account ID first." };
+      if (!token) return { ok: false, error: "Enter the API token first." };
+
+      const url = `${base}/api/v1/accounts/${encodeURIComponent(accountId)}/inboxes`;
+      const res = await fetch(url, { headers: { api_access_token: token } });
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403)
+          return { ok: false, error: "The API token was rejected. Double-check it." };
+        if (res.status === 404)
+          return { ok: false, error: "Account not found. Check the account ID and URL." };
+        return { ok: false, error: `Chatwoot returned an error (${res.status}).` };
+      }
+      return { ok: true, error: null };
+    } catch {
+      return { ok: false, error: "Couldn't reach the server. Check the base URL." };
+    }
+  });
 
 const SUPER = ["super_admin"] as AppRole[];
 
