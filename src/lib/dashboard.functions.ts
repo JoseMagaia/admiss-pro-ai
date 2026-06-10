@@ -967,10 +967,11 @@ export const testPrompt = createServerFn({ method: "POST" })
     } catch (e) {
       return { promptUsed: "", modelUsed: "", memory: null, decision: null, error: (e as Error).message };
     }
-    const { loadAiContext, recentHistory } = await import("./admissions.server");
+    const { loadAiContext, recentHistory, runInSpace } = await import("./admissions.server");
     const { runQualification } = await import("./ai-engine.server");
 
-    const ctx = await loadAiContext();
+    const sid = await activeSpaceId();
+    const ctx = sid ? await runInSpace(sid, () => loadAiContext()) : await loadAiContext();
     const phone = data.phone?.trim() || "test-lab";
     const db = await scopedDb();
     const { data: existingLead } = await db.from("leads").select("*").eq("phone_number", phone).maybeSingle();
@@ -979,7 +980,12 @@ export const testPrompt = createServerFn({ method: "POST" })
       phone_number: phone,
       qualification_status: "NEW_LEAD",
     };
-    const history = phone === "test-lab" ? [] : await recentHistory(phone);
+    const history =
+      phone === "test-lab"
+        ? []
+        : sid
+          ? await runInSpace(sid, () => recentHistory(phone))
+          : await recentHistory(phone);
 
     const { decision, promptUsed, modelUsed, error } = await runQualification({
       lead,
