@@ -1250,6 +1250,13 @@ export const upsertWorkspace = createServerFn({ method: "POST" })
     const evoKey = rest.evolution_api_key;
     if (evoKey === "" || evoKey === "********" || evoKey === undefined) {
       delete (rest as Record<string, unknown>).evolution_api_key;
+    } else if (typeof evoKey === "string") {
+      (rest as Record<string, unknown>).evolution_api_key = evoKey.trim();
+    }
+    // Trim URL/instance to avoid stray whitespace producing 404 "instance not found".
+    for (const field of ["evolution_url", "evolution_instance", "chatwoot_url"] as const) {
+      const v = (rest as Record<string, unknown>)[field];
+      if (typeof v === "string") (rest as Record<string, unknown>)[field] = v.trim();
     }
     // Ensure only one default workspace.
     if (rest.is_default) {
