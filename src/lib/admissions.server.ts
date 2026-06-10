@@ -530,7 +530,6 @@ export async function processInboundMessage(params: {
   /** Evolution API instance name (when the message arrived via Evolution webhook). */
   evolutionInstance?: string | null;
 }): Promise<ProcessResult> {
-  const db = await admin();
   const {
     phone,
     message,
@@ -541,6 +540,20 @@ export async function processInboundMessage(params: {
     evolutionInstance,
   } = params;
 
+  // Resolve which workspace (Chatwoot inbox or Evolution instance) handles this
+  // conversation FIRST so the rest of the pipeline runs inside the owning Space.
+  const workspace = await resolveWorkspace({
+    inboxId: chatwootInboxId,
+    accountId: chatwootAccountId,
+    instance: evolutionInstance,
+  });
+  const { getDefaultSpaceId } = await import("./space-context.server");
+  const spaceId = (workspace?.space_id as string | null) ?? (await getDefaultSpaceId());
+
+  return runInSpace(spaceId, async () => {
+  const db = await admin();
+  const creds = await resolveCreds(workspace);
+
   // Log inbound message.
   await db.from("whatsapp_messages").insert({
     phone_number: phone,
@@ -549,14 +562,6 @@ export async function processInboundMessage(params: {
     message_type: "text",
     processed: false,
   });
-
-  // Resolve which workspace (Chatwoot inbox or Evolution instance) handles this conversation.
-  const workspace = await resolveWorkspace({
-    inboxId: chatwootInboxId,
-    accountId: chatwootAccountId,
-    instance: evolutionInstance,
-  });
-  const creds = await resolveCreds(workspace);
 
   const lead = await getOrCreateLead(phone, chatwootConversationId, chatwootContactId, workspace?.id ?? null);
 
