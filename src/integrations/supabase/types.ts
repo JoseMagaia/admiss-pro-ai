@@ -25,6 +25,7 @@ export type Database = {
           id: string
           model: string
           provider_mode: string
+          space_id: string | null
           system_prompt: string
           temperature: number
           updated_at: string
@@ -39,6 +40,7 @@ export type Database = {
           id?: string
           model?: string
           provider_mode?: string
+          space_id?: string | null
           system_prompt?: string
           temperature?: number
           updated_at?: string
@@ -53,11 +55,20 @@ export type Database = {
           id?: string
           model?: string
           provider_mode?: string
+          space_id?: string | null
           system_prompt?: string
           temperature?: number
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ai_configuration_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_provider_pool: {
         Row: {
@@ -70,6 +81,7 @@ export type Database = {
           models: string[]
           priority: number
           provider: string
+          space_id: string | null
           updated_at: string
         }
         Insert: {
@@ -82,6 +94,7 @@ export type Database = {
           models?: string[]
           priority?: number
           provider?: string
+          space_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -94,15 +107,25 @@ export type Database = {
           models?: string[]
           priority?: number
           provider?: string
+          space_id?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ai_provider_pool_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_variables: {
         Row: {
           created_at: string
           description: string | null
           id: string
+          space_id: string | null
           updated_at: string
           variable_name: string
           variable_value: string
@@ -111,6 +134,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          space_id?: string | null
           updated_at?: string
           variable_name: string
           variable_value?: string
@@ -119,11 +143,20 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          space_id?: string | null
           updated_at?: string
           variable_name?: string
           variable_value?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "ai_variables_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       appointments: {
         Row: {
@@ -134,6 +167,7 @@ export type Database = {
           lead_name: string | null
           notes: string | null
           phone_number: string | null
+          space_id: string | null
           status: string
           updated_at: string
         }
@@ -145,6 +179,7 @@ export type Database = {
           lead_name?: string | null
           notes?: string | null
           phone_number?: string | null
+          space_id?: string | null
           status?: string
           updated_at?: string
         }
@@ -156,10 +191,19 @@ export type Database = {
           lead_name?: string | null
           notes?: string | null
           phone_number?: string | null
+          space_id?: string | null
           status?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "appointments_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       audit_logs: {
         Row: {
@@ -171,6 +215,7 @@ export type Database = {
           entity_id: string | null
           entity_type: string | null
           id: string
+          space_id: string | null
         }
         Insert: {
           action: string
@@ -181,6 +226,7 @@ export type Database = {
           entity_id?: string | null
           entity_type?: string | null
           id?: string
+          space_id?: string | null
         }
         Update: {
           action?: string
@@ -191,8 +237,17 @@ export type Database = {
           entity_id?: string | null
           entity_type?: string | null
           id?: string
+          space_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       chatwoot_workspaces: {
         Row: {
@@ -209,6 +264,7 @@ export type Database = {
           is_default: boolean
           name: string
           provider_type: string
+          space_id: string | null
           updated_at: string
           use_shared_ai: boolean
         }
@@ -226,6 +282,7 @@ export type Database = {
           is_default?: boolean
           name: string
           provider_type?: string
+          space_id?: string | null
           updated_at?: string
           use_shared_ai?: boolean
         }
@@ -243,10 +300,19 @@ export type Database = {
           is_default?: boolean
           name?: string
           provider_type?: string
+          space_id?: string | null
           updated_at?: string
           use_shared_ai?: boolean
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "chatwoot_workspaces_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       conversations: {
         Row: {
@@ -258,6 +324,7 @@ export type Database = {
           id: string
           lead_id: string | null
           phone_number: string
+          space_id: string | null
           status: string
           updated_at: string
           workspace_id: string | null
@@ -271,6 +338,7 @@ export type Database = {
           id?: string
           lead_id?: string | null
           phone_number: string
+          space_id?: string | null
           status?: string
           updated_at?: string
           workspace_id?: string | null
@@ -284,6 +352,7 @@ export type Database = {
           id?: string
           lead_id?: string | null
           phone_number?: string
+          space_id?: string | null
           status?: string
           updated_at?: string
           workspace_id?: string | null
@@ -294,6 +363,13 @@ export type Database = {
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
             referencedColumns: ["id"]
           },
         ]
@@ -312,6 +388,7 @@ export type Database = {
           id: string
           office_address: string | null
           scholarship_information: string | null
+          space_id: string | null
           updated_at: string
           whatsapp_webhook_url: string | null
           working_hours: string | null
@@ -329,6 +406,7 @@ export type Database = {
           id?: string
           office_address?: string | null
           scholarship_information?: string | null
+          space_id?: string | null
           updated_at?: string
           whatsapp_webhook_url?: string | null
           working_hours?: string | null
@@ -346,11 +424,20 @@ export type Database = {
           id?: string
           office_address?: string | null
           scholarship_information?: string | null
+          space_id?: string | null
           updated_at?: string
           whatsapp_webhook_url?: string | null
           working_hours?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "education_settings_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       http_actions: {
         Row: {
@@ -361,6 +448,7 @@ export type Database = {
           method: string
           name: string
           payload_template: string
+          space_id: string | null
           trigger_stage: string
           updated_at: string
           url: string
@@ -373,6 +461,7 @@ export type Database = {
           method?: string
           name: string
           payload_template?: string
+          space_id?: string | null
           trigger_stage: string
           updated_at?: string
           url: string
@@ -385,11 +474,20 @@ export type Database = {
           method?: string
           name?: string
           payload_template?: string
+          space_id?: string | null
           trigger_stage?: string
           updated_at?: string
           url?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "http_actions_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       lead_opportunities: {
         Row: {
@@ -399,6 +497,7 @@ export type Database = {
           liquidity: number
           notes: string | null
           offer_id: string | null
+          space_id: string | null
           updated_at: string
           valuation: number
         }
@@ -409,6 +508,7 @@ export type Database = {
           liquidity?: number
           notes?: string | null
           offer_id?: string | null
+          space_id?: string | null
           updated_at?: string
           valuation?: number
         }
@@ -419,10 +519,19 @@ export type Database = {
           liquidity?: number
           notes?: string | null
           offer_id?: string | null
+          space_id?: string | null
           updated_at?: string
           valuation?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "lead_opportunities_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       leads: {
         Row: {
@@ -442,6 +551,7 @@ export type Database = {
           passport_status: string | null
           phone_number: string
           qualification_status: string
+          space_id: string | null
           student_or_parent: string | null
           updated_at: string
           workspace_id: string | null
@@ -463,6 +573,7 @@ export type Database = {
           passport_status?: string | null
           phone_number: string
           qualification_status?: string
+          space_id?: string | null
           student_or_parent?: string | null
           updated_at?: string
           workspace_id?: string | null
@@ -484,11 +595,20 @@ export type Database = {
           passport_status?: string | null
           phone_number?: string
           qualification_status?: string
+          space_id?: string | null
           student_or_parent?: string | null
           updated_at?: string
           workspace_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "leads_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       meeting_outcomes: {
         Row: {
@@ -505,6 +625,7 @@ export type Database = {
           outcome: string
           phone_number: string
           recorded_by: string | null
+          space_id: string | null
           updated_at: string
           workflow_triggered: string | null
         }
@@ -522,6 +643,7 @@ export type Database = {
           outcome: string
           phone_number: string
           recorded_by?: string | null
+          space_id?: string | null
           updated_at?: string
           workflow_triggered?: string | null
         }
@@ -539,10 +661,19 @@ export type Database = {
           outcome?: string
           phone_number?: string
           recorded_by?: string | null
+          space_id?: string | null
           updated_at?: string
           workflow_triggered?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "meeting_outcomes_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       offers: {
         Row: {
@@ -555,6 +686,7 @@ export type Database = {
           id: string
           name: string
           products: string | null
+          space_id: string | null
           stage: string
           stages: string[]
           updated_at: string
@@ -569,6 +701,7 @@ export type Database = {
           id?: string
           name: string
           products?: string | null
+          space_id?: string | null
           stage?: string
           stages?: string[]
           updated_at?: string
@@ -583,11 +716,20 @@ export type Database = {
           id?: string
           name?: string
           products?: string | null
+          space_id?: string | null
           stage?: string
           stages?: string[]
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "offers_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -621,6 +763,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           id: string
+          space_id: string | null
           system_prompt: string
           version_number: number
         }
@@ -628,6 +771,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
+          space_id?: string | null
           system_prompt?: string
           version_number?: number
         }
@@ -635,16 +779,26 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           id?: string
+          space_id?: string | null
           system_prompt?: string
           version_number?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "prompt_versions_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       report_conversations: {
         Row: {
           created_at: string
           id: string
           messages: Json
+          space_id: string | null
           title: string
           updated_at: string
           user_id: string
@@ -653,6 +807,7 @@ export type Database = {
           created_at?: string
           id?: string
           messages?: Json
+          space_id?: string | null
           title?: string
           updated_at?: string
           user_id: string
@@ -661,11 +816,20 @@ export type Database = {
           created_at?: string
           id?: string
           messages?: Json
+          space_id?: string | null
           title?: string
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "report_conversations_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       responder_agent_variables: {
         Row: {
@@ -719,6 +883,7 @@ export type Database = {
           model: string
           name: string
           provider_mode: string
+          space_id: string | null
           system_prompt: string
           temperature: number
           updated_at: string
@@ -737,6 +902,7 @@ export type Database = {
           model?: string
           name: string
           provider_mode?: string
+          space_id?: string | null
           system_prompt?: string
           temperature?: number
           updated_at?: string
@@ -755,12 +921,21 @@ export type Database = {
           model?: string
           name?: string
           provider_mode?: string
+          space_id?: string | null
           system_prompt?: string
           temperature?: number
           updated_at?: string
           workspace_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "responder_agents_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       scheduled_messages: {
         Row: {
@@ -773,6 +948,7 @@ export type Database = {
           phone_number: string
           scheduled_for: string
           sent_at: string | null
+          space_id: string | null
           status: string
           updated_at: string
           workspace_id: string | null
@@ -787,6 +963,7 @@ export type Database = {
           phone_number: string
           scheduled_for: string
           sent_at?: string | null
+          space_id?: string | null
           status?: string
           updated_at?: string
           workspace_id?: string | null
@@ -801,9 +978,89 @@ export type Database = {
           phone_number?: string
           scheduled_for?: string
           sent_at?: string | null
+          space_id?: string | null
           status?: string
           updated_at?: string
           workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scheduled_messages_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      space_members: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          space_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          space_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          space_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "space_members_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      spaces: {
+        Row: {
+          created_at: string
+          feature_flags: Json
+          id: string
+          is_default: boolean
+          limits: Json
+          name: string
+          plan: string
+          slug: string | null
+          status: Database["public"]["Enums"]["space_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          feature_flags?: Json
+          id?: string
+          is_default?: boolean
+          limits?: Json
+          name: string
+          plan?: string
+          slug?: string | null
+          status?: Database["public"]["Enums"]["space_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          feature_flags?: Json
+          id?: string
+          is_default?: boolean
+          limits?: Json
+          name?: string
+          plan?: string
+          slug?: string | null
+          status?: Database["public"]["Enums"]["space_status"]
+          updated_at?: string
         }
         Relationships: []
       }
@@ -813,6 +1070,7 @@ export type Database = {
           id: string
           liquidity: number
           offer_id: string | null
+          space_id: string | null
           stage: string
           updated_at: string
           valuation: number
@@ -822,6 +1080,7 @@ export type Database = {
           id?: string
           liquidity?: number
           offer_id?: string | null
+          space_id?: string | null
           stage: string
           updated_at?: string
           valuation?: number
@@ -831,11 +1090,20 @@ export type Database = {
           id?: string
           liquidity?: number
           offer_id?: string | null
+          space_id?: string | null
           stage?: string
           updated_at?: string
           valuation?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "stage_opportunity_settings_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_permissions: {
         Row: {
@@ -889,6 +1157,7 @@ export type Database = {
           processed: boolean
           received_at: string
           sender: string
+          space_id: string | null
         }
         Insert: {
           ai_response?: string | null
@@ -899,6 +1168,7 @@ export type Database = {
           processed?: boolean
           received_at?: string
           sender?: string
+          space_id?: string | null
         }
         Update: {
           ai_response?: string | null
@@ -909,8 +1179,17 @@ export type Database = {
           processed?: boolean
           received_at?: string
           sender?: string
+          space_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_messages_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       workflow_enrollments: {
         Row: {
@@ -923,6 +1202,7 @@ export type Database = {
           next_run_at: string | null
           phone_number: string
           reacted: boolean
+          space_id: string | null
           status: string
           updated_at: string
           workflow_id: string
@@ -937,6 +1217,7 @@ export type Database = {
           next_run_at?: string | null
           phone_number: string
           reacted?: boolean
+          space_id?: string | null
           status?: string
           updated_at?: string
           workflow_id: string
@@ -951,11 +1232,19 @@ export type Database = {
           next_run_at?: string | null
           phone_number?: string
           reacted?: boolean
+          space_id?: string | null
           status?: string
           updated_at?: string
           workflow_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "workflow_enrollments_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "workflow_enrollments_workflow_id_fkey"
             columns: ["workflow_id"]
@@ -974,6 +1263,7 @@ export type Database = {
           graph: Json
           id: string
           name: string
+          space_id: string | null
           trigger_config: Json
           trigger_segment: string
           trigger_type: string
@@ -988,6 +1278,7 @@ export type Database = {
           graph?: Json
           id?: string
           name: string
+          space_id?: string | null
           trigger_config?: Json
           trigger_segment?: string
           trigger_type?: string
@@ -1002,6 +1293,7 @@ export type Database = {
           graph?: Json
           id?: string
           name?: string
+          space_id?: string | null
           trigger_config?: Json
           trigger_segment?: string
           trigger_type?: string
@@ -1016,6 +1308,13 @@ export type Database = {
             referencedRelation: "responder_agents"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "workflows_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
         ]
       }
     }
@@ -1023,10 +1322,16 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_space_member: {
+        Args: { _space: string; _user: string }
+        Returns: boolean
+      }
+      is_super_admin: { Args: { _user: string }; Returns: boolean }
+      space_is_active: { Args: { _space: string }; Returns: boolean }
     }
     Enums: {
       app_role: "super_admin" | "admin" | "agent"
+      space_status: "active" | "suspended"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1155,6 +1460,7 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["super_admin", "admin", "agent"],
+      space_status: ["active", "suspended"],
     },
   },
 } as const
