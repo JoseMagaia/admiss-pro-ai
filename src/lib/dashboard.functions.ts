@@ -1321,9 +1321,10 @@ export const setEvolutionWebhook = createServerFn({ method: "POST" })
       apiKey = (row as { evolution_api_key?: string } | null)?.evolution_api_key ?? "";
     }
     if (!apiKey) return { ok: false, error: "Missing Evolution API key." };
+    apiKey = apiKey.trim();
 
-    const base = data.evolution_url.replace(/\/$/, "");
-    const url = `${base}/webhook/set/${encodeURIComponent(data.evolution_instance)}`;
+    const base = data.evolution_url.trim().replace(/\/+$/, "");
+    const url = `${base}/webhook/set/${encodeURIComponent(data.evolution_instance.trim())}`;
     try {
       const res = await fetch(url, {
         method: "POST",
