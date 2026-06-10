@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Save, Trash2, Star, Plug, MessageCircle, Copy, Webhook } from "lucide-react";
+import { Plus, Save, Trash2, Star, Plug, MessageCircle, Copy, Webhook, Loader2, PlugZap } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import {
   upsertWorkspace,
   deleteWorkspace,
   setEvolutionWebhook,
+  testWorkspaceConnection,
 } from "@/lib/dashboard.functions";
 
 type ProviderType = "chatwoot" | "evolution";
