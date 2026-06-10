@@ -344,7 +344,7 @@ export const listConversationMessages = createServerFn({ method: "POST" })
     const candidates = phoneCandidates(data.phone);
     const { data: conv } = await db
       .from("conversations")
-      .select("phone_number, human_takeover, status, updated_at")
+      .select("phone_number, human_takeover, status, updated_at, workspace_id")
       .in("phone_number", candidates)
       .order("updated_at", { ascending: false })
       .limit(1)
