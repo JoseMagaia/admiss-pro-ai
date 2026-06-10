@@ -12,10 +12,25 @@ type AdminClient = Awaited<
   typeof import("@/integrations/supabase/client.server")
 >["supabaseAdmin"];
 
-async function admin(): Promise<AdminClient> {
+// Raw service-role client (NOT space-scoped). Use for cross-space discovery
+// such as matching an inbound workspace/inbox or sweeping due cron rows.
+async function rawAdmin(): Promise<AdminClient> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   return supabaseAdmin;
 }
+
+// Space-aware client. When the current async context is bound to a space (via
+// runInSpace), tenant tables are automatically filtered/tagged by that space.
+async function admin(): Promise<AdminClient> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { currentSpaceId, makeScopedClient } = await import("./space-context.server");
+  const sid = currentSpaceId();
+  return (sid ? makeScopedClient(supabaseAdmin, sid) : supabaseAdmin) as AdminClient;
+}
+
+// Re-export so dashboard/advanced server functions can run admissions helpers
+// inside a resolved space.
+export { runInSpace } from "./space-context.server";
 
 import type { ProviderConfig } from "./ai-engine.server";
 
