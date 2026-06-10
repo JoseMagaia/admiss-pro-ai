@@ -202,9 +202,13 @@ export type Database = {
           chatwoot_url: string | null
           created_at: string
           enabled: boolean
+          evolution_api_key: string | null
+          evolution_instance: string | null
+          evolution_url: string | null
           id: string
           is_default: boolean
           name: string
+          provider_type: string
           updated_at: string
           use_shared_ai: boolean
         }
@@ -215,9 +219,13 @@ export type Database = {
           chatwoot_url?: string | null
           created_at?: string
           enabled?: boolean
+          evolution_api_key?: string | null
+          evolution_instance?: string | null
+          evolution_url?: string | null
           id?: string
           is_default?: boolean
           name: string
+          provider_type?: string
           updated_at?: string
           use_shared_ai?: boolean
         }
@@ -228,9 +236,13 @@ export type Database = {
           chatwoot_url?: string | null
           created_at?: string
           enabled?: boolean
+          evolution_api_key?: string | null
+          evolution_instance?: string | null
+          evolution_url?: string | null
           id?: string
           is_default?: boolean
           name?: string
+          provider_type?: string
           updated_at?: string
           use_shared_ai?: boolean
         }

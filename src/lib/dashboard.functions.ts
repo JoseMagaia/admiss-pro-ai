@@ -1196,10 +1196,11 @@ export const listWorkspaces = createServerFn({ method: "GET" }).handler(async ()
     .select("*")
     .order("is_default", { ascending: false })
     .order("created_at", { ascending: true });
-  // Never expose API tokens to the browser.
+  // Never expose API tokens / keys to the browser.
   const workspaces = (data ?? []).map((w: Record<string, unknown>) => ({
     ...w,
     chatwoot_api_token: w.chatwoot_api_token ? "********" : null,
+    evolution_api_key: w.evolution_api_key ? "********" : null,
   }));
   return { workspaces };
 });
@@ -1207,10 +1208,14 @@ export const listWorkspaces = createServerFn({ method: "GET" }).handler(async ()
 const workspaceSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(1).max(200),
+  provider_type: z.enum(["chatwoot", "evolution"]).optional(),
   chatwoot_url: z.string().max(500).nullable().optional(),
   chatwoot_account_id: z.string().max(100).nullable().optional(),
   chatwoot_inbox_id: z.string().max(100).nullable().optional(),
   chatwoot_api_token: z.string().max(500).nullable().optional(),
+  evolution_url: z.string().max(500).nullable().optional(),
+  evolution_api_key: z.string().max(500).nullable().optional(),
+  evolution_instance: z.string().max(200).nullable().optional(),
   enabled: z.boolean().optional(),
   is_default: z.boolean().optional(),
   use_shared_ai: z.boolean().optional(),
@@ -1226,10 +1231,14 @@ export const upsertWorkspace = createServerFn({ method: "POST" })
     }
     const db = await admin();
     const { id, ...rest } = data;
-    // Don't overwrite a stored token with the masked placeholder or empty value.
+    // Don't overwrite a stored token/key with the masked placeholder or empty value.
     const token = rest.chatwoot_api_token;
     if (token === "" || token === "********" || token === undefined) {
       delete (rest as Record<string, unknown>).chatwoot_api_token;
+    }
+    const evoKey = rest.evolution_api_key;
+    if (evoKey === "" || evoKey === "********" || evoKey === undefined) {
+      delete (rest as Record<string, unknown>).evolution_api_key;
     }
     // Ensure only one default workspace.
     if (rest.is_default) {
@@ -1258,6 +1267,68 @@ export const deleteWorkspace = createServerFn({ method: "POST" })
     const { error } = await db.from("chatwoot_workspaces").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
   });
+
+// Register the platform webhook URL on an Evolution API instance so inbound
+// WhatsApp messages are delivered to /api/public/evolution-webhook. Uses the
+// stored API key when the form sends the masked placeholder.
+export const setEvolutionWebhook = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid().optional(),
+        evolution_url: z.string().min(1).max(500),
+        evolution_api_key: z.string().max(500).optional(),
+        evolution_instance: z.string().min(1).max(200),
+        webhookUrl: z.string().url().max(500),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+
+    // Resolve the API key: use the submitted one, otherwise the stored value.
+    let apiKey = data.evolution_api_key;
+    if (!apiKey || apiKey === "********") {
+      if (!data.id) return { ok: false, error: "Save the workspace first, then set the webhook." };
+      const db = await admin();
+      const { data: row } = await db
+        .from("chatwoot_workspaces")
+        .select("evolution_api_key")
+        .eq("id", data.id)
+        .maybeSingle();
+      apiKey = (row as { evolution_api_key?: string } | null)?.evolution_api_key ?? "";
+    }
+    if (!apiKey) return { ok: false, error: "Missing Evolution API key." };
+
+    const base = data.evolution_url.replace(/\/$/, "");
+    const url = `${base}/webhook/set/${encodeURIComponent(data.evolution_instance)}`;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: apiKey },
+        body: JSON.stringify({
+          enabled: true,
+          url: data.webhookUrl,
+          webhookByEvents: false,
+          webhookBase64: false,
+          events: ["MESSAGES_UPSERT"],
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        return { ok: false, error: `Evolution returned ${res.status}. ${text.slice(0, 200)}` };
+      }
+      return { ok: true, error: null };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  });
+
+
 
 /* ===================== ORCHESTRATION: RESPONDER AGENTS ===================== */
 
