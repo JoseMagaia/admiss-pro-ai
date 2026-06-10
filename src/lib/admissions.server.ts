@@ -825,7 +825,9 @@ export async function deliverHumanMessage(params: {
 
 // Process all scheduled messages that are due. Called by the cron route.
 export async function processScheduledMessages(): Promise<{ processed: number }> {
-  const db = await admin();
+  const db = await rawAdmin();
+  const { getDefaultSpaceId } = await import("./space-context.server");
+  const fallbackSpace = await getDefaultSpaceId();
   const nowIso = new Date().toISOString();
   const { data: due } = await db
     .from("scheduled_messages")
@@ -836,11 +838,14 @@ export async function processScheduledMessages(): Promise<{ processed: number }>
 
   let processed = 0;
   for (const row of (due as Array<Record<string, unknown>>) ?? []) {
-    const result = await deliverHumanMessage({
-      phone: String(row.phone_number),
-      message: String(row.message_content),
-      scheduled: true,
-    });
+    const spaceId = (row.space_id as string | null) ?? fallbackSpace;
+    const result = await runInSpace(spaceId, () =>
+      deliverHumanMessage({
+        phone: String(row.phone_number),
+        message: String(row.message_content),
+        scheduled: true,
+      }),
+    );
     await db
       .from("scheduled_messages")
       .update({
