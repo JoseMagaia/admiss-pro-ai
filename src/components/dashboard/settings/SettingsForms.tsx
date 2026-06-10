@@ -1,13 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Save } from "lucide-react";
+import { Save, PlugZap, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { getSettings, updateSettings } from "@/lib/dashboard.functions";
+import { getSettings, updateSettings, testWorkspaceConnection } from "@/lib/dashboard.functions";
 
 type Settings = Record<string, string | null> & { id?: string };
 
