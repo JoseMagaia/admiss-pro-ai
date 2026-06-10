@@ -1,65 +1,90 @@
-# Advanced platform upgrades
+# Spaces (multi-tenant SaaS) + expanded Agentic AI
 
-Three independent features, all additive. Nothing existing is removed; new fields default to current behavior.
+Two features. Everything is additive and backfilled so current behavior is identical after migration.
 
-## 1. Workflow "time to a goal" (countdown) steps
+## How tenancy is enforced here
 
-Today each message step only has a relative "wait" delay. We add a per-step **anchor** so steps can fire relative to a deadline.
+All data access already goes through server functions using the service-role client, with role checks (`getRequestUser`/`assertRole`). RLS is "no policies / service-role only". So the tenant boundary is enforced **in the server functions** by filtering every query on `space_id` — not via RLS. This is the key design constraint.
 
-**Database** (`workflow_enrollments`): add nullable `goal_at timestamptz`. Backfill not needed.
+---
 
-**Step data model** (stored in workflow `graph` JSON, backward compatible):
-- `anchor`: `"wait"` (default, = today's behavior), `"before_goal"`, or `"before_appointment"`.
-- existing `delayValue`/`delayUnit` keep meaning "wait" timing.
-- new `offsetValue`/`offsetUnit` mean "how long before the goal/appointment".
+## Part A — Spaces
 
-**Builder UI** (`WorkflowBuilder.tsx`): in the step editor add an anchor selector. For `before_goal`/`before_appointment` show an offset (value + unit) and "send before the date" wording. Message node card shows the anchor. Add an optional **default goal offset** note; the per-lead goal date itself is set at assignment time (feature 2).
+### A1. Database (one migration, approved before any code)
 
-**Engine** (`admissions.server.ts`): extend `WorkflowStep` to carry `anchor` + `offsetMs`. `orderedSteps` reads the new fields. In `processWorkflows` advance logic, compute `next_run_at`:
-- `wait`: `now + delayMs` (unchanged path).
-- `before_goal`: `goal_at − offsetMs` (skip/stop if no `goal_at`).
-- `before_appointment`: look up the lead's next appointment date, `apptDate − offsetMs`.
-If the computed time is already past, it runs on the next tick (clamped to now). Enrollment insert stores `goal_at` when provided.
+New types/tables:
+- enum `space_status` = `active | suspended`
+- `spaces`: `name`, `slug`, `status`, `plan` (text label), `feature_flags` jsonb, `limits` jsonb (`max_users`, `max_leads`, `max_workflows`, `max_inboxes`), timestamps
+- `space_members`: `space_id`, `user_id`, `role` (`admin | agent`), unique(`space_id`,`user_id`) — supports users in multiple Spaces
 
-## 2. Assign multiple workflows to a lead (chat + pipeline)
+Add nullable `space_id uuid REFERENCES public.spaces(id)` to every tenant table:
+`leads, conversations, whatsapp_messages, appointments, education_settings, ai_configuration, ai_variables, prompt_versions, http_actions, chatwoot_workspaces, scheduled_messages, responder_agents, workflows, workflow_enrollments, lead_opportunities, meeting_outcomes, offers, stage_opportunity_settings, report_conversations, ai_provider_pool, user_permissions, audit_logs` (`responder_agent_variables` inherits via its agent).
 
-Leads can already have multiple enrollments; we add management UI + scoped server functions (admin + super, matching existing `pauseLeadWorkflow`).
+Backfill (no data loss):
+- Create one **Default Space** (active, all flags on, generous limits)
+- Set `space_id = Default Space` on all existing rows in every table
+- Insert all current `admin`/`agent` users into `space_members` for the Default Space (super_admins are not space members; they manage from the console)
 
-**Server functions** (`dashboard.functions.ts`):
-- `listLeadWorkflows({ phone })` → that lead's enrollments joined to workflow name/status/step + active workflow list to pick from.
-- `assignLeadWorkflow({ phone, workflowId, goalAt? })` → enroll (reuses existing enroll helper), stores `goal_at`, audit-logged.
-- `removeLeadWorkflow({ phone, workflowId })` → stop/remove that enrollment, audit-logged.
+Helpers (security-definer): `is_space_member(_space, _user)`, `space_is_active(_space)`.
 
-**Shared component** `LeadWorkflowManager.tsx`: lists assigned workflows with remove buttons, an "add workflow" picker, and an optional goal-date input. Used in:
-- **Messages chat window** (`MessagesTab.tsx`): a popover/section in the open conversation.
-- **Pipeline kanban lead card** (`PipelineTab.tsx`): a control on the card/its detail.
+### A2. Active-space resolution (server)
 
-## 3. AI Insights: bigger snapshot, agentic mode, model choice
+New `src/lib/space-context.server.ts`:
+- Reads requested space from an `x-space-id` header (falls back to the user's default/first membership)
+- `super_admin` may act in any space; others must be a member
+- Rejects requests to a `suspended` space (except super_admin)
+- Returns `{ spaceId, roleInSpace, flags, limits }`
 
-**Expanded snapshot** (`advanced.functions.ts buildAnalytics`): add an optional richer block with recent message contents + timestamps (bounded count) and light per-lead detail, so the assistant can answer content/timing questions. Size-capped to protect tokens.
+Client: extend `auth-attacher` flow with a tiny store that adds the `x-space-id` header from `localStorage.activeSpaceId`.
 
-**Agentic mode (confirm each action)**:
-- New `generateAgentReply` server fn (guarded by existing `guardAdvanced`) calls the gateway with a tool schema for safe actions: move lead stage, edit lead fields, assign/remove workflow, set opportunity values. It does **not** execute — it returns proposed actions.
-- UI renders each proposed action as a card with **Approve / Dismiss**. Approve calls `executeAgentAction({ action, args })` (also `guardAdvanced`) which performs the single DB change and is audit-logged.
-- A toggle switches the panel between "Insights" (current chat) and "Agentic" mode.
+### A3. Scope every server function
 
-**Model provider choice**: in the Insights panel add a selector — **Built-in**, **Use AI Settings provider** (reads `ai_configuration` custom provider), or **Custom** (enter provider/base URL/model/key for that session). Passed through to `generateChatReply`/`generateAgentReply`; default stays built-in so current behavior is unchanged.
+Thread the resolved `spaceId` through `dashboard.functions.ts`, `admissions.server.ts`, `advanced.functions.ts`:
+- add `.eq("space_id", spaceId)` to all tenant reads
+- set `space_id: spaceId` on all inserts/upserts
+- Webhooks (`chatwoot-webhook`, `evolution-webhook`) resolve the space from the matched workspace's `space_id`
+- Cron processors (`process-workflows`, `process-scheduled-messages`) run per-space (rows already carry `space_id`; they just stop being globally mixed)
 
-**Access**: agentic + custom-model gated by the Advanced permission (same as the Advanced tab).
+### A4. Super Admin "Spaces" console
 
-## Technical notes / safety
-- All new DB columns are nullable with safe defaults; one migration for `workflow_enrollments.goal_at`.
-- Step `anchor` defaults to `wait`, so every existing workflow runs identically.
-- Agentic writes go one-at-a-time only after explicit approval; each is validated with Zod and audit-logged.
-- No changes to the cron auth, webhook, or existing trigger types.
+New settings section **Spaces** (super_admin only), plus server fns (all guarded by super_admin):
+- `listSpaces`, `createSpace`, `updateSpace` (name/plan/flags/limits), `setSpaceStatus` (suspend/activate), `deleteSpace`
+- `listSpaceMembers`, `addSpaceMember`, `removeSpaceMember` (assign existing users + role)
 
-## Files
-- Migration: `workflow_enrollments.goal_at`
-- `src/lib/orchestration.ts` (anchor constants/types, offset helper)
-- `src/lib/admissions.server.ts` (steps + processing)
-- `src/lib/dashboard.functions.ts` (lead-workflow assign/remove/list, enroll goal_at)
-- `src/components/dashboard/orchestration/WorkflowBuilder.tsx` (anchor UI)
-- `src/components/dashboard/LeadWorkflowManager.tsx` (new, shared)
-- `src/components/dashboard/MessagesTab.tsx` + `PipelineTab.tsx` (mount manager)
-- `src/lib/advanced.functions.ts` (snapshot, agent reply, execute action, model override)
-- `src/components/dashboard/advanced/ReportsTab.tsx` (mode toggle, approvals, model picker)
+UI: card list of Spaces with status badge, create dialog, edit dialog (plan label, feature-flag toggles, usage limits), suspend/activate, delete (with confirm), and a member manager.
+
+### A5. Access-plan enforcement
+- `feature_flags` gate tabs/sections inside a Space (e.g. orchestration, advanced/agentic, HTTP actions)
+- `limits` checked on create paths (new lead/user/workflow/inbox) with a friendly "plan limit reached" message
+- `suspended` Spaces: members blocked with a clear notice; super_admin still has access
+
+### A6. Space selector + roles
+- Header selector for users who belong to >1 Space (sets `localStorage.activeSpaceId`, refetches)
+- Within a Space only `admin`/`agent` exist; super_admin role/privileges never exist inside a Space
+
+---
+
+## Part B — Expand Agentic AI scope
+
+Extend `AGENT_TOOLS`, `generateAgentReply` context, and `executeAgentAction` (still propose → approve, Zod-validated, audit-logged, space-scoped):
+- **AI variables**: `upsert_ai_variable`, `delete_ai_variable`
+- **Workflows**: `create_workflow`, `update_workflow` (name/description/enabled/trigger + graph steps), `set_workflow_enabled`
+- **Responder agents**: `create_responder_agent`, `update_responder_agent`
+- **HTTP actions**: `create_http_action`, `update_http_action`
+
+The analytics snapshot passed to the agent gains a compact catalogue of current variables, workflows, responder agents, and HTTP actions (names/ids) so it can reference and edit them accurately.
+
+---
+
+## Safety / rollout order
+1. Migration (additive, nullable, fully backfilled) — approved first; existing app keeps working unchanged.
+2. `space-context.server.ts` + scope server functions + webhooks/cron.
+3. Super Admin console + space selector + plan enforcement.
+4. Agentic tool expansion.
+
+No columns are dropped; no rows are deleted; every existing row joins the Default Space, so current users see exactly what they see today.
+
+## Key files
+- Migration: spaces, space_members, `space_id` columns, backfill, helpers
+- New: `src/lib/space-context.server.ts`, `src/lib/spaces.functions.ts`, `src/components/dashboard/settings/SpacesManager.tsx`, space selector component
+- Edited: `dashboard.functions.ts`, `admissions.server.ts`, `advanced.functions.ts`, both webhook routes, both cron routes, `SettingsTab.tsx`, `roles.ts`, `auth-attacher`/client store, `advanced/ReportsTab.tsx` (agent UI), `types.ts`

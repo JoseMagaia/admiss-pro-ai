@@ -12,10 +12,27 @@ type AdminClient = Awaited<
   typeof import("@/integrations/supabase/client.server")
 >["supabaseAdmin"];
 
-async function admin(): Promise<AdminClient> {
+// Raw service-role client (NOT space-scoped). Use for cross-space discovery
+// such as matching an inbound workspace/inbox or sweeping due cron rows.
+async function rawAdmin(): Promise<AdminClient> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   return supabaseAdmin;
 }
+
+// Space-aware client. When the current async context is bound to a space (via
+// runInSpace) tenant tables are filtered/tagged by that space; otherwise it
+// falls back to the Default Space so legacy single-tenant behaviour is preserved.
+async function admin(): Promise<AdminClient> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { currentSpaceId, makeScopedClient, getDefaultSpaceId } = await import("./space-context.server");
+  const sid = currentSpaceId() ?? (await getDefaultSpaceId());
+  return makeScopedClient(supabaseAdmin, sid) as AdminClient;
+}
+
+// Re-export so dashboard/advanced server functions can run admissions helpers
+// inside a resolved space.
+import { runInSpace } from "./space-context.server";
+export { runInSpace };
 
 import type { ProviderConfig } from "./ai-engine.server";
 
@@ -43,6 +60,7 @@ export interface WorkspaceRow {
   enabled: boolean;
   is_default: boolean;
   use_shared_ai: boolean;
+  space_id?: string | null;
 }
 
 export interface ChatwootCreds {
@@ -115,7 +133,8 @@ export async function resolveWorkspace(params: {
   accountId?: string | null;
   instance?: string | null;
 }): Promise<WorkspaceRow | null> {
-  const db = await admin();
+  // Discovery must search across all spaces to find the owning workspace.
+  const db = await rawAdmin();
   const { data } = await db.from("chatwoot_workspaces").select("*").eq("enabled", true);
   const rows = (data as WorkspaceRow[]) ?? [];
   if (rows.length === 0) return null;
@@ -513,7 +532,6 @@ export async function processInboundMessage(params: {
   /** Evolution API instance name (when the message arrived via Evolution webhook). */
   evolutionInstance?: string | null;
 }): Promise<ProcessResult> {
-  const db = await admin();
   const {
     phone,
     message,
@@ -524,6 +542,20 @@ export async function processInboundMessage(params: {
     evolutionInstance,
   } = params;
 
+  // Resolve which workspace (Chatwoot inbox or Evolution instance) handles this
+  // conversation FIRST so the rest of the pipeline runs inside the owning Space.
+  const workspace = await resolveWorkspace({
+    inboxId: chatwootInboxId,
+    accountId: chatwootAccountId,
+    instance: evolutionInstance,
+  });
+  const { getDefaultSpaceId } = await import("./space-context.server");
+  const spaceId = (workspace?.space_id as string | null) ?? (await getDefaultSpaceId());
+
+  return runInSpace(spaceId, async () => {
+  const db = await admin();
+  const creds = await resolveCreds(workspace);
+
   // Log inbound message.
   await db.from("whatsapp_messages").insert({
     phone_number: phone,
@@ -532,14 +564,6 @@ export async function processInboundMessage(params: {
     message_type: "text",
     processed: false,
   });
-
-  // Resolve which workspace (Chatwoot inbox or Evolution instance) handles this conversation.
-  const workspace = await resolveWorkspace({
-    inboxId: chatwootInboxId,
-    accountId: chatwootAccountId,
-    instance: evolutionInstance,
-  });
-  const creds = await resolveCreds(workspace);
 
   const lead = await getOrCreateLead(phone, chatwootConversationId, chatwootContactId, workspace?.id ?? null);
 
@@ -660,6 +684,7 @@ export async function processInboundMessage(params: {
     humanTakeover: false,
     error,
   };
+  });
 }
 
 // Deliver a single manual/scheduled message to a contact and log it.
@@ -801,7 +826,9 @@ export async function deliverHumanMessage(params: {
 
 // Process all scheduled messages that are due. Called by the cron route.
 export async function processScheduledMessages(): Promise<{ processed: number }> {
-  const db = await admin();
+  const db = await rawAdmin();
+  const { getDefaultSpaceId } = await import("./space-context.server");
+  const fallbackSpace = await getDefaultSpaceId();
   const nowIso = new Date().toISOString();
   const { data: due } = await db
     .from("scheduled_messages")
@@ -812,11 +839,14 @@ export async function processScheduledMessages(): Promise<{ processed: number }>
 
   let processed = 0;
   for (const row of (due as Array<Record<string, unknown>>) ?? []) {
-    const result = await deliverHumanMessage({
-      phone: String(row.phone_number),
-      message: String(row.message_content),
-      scheduled: true,
-    });
+    const spaceId = (row.space_id as string | null) ?? fallbackSpace;
+    const result = await runInSpace(spaceId, () =>
+      deliverHumanMessage({
+        phone: String(row.phone_number),
+        message: String(row.message_content),
+        scheduled: true,
+      }),
+    );
     await db
       .from("scheduled_messages")
       .update({
@@ -1230,114 +1260,118 @@ async function tryWorkflowResponder(params: {
 // Enroll matching leads into enabled workflows and advance due sequences.
 // Called every minute by the process-workflows cron route.
 export async function processWorkflows(): Promise<{ enrolled: number; sent: number }> {
-  const db = await admin();
+  const raw = await rawAdmin();
+  const { getDefaultSpaceId } = await import("./space-context.server");
+  const fallbackSpace = await getDefaultSpaceId();
   const nowIso = new Date().toISOString();
   let enrolled = 0;
   let sent = 0;
 
-  const { data: workflowsData } = await db.from("workflows").select("*").eq("enabled", true);
+  const { data: workflowsData } = await raw.from("workflows").select("*").eq("enabled", true);
   const workflows = (workflowsData as Array<Record<string, unknown>>) ?? [];
 
-  // --- Enrollment ---
+  // --- Enrollment (scoped to each workflow's space) ---
   for (const wf of workflows) {
-    // Backward-compatible trigger resolution.
-    const triggerType = String(
-      wf.trigger_type ?? (String(wf.trigger_segment ?? "manual") === "manual" ? "manual" : "pipeline_stage"),
-    );
-    if (triggerType === "manual") continue;
+    const wfSpace = (wf.space_id as string | null) ?? fallbackSpace;
+    enrolled += await runInSpace(wfSpace, async () => {
+      const db = await admin();
+      let count = 0;
+      const triggerType = String(
+        wf.trigger_type ?? (String(wf.trigger_segment ?? "manual") === "manual" ? "manual" : "pipeline_stage"),
+      );
+      if (triggerType === "manual") return 0;
 
-    const steps = orderedSteps(wf.graph);
-    if (steps.length === 0) continue;
-    const cfg = (wf.trigger_config ?? {}) as {
-      segment?: string;
-      amount?: number;
-      unit?: string;
-      status?: string;
-    };
+      const steps = orderedSteps(wf.graph);
+      if (steps.length === 0) return 0;
+      const cfg = (wf.trigger_config ?? {}) as {
+        segment?: string;
+        amount?: number;
+        unit?: string;
+        status?: string;
+      };
 
-    // Phones already enrolled in this workflow are skipped.
-    const { data: enrolledRows } = await db
-      .from("workflow_enrollments")
-      .select("phone_number")
-      .eq("workflow_id", wf.id as string);
-    const enrolledSet = new Set(
-      ((enrolledRows as Array<{ phone_number: string }>) ?? []).map((r) => r.phone_number),
-    );
-
-    // Build the list of candidate leads for this trigger type.
-    const candidates: Array<{ id: string | null; phone_number: string }> = [];
-
-    if (triggerType === "pipeline_stage") {
-      const segment = String(cfg.segment ?? wf.trigger_segment ?? "");
-      const column = PIPELINE_COLUMNS.find((c) => c.id === segment);
-      if (!column) continue;
-      const { data: leadsData } = await db
-        .from("leads")
-        .select("id, phone_number")
-        .in("qualification_status", column.stages as unknown as string[])
-        .limit(500);
-      for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) candidates.push(l);
-    } else if (triggerType === "booking_status") {
-      const status = String(cfg.status ?? "pending");
-      const { data: appts } = await db
-        .from("appointments")
+      const { data: enrolledRows } = await db
+        .from("workflow_enrollments")
         .select("phone_number")
-        .eq("status", status)
-        .limit(500);
-      const phones = [
-        ...new Set(
-          ((appts as Array<{ phone_number: string | null }>) ?? [])
-            .map((a) => a.phone_number)
-            .filter((p): p is string => Boolean(p)),
-        ),
-      ];
-      if (phones.length === 0) continue;
-      const { data: leadsData } = await db.from("leads").select("id, phone_number").in("phone_number", phones);
-      for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) candidates.push(l);
-    } else if (triggerType === "time_since_first_message" || triggerType === "time_since_last_message") {
-      const thresholdMs = delayToMs(Number(cfg.amount ?? 0), String(cfg.unit ?? "hours"));
-      if (thresholdMs <= 0) continue;
-      const cutoff = Date.now() - thresholdMs;
-      const earliest = triggerType === "time_since_first_message";
-      const { data: leadsData } = await db.from("leads").select("id, phone_number").limit(500);
-      for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) {
-        if (enrolledSet.has(l.phone_number)) continue;
-        const { data: msgs } = await db
-          .from("whatsapp_messages")
-          .select("received_at")
-          .eq("phone_number", l.phone_number)
-          .order("received_at", { ascending: earliest })
-          .limit(1);
-        const ts = (msgs as Array<{ received_at: string }> | null)?.[0]?.received_at;
-        if (!ts) continue;
-        if (new Date(ts).getTime() <= cutoff) candidates.push(l);
-      }
-    } else {
-      continue;
-    }
+        .eq("workflow_id", wf.id as string);
+      const enrolledSet = new Set(
+        ((enrolledRows as Array<{ phone_number: string }>) ?? []).map((r) => r.phone_number),
+      );
 
-    const step0 = steps[0];
-    for (const lead of candidates) {
-      if (enrolledSet.has(lead.phone_number)) continue;
-      enrolledSet.add(lead.phone_number);
-      const apptAt =
-        step0?.anchor === "before_appointment" ? await getLeadAppointmentAt(lead.phone_number) : null;
-      const runAt = stepNextRunAt(step0, null, apptAt);
-      await db.from("workflow_enrollments").insert({
-        workflow_id: wf.id,
-        lead_id: lead.id,
-        phone_number: lead.phone_number,
-        current_step: 0,
-        status: "active",
-        next_run_at: runAt.toISOString(),
-      } as never);
-      enrolled += 1;
-    }
+      const candidates: Array<{ id: string | null; phone_number: string }> = [];
+
+      if (triggerType === "pipeline_stage") {
+        const segment = String(cfg.segment ?? wf.trigger_segment ?? "");
+        const column = PIPELINE_COLUMNS.find((c) => c.id === segment);
+        if (!column) return 0;
+        const { data: leadsData } = await db
+          .from("leads")
+          .select("id, phone_number")
+          .in("qualification_status", column.stages as unknown as string[])
+          .limit(500);
+        for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) candidates.push(l);
+      } else if (triggerType === "booking_status") {
+        const status = String(cfg.status ?? "pending");
+        const { data: appts } = await db
+          .from("appointments")
+          .select("phone_number")
+          .eq("status", status)
+          .limit(500);
+        const phones = [
+          ...new Set(
+            ((appts as Array<{ phone_number: string | null }>) ?? [])
+              .map((a) => a.phone_number)
+              .filter((p): p is string => Boolean(p)),
+          ),
+        ];
+        if (phones.length === 0) return 0;
+        const { data: leadsData } = await db.from("leads").select("id, phone_number").in("phone_number", phones);
+        for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) candidates.push(l);
+      } else if (triggerType === "time_since_first_message" || triggerType === "time_since_last_message") {
+        const thresholdMs = delayToMs(Number(cfg.amount ?? 0), String(cfg.unit ?? "hours"));
+        if (thresholdMs <= 0) return 0;
+        const cutoff = Date.now() - thresholdMs;
+        const earliest = triggerType === "time_since_first_message";
+        const { data: leadsData } = await db.from("leads").select("id, phone_number").limit(500);
+        for (const l of (leadsData as Array<{ id: string; phone_number: string }>) ?? []) {
+          if (enrolledSet.has(l.phone_number)) continue;
+          const { data: msgs } = await db
+            .from("whatsapp_messages")
+            .select("received_at")
+            .eq("phone_number", l.phone_number)
+            .order("received_at", { ascending: earliest })
+            .limit(1);
+          const ts = (msgs as Array<{ received_at: string }> | null)?.[0]?.received_at;
+          if (!ts) continue;
+          if (new Date(ts).getTime() <= cutoff) candidates.push(l);
+        }
+      } else {
+        return 0;
+      }
+
+      const step0 = steps[0];
+      for (const lead of candidates) {
+        if (enrolledSet.has(lead.phone_number)) continue;
+        enrolledSet.add(lead.phone_number);
+        const apptAt =
+          step0?.anchor === "before_appointment" ? await getLeadAppointmentAt(lead.phone_number) : null;
+        const runAt = stepNextRunAt(step0, null, apptAt);
+        await db.from("workflow_enrollments").insert({
+          workflow_id: wf.id,
+          lead_id: lead.id,
+          phone_number: lead.phone_number,
+          current_step: 0,
+          status: "active",
+          next_run_at: runAt.toISOString(),
+        } as never);
+        count += 1;
+      }
+      return count;
+    });
   }
 
-
-  // --- Advance due enrollments ---
-  const { data: dueData } = await db
+  // --- Advance due enrollments (scoped to each enrollment's space) ---
+  const { data: dueData } = await raw
     .from("workflow_enrollments")
     .select("*")
     .eq("status", "active")
@@ -1348,48 +1382,55 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
 
   for (const enr of due) {
     const wf = workflows.find((w) => w.id === enr.workflow_id);
-    if (!wf) {
-      await db.from("workflow_enrollments").update({ status: "stopped" } as never).eq("id", enr.id as string);
-      continue;
-    }
-    const steps = orderedSteps(wf.graph);
-    const step = Number(enr.current_step ?? 0);
-    if (step >= steps.length) {
-      await db.from("workflow_enrollments").update({ status: "completed", next_run_at: null } as never).eq("id", enr.id as string);
-      continue;
-    }
+    const enrSpace = (enr.space_id as string | null) ?? fallbackSpace;
+    sent += await runInSpace(enrSpace, async () => {
+      const db = await admin();
+      if (!wf) {
+        await db.from("workflow_enrollments").update({ status: "stopped" } as never).eq("id", enr.id as string);
+        return 0;
+      }
+      const steps = orderedSteps(wf.graph);
+      const step = Number(enr.current_step ?? 0);
+      if (step >= steps.length) {
+        await db
+          .from("workflow_enrollments")
+          .update({ status: "completed", next_run_at: null } as never)
+          .eq("id", enr.id as string);
+        return 0;
+      }
 
-    await executeWorkflowStep(
-      steps[step],
-      String(enr.phone_number),
-      (wf.workspace_id as string) ?? null,
-      (enr.lead_id as string | null) ?? null,
-    );
-    sent += 1;
+      await executeWorkflowStep(
+        steps[step],
+        String(enr.phone_number),
+        (wf.workspace_id as string) ?? null,
+        (enr.lead_id as string | null) ?? null,
+      );
 
-    const nextStep = step + 1;
-    if (nextStep >= steps.length) {
-      await db
-        .from("workflow_enrollments")
-        .update({ current_step: nextStep, status: "completed", next_run_at: null, last_step_at: new Date().toISOString() } as never)
-        .eq("id", enr.id as string);
-    } else {
-      const nextStepObj = steps[nextStep];
-      const goalAt = (enr.goal_at as string | null) ?? null;
-      const apptAt =
-        nextStepObj?.anchor === "before_appointment"
-          ? await getLeadAppointmentAt(String(enr.phone_number))
-          : null;
-      const runAt = stepNextRunAt(nextStepObj, goalAt, apptAt);
-      await db
-        .from("workflow_enrollments")
-        .update({
-          current_step: nextStep,
-          next_run_at: runAt.toISOString(),
-          last_step_at: new Date().toISOString(),
-        } as never)
-        .eq("id", enr.id as string);
-    }
+      const nextStep = step + 1;
+      if (nextStep >= steps.length) {
+        await db
+          .from("workflow_enrollments")
+          .update({ current_step: nextStep, status: "completed", next_run_at: null, last_step_at: new Date().toISOString() } as never)
+          .eq("id", enr.id as string);
+      } else {
+        const nextStepObj = steps[nextStep];
+        const goalAt = (enr.goal_at as string | null) ?? null;
+        const apptAt =
+          nextStepObj?.anchor === "before_appointment"
+            ? await getLeadAppointmentAt(String(enr.phone_number))
+            : null;
+        const runAt = stepNextRunAt(nextStepObj, goalAt, apptAt);
+        await db
+          .from("workflow_enrollments")
+          .update({
+            current_step: nextStep,
+            next_run_at: runAt.toISOString(),
+            last_step_at: new Date().toISOString(),
+          } as never)
+          .eq("id", enr.id as string);
+      }
+      return 1;
+    });
   }
 
   return { enrolled, sent };

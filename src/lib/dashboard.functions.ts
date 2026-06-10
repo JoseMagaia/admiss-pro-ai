@@ -2,9 +2,29 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { ALL_ROLES, type AppRole } from "@/lib/roles";
 
-async function admin() {
+// Resolve the caller's active Space (honors x-space-id, validates membership).
+async function spaceCtx() {
+  const { resolveSpaceContext } = await import("./space-context.server");
+  return resolveSpaceContext();
+}
+
+// Service-role client scoped to the caller's active Space. Tenant tables are
+// auto-filtered/tagged by space_id. Suspended spaces (for non-super-admins)
+// resolve to an empty sentinel space so nothing leaks.
+async function scopedDb() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin;
+  const { makeScopedClient, NO_SPACE } = await import("./space-context.server");
+  const ctx = await spaceCtx();
+  const sid = ctx && (ctx.isSuperAdmin || ctx.status === "active") ? ctx.spaceId : NO_SPACE;
+  return makeScopedClient(supabaseAdmin, sid);
+}
+
+// Active space id, used to run admissions-pipeline helpers inside the space.
+async function activeSpaceId(): Promise<string | null> {
+  const ctx = await spaceCtx();
+  if (!ctx) return null;
+  if (ctx.status === "suspended" && !ctx.isSuperAdmin) return null;
+  return ctx.spaceId;
 }
 
 // Throws when the caller lacks an allowed role. Use inside write handlers.
@@ -26,7 +46,7 @@ const ANY_ROLE = ALL_ROLES;
 
 export const listLeads = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { leads: [], error: "Unauthorized" };
-  const db = await admin();
+  const db = await scopedDb();
   const { data, error } = await db.from("leads").select("*").order("updated_at", { ascending: false }).limit(1000);
   if (error) return { leads: [], error: error.message };
   return { leads: data ?? [], error: null };
@@ -40,7 +60,7 @@ export const updateLeadStage = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db.from("leads").update({ qualification_status: data.stage } as never).eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
   });
@@ -53,7 +73,7 @@ export const toggleHumanTakeover = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db
       .from("conversations")
       .update({
@@ -78,7 +98,7 @@ export const deleteLead = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { data: lead } = await db.from("leads").select("phone_number").eq("id", data.id).maybeSingle();
     const phone = (lead as { phone_number?: string } | null)?.phone_number;
     if (!phone) return { ok: false, error: "Lead not found" };
@@ -163,14 +183,14 @@ function mergeThread(
 
 export const listConversations = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { conversations: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db.from("conversations").select("*").order("updated_at", { ascending: false }).limit(1000);
   return { conversations: data ?? [] };
 });
 
 export const listMessages = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { messages: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db.from("whatsapp_messages").select("*").order("received_at", { ascending: true }).limit(1000);
   return { messages: data ?? [] };
 });
@@ -187,7 +207,7 @@ export const listMessageThreads = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     if (!(await isAuthed())) return { threads: [], hasMore: false };
-    const db = await admin();
+    const db = await scopedDb();
     const search = (data.search ?? "").trim();
     const limit = data.limit ?? 30;
     const offset = data.offset ?? 0;
@@ -340,7 +360,7 @@ export const listConversationMessages = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     if (!(await isAuthed())) return { phone: data.phone, messages: [], conversation: null };
-    const db = await admin();
+    const db = await scopedDb();
     const candidates = phoneCandidates(data.phone);
     const { data: conv } = await db
       .from("conversations")
@@ -369,7 +389,7 @@ export const listConversationMessages = createServerFn({ method: "POST" })
 
 export const listAppointments = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { appointments: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db.from("appointments").select("*").order("created_at", { ascending: false }).limit(1000);
   return { appointments: data ?? [] };
 });
@@ -390,7 +410,7 @@ export const updateAppointmentStatus = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const update: Record<string, unknown> = { status: data.status };
     if (data.appointment_date !== undefined) update.appointment_date = data.appointment_date;
     const { error } = await db.from("appointments").update(update as never).eq("id", data.id);
@@ -401,7 +421,7 @@ export const updateAppointmentStatus = createServerFn({ method: "POST" })
 
 export const getSettings = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { settings: null };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db.from("education_settings").select("*").limit(1).maybeSingle();
   return { settings: data ?? null };
 });
@@ -440,7 +460,7 @@ export const updateSettings = createServerFn({ method: "POST" })
     if (me.role !== "super_admin") {
       for (const f of CHATWOOT_FIELDS) delete (rest as Record<string, unknown>)[f];
     }
-    const db = await admin();
+    const db = await scopedDb();
     if (id) {
       const { error } = await db.from("education_settings").update(rest as never).eq("id", id);
       return { ok: !error, error: error?.message ?? null };
@@ -453,7 +473,7 @@ export const updateSettings = createServerFn({ method: "POST" })
 
 export const getAiConfig = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { config: null };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db
     .from("ai_configuration")
     .select("*")
@@ -480,7 +500,7 @@ export const saveAiConfig = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { id, ...rest } = data;
     if (id) {
       await db.from("ai_configuration").update(rest as never).eq("id", id);
@@ -523,7 +543,7 @@ export const saveAiProvider = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { id, ...rest } = data;
     // Don't overwrite a stored key with an empty value (the UI sends "" when unchanged).
     if (rest.custom_api_key === "" || rest.custom_api_key === undefined) {
@@ -570,7 +590,7 @@ export const testAiProvider = createServerFn({ method: "POST" })
     const provider = (data.custom_provider ?? "").toLowerCase();
 
     if (!apiKey) {
-      const db = await admin();
+      const db = await scopedDb();
       const { data: cfg } = await db
         .from("ai_configuration")
         .select("custom_api_key")
@@ -624,7 +644,7 @@ export const testAiProvider = createServerFn({ method: "POST" })
 // browser — only a boolean indicating whether a key is stored.
 export const listAiProviders = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { providers: [], fallbackEnabled: false };
-  const db = await admin();
+  const db = await scopedDb();
   const [{ data: pool }, { data: cfg }] = await Promise.all([
     db.from("ai_provider_pool").select("*").order("priority", { ascending: true }),
     db.from("ai_configuration").select("fallback_enabled").order("updated_at", { ascending: false }).limit(1).maybeSingle(),
@@ -661,7 +681,7 @@ export const saveAiProviderPool = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { id, ...rest } = data;
     const row: Record<string, unknown> = {
       label: rest.label ?? "",
@@ -700,7 +720,7 @@ export const deleteAiProvider = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db.from("ai_provider_pool").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
   });
@@ -715,7 +735,7 @@ export const reorderAiProviders = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     await Promise.all(
       data.order.map((id, idx) => db.from("ai_provider_pool").update({ priority: idx } as never).eq("id", id)),
     );
@@ -730,7 +750,7 @@ export const setFallbackEnabled = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { data: cfg } = await db
       .from("ai_configuration")
       .select("id")
@@ -776,7 +796,7 @@ export const testAiProviderPool = createServerFn({ method: "POST" })
     }
 
     if (!apiKey && data.id) {
-      const db = await admin();
+      const db = await scopedDb();
       const { data: row } = await db.from("ai_provider_pool").select("api_key").eq("id", data.id).maybeSingle();
       apiKey = String((row as { api_key?: string } | null)?.api_key ?? "").trim();
     }
@@ -818,7 +838,7 @@ export const testAiProviderPool = createServerFn({ method: "POST" })
 
 export const listPromptVersions = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { versions: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db
     .from("prompt_versions")
     .select("*")
@@ -831,7 +851,7 @@ export const listPromptVersions = createServerFn({ method: "GET" }).handler(asyn
 
 export const listAiVariables = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { variables: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db.from("ai_variables").select("*").order("variable_name", { ascending: true });
   return { variables: data ?? [] };
 });
@@ -853,7 +873,7 @@ export const upsertAiVariable = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { id, ...rest } = data;
     if (id) {
       const { error } = await db.from("ai_variables").update(rest as never).eq("id", id);
@@ -871,7 +891,7 @@ export const deleteAiVariable = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db.from("ai_variables").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
   });
@@ -880,7 +900,7 @@ export const deleteAiVariable = createServerFn({ method: "POST" })
 
 export const listHttpActions = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { actions: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db.from("http_actions").select("*").order("created_at", { ascending: false });
   return { actions: data ?? [] };
 });
@@ -906,7 +926,7 @@ export const upsertHttpAction = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { id, ...rest } = data;
     if (id) {
       const { error } = await db.from("http_actions").update(rest as never).eq("id", id);
@@ -924,7 +944,7 @@ export const deleteHttpAction = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db.from("http_actions").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
   });
@@ -941,19 +961,25 @@ export const testPrompt = createServerFn({ method: "POST" })
     } catch (e) {
       return { promptUsed: "", modelUsed: "", memory: null, decision: null, error: (e as Error).message };
     }
-    const { loadAiContext, recentHistory } = await import("./admissions.server");
+    const { loadAiContext, recentHistory, runInSpace } = await import("./admissions.server");
     const { runQualification } = await import("./ai-engine.server");
 
-    const ctx = await loadAiContext();
+    const sid = await activeSpaceId();
+    const ctx = sid ? await runInSpace(sid, () => loadAiContext()) : await loadAiContext();
     const phone = data.phone?.trim() || "test-lab";
-    const db = await admin();
+    const db = await scopedDb();
     const { data: existingLead } = await db.from("leads").select("*").eq("phone_number", phone).maybeSingle();
 
     const lead = existingLead ?? {
       phone_number: phone,
       qualification_status: "NEW_LEAD",
     };
-    const history = phone === "test-lab" ? [] : await recentHistory(phone);
+    const history =
+      phone === "test-lab"
+        ? []
+        : sid
+          ? await runInSpace(sid, () => recentHistory(phone))
+          : await recentHistory(phone);
 
     const { decision, promptUsed, modelUsed, error } = await runQualification({
       lead,
@@ -980,7 +1006,7 @@ export const testPrompt = createServerFn({ method: "POST" })
 
 export const getDashboardStats = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { leads: 0, qualified: 0, bookings: 0, messages: 0, onboarding: 0, disqualified: 0 };
-  const db = await admin();
+  const db = await scopedDb();
   const [
     { count: leadsCount },
     { count: qualifiedCount },
@@ -1026,19 +1052,23 @@ export const sendHumanMessage = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const { deliverHumanMessage } = await import("./admissions.server");
-    const db = await admin();
+    const { deliverHumanMessage, runInSpace } = await import("./admissions.server");
+    const sid = await activeSpaceId();
+    if (!sid) return { ok: false, error: "No active space." };
+    const db = await scopedDb();
     // Pause AI for this conversation when an agent steps in.
     await db
       .from("conversations")
       .update({ human_takeover: true, status: "pending", assigned_agent: me.email ?? "Agent", ai_resumed: false } as never)
       .eq("phone_number", data.phone);
-    const result = await deliverHumanMessage({
-      phone: data.phone,
-      message: data.message,
-      workspaceId: data.workspaceId ?? null,
-      actor: me.email ?? "Agent",
-    });
+    const result = await runInSpace(sid, () =>
+      deliverHumanMessage({
+        phone: data.phone,
+        message: data.message,
+        workspaceId: data.workspaceId ?? null,
+        actor: me.email ?? "Agent",
+      }),
+    );
     return { ok: result.ok, error: result.error ?? null };
   });
 
@@ -1065,7 +1095,7 @@ export const startConversation = createServerFn({ method: "POST" })
     }
 
     const phone = data.phone.trim();
-    const db = await admin();
+    const db = await scopedDb();
 
     // Don't clobber an existing lead/conversation.
     const { data: existing } = await db
@@ -1140,7 +1170,7 @@ export const startConversation = createServerFn({ method: "POST" })
 
 export const listScheduledMessages = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { scheduled: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db
     .from("scheduled_messages")
     .select("*")
@@ -1169,7 +1199,7 @@ export const scheduleMessage = createServerFn({ method: "POST" })
     const when = new Date(data.scheduledFor);
     if (isNaN(when.getTime())) return { ok: false, error: "Invalid date" };
     if (when.getTime() < Date.now() - 60_000) return { ok: false, error: "Scheduled time must be in the future" };
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db.from("scheduled_messages").insert({
       phone_number: data.phone,
       message_content: data.message,
@@ -1188,7 +1218,7 @@ export const cancelScheduledMessage = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db
       .from("scheduled_messages")
       .update({ status: "cancelled" } as never)
@@ -1201,7 +1231,7 @@ export const cancelScheduledMessage = createServerFn({ method: "POST" })
 
 export const listWorkspaces = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { workspaces: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db
     .from("chatwoot_workspaces")
     .select("*")
@@ -1240,7 +1270,7 @@ export const upsertWorkspace = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { id, ...rest } = data;
     // Don't overwrite a stored token/key with the masked placeholder or empty value.
     const token = rest.chatwoot_api_token;
@@ -1281,7 +1311,7 @@ export const deleteWorkspace = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db.from("chatwoot_workspaces").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
   });
@@ -1312,7 +1342,7 @@ export const setEvolutionWebhook = createServerFn({ method: "POST" })
     let apiKey = data.evolution_api_key;
     if (!apiKey || apiKey === "********") {
       if (!data.id) return { ok: false, error: "Save the workspace first, then set the webhook." };
-      const db = await admin();
+      const db = await scopedDb();
       const { data: row } = await db
         .from("chatwoot_workspaces")
         .select("evolution_api_key")
@@ -1385,7 +1415,7 @@ export const testWorkspaceConnection = createServerFn({ method: "POST" })
 
     const resolveSavedKey = async (field: "chatwoot_api_token" | "evolution_api_key") => {
       if (!data.id) return "";
-      const db = await admin();
+      const db = await scopedDb();
       const { data: row } = await db
         .from("chatwoot_workspaces")
         .select(field)
@@ -1457,7 +1487,7 @@ async function isSuper(): Promise<boolean> {
 
 export const listResponderAgents = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isSuper())) return { agents: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { DEFAULT_AGENT_ID } = await import("./orchestration");
 
   // Synthesize the built-in default qualification agent so it appears and can be
@@ -1527,7 +1557,7 @@ export const upsertResponderAgent = createServerFn({ method: "POST" })
     if (data.id === DEFAULT_AGENT_ID) {
       return { ok: false, error: "The default agent is managed in AI Settings." };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { id, ...rest } = data;
     const key = rest.custom_api_key;
     if (key === "" || key === "********" || key === undefined) {
@@ -1553,7 +1583,7 @@ export const deleteResponderAgent = createServerFn({ method: "POST" })
     if (data.id === DEFAULT_AGENT_ID) {
       return { ok: false, error: "The default agent cannot be deleted." };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db.from("responder_agents").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
   });
@@ -1564,7 +1594,7 @@ export const listResponderAgentVariables = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ agentId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     if (!(await isSuper())) return { variables: [] };
-    const db = await admin();
+    const db = await scopedDb();
     const { data: rows } = await db
       .from("responder_agent_variables")
       .select("*")
@@ -1591,7 +1621,7 @@ export const upsertResponderAgentVariable = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { id, ...rest } = data;
     if (id) {
       const { error } = await db.from("responder_agent_variables").update(rest as never).eq("id", id);
@@ -1609,7 +1639,7 @@ export const deleteResponderAgentVariable = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db.from("responder_agent_variables").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
   });
@@ -1618,14 +1648,14 @@ export const deleteResponderAgentVariable = createServerFn({ method: "POST" })
 
 export const listWorkflows = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isSuper())) return { workflows: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db.from("workflows").select("*").order("created_at", { ascending: true });
   return { workflows: data ?? [] };
 });
 
 export const listWorkflowEnrollments = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isSuper())) return { enrollments: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db
     .from("workflow_enrollments")
     .select("*")
@@ -1670,7 +1700,7 @@ export const upsertWorkflow = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { id, ...rest } = data;
     const triggerType = rest.trigger_type ?? "manual";
     // Keep the legacy trigger_segment column in sync for backward compatibility.
@@ -1706,7 +1736,7 @@ export const deleteWorkflow = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db.from("workflows").delete().eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
   });
@@ -1715,7 +1745,7 @@ export const deleteWorkflow = createServerFn({ method: "POST" })
    agents can assign a workflow to a lead from the Bookings tab. */
 export const listActiveWorkflows = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { workflows: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db
     .from("workflows")
     .select("id, name, enabled")
@@ -1743,7 +1773,7 @@ export const triggerLeadWorkflow = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { data: wf } = await db
       .from("workflows")
       .select("id, name, enabled")
@@ -1801,7 +1831,7 @@ async function isAdminOrSuper(): Promise<boolean> {
 
 export const listMeetingOutcomes = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAdminOrSuper())) return { outcomes: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db
     .from("meeting_outcomes")
     .select("*")
@@ -1842,7 +1872,7 @@ export const saveMeetingOutcome = createServerFn({ method: "POST" })
     const mapping = findOutcome(data.outcome);
     if (!mapping) return { ok: false, error: "Unknown outcome" };
 
-    const db = await admin();
+    const db = await scopedDb();
 
     // Look up the lead so name/phone are authoritative (read-only on the client).
     const { data: lead } = await db
@@ -1957,7 +1987,7 @@ export const updateMeetingOutcome = createServerFn({ method: "POST" })
       return { ok: false, error: (e as Error).message };
     }
 
-    const db = await admin();
+    const db = await scopedDb();
     const { data: existing } = await db
       .from("meeting_outcomes")
       .select("id, lead_id, phone_number, outcome, workflow_triggered, created_at")
@@ -2060,7 +2090,7 @@ export const getMeetingOutcomeStats = createServerFn({ method: "GET" }).handler(
   };
   if (!(await isAdminOrSuper())) return empty;
 
-  const db = await admin();
+  const db = await scopedDb();
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data } = await db
     .from("meeting_outcomes")
@@ -2100,7 +2130,7 @@ export const deleteMeetingOutcome = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db.from("meeting_outcomes").delete().eq("id", data.id);
     if (error) return { ok: false, error: error.message };
     await db.from("audit_logs").insert({
@@ -2135,7 +2165,7 @@ export const processDueWorkflows = createServerFn({ method: "POST" }).handler(as
    phone numbers that currently have an active or paused workflow enrollment. */
 export const listWorkflowStates = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAdminOrSuper())) return { states: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db
     .from("workflow_enrollments")
     .select("phone_number, status")
@@ -2164,7 +2194,7 @@ export const pauseLeadWorkflow = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const from = data.paused ? "active" : "paused";
     const to = data.paused ? "paused" : "active";
     const { error } = await db
@@ -2186,7 +2216,7 @@ export const pauseLeadWorkflow = createServerFn({ method: "POST" })
 /* Contacts directory — everyone who has been contacted (name + phone). Any role. */
 export const listContacts = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { contacts: [] };
-  const db = await admin();
+  const db = await scopedDb();
   const { data } = await db
     .from("leads")
     .select("id, lead_name, phone_number, course_interest, country_interest, created_at")
@@ -2203,7 +2233,7 @@ export const listLeadWorkflows = createServerFn({ method: "GET" })
   .inputValidator((d: unknown) => z.object({ phone: z.string().min(1).max(60) }).parse(d))
   .handler(async ({ data }) => {
     if (!(await isAdminOrSuper())) return { assigned: [], available: [] };
-    const db = await admin();
+    const db = await scopedDb();
     const { data: enr } = await db
       .from("workflow_enrollments")
       .select("id, workflow_id, status, current_step, goal_at, next_run_at, updated_at")
@@ -2252,7 +2282,7 @@ export const assignLeadWorkflow = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { data: wf } = await db
       .from("workflows")
       .select("id, name, enabled")
@@ -2317,7 +2347,7 @@ export const removeLeadWorkflow = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedDb();
     const { error } = await db
       .from("workflow_enrollments")
       .delete()
