@@ -86,6 +86,29 @@ function WorkspaceEditor({
     onError: () => toast.error("Failed to save"),
   });
 
+  const test = useMutation({
+    mutationFn: () =>
+      testFn({
+        data: {
+          id: form.id,
+          provider_type: form.provider_type,
+          chatwoot_url: form.chatwoot_url,
+          chatwoot_account_id: form.chatwoot_account_id,
+          chatwoot_api_token: form.chatwoot_api_token,
+          evolution_url: form.evolution_url,
+          evolution_api_key: form.evolution_api_key,
+          evolution_instance: form.evolution_instance,
+        } as never,
+      }),
+    onSuccess: (r) => {
+      if ((r as { ok: boolean }).ok) toast.success("Connection successful");
+      else toast.error((r as { error?: string }).error ?? "Connection failed");
+    },
+    onError: () => toast.error("Connection test failed"),
+  });
+
+
+
   const setWebhook = useMutation({
     mutationFn: () =>
       webhookFn({
