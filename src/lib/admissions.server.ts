@@ -413,12 +413,17 @@ export async function sendEvolutionReply(
   phone: string,
   message: string,
 ): Promise<SendResult> {
-  if (!workspace?.evolution_url || !workspace.evolution_api_key || !workspace.evolution_instance) {
+  // Trim stored values: trailing spaces in the instance name or URL are a common
+  // cause of spurious "instance not found" (404) errors from Evolution.
+  const baseRaw = String(workspace?.evolution_url ?? "").trim();
+  const instance = String(workspace?.evolution_instance ?? "").trim();
+  const apiKey = String(workspace?.evolution_api_key ?? "").trim();
+  if (!baseRaw || !apiKey || !instance) {
     console.warn("Evolution API not configured; reply not sent to WhatsApp.");
     return { ok: false, error: "Evolution API isn't fully set up for this inbox yet." };
   }
-  const base = String(workspace.evolution_url).replace(/\/$/, "");
-  const url = `${base}/message/sendText/${encodeURIComponent(workspace.evolution_instance)}`;
+  const base = baseRaw.replace(/\/+$/, "");
+  const url = `${base}/message/sendText/${encodeURIComponent(instance)}`;
   const number = toEvolutionNumber(phone);
   if (!number) return { ok: false, error: "The contact's phone number is invalid." };
   try {
@@ -426,23 +431,44 @@ export async function sendEvolutionReply(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        apikey: workspace.evolution_api_key,
+        apikey: apiKey,
       },
       body: JSON.stringify({ number, text: message }),
     });
     if (!res.ok) {
+      const bodyText = await res.text().catch(() => "");
+      let detail = "";
+      try {
+        const parsed = JSON.parse(bodyText) as { message?: unknown; response?: { message?: unknown } };
+        const m = parsed?.response?.message ?? parsed?.message;
+        detail = Array.isArray(m) ? m.join(" ") : typeof m === "string" ? m : "";
+      } catch {
+        detail = bodyText.slice(0, 160);
+      }
+      console.error("Evolution send failed:", res.status, bodyText.slice(0, 300));
       if (res.status === 401 || res.status === 403) {
         return { ok: false, error: "Evolution rejected the API key (check it in settings)." };
       }
       if (res.status === 404) {
-        return { ok: false, error: "Evolution instance not found (check the instance name)." };
+        return {
+          ok: false,
+          error: `Evolution instance "${instance}" not found. Check the exact instance name and base URL.`,
+        };
       }
-      return { ok: false, error: `Evolution returned an error (${res.status}).` };
+      if (res.status === 400) {
+        return {
+          ok: false,
+          error: detail
+            ? `Evolution rejected the message: ${detail}`
+            : "Evolution rejected the message (check the recipient number).",
+        };
+      }
+      return { ok: false, error: `Evolution returned an error (${res.status}).${detail ? ` ${detail}` : ""}` };
     }
     return { ok: true };
   } catch (e) {
     console.error("Evolution reply failed:", e);
-    return { ok: false, error: "Couldn't reach the Evolution API server." };
+    return { ok: false, error: "Couldn't reach the Evolution API server (check the base URL)." };
   }
 }
 
