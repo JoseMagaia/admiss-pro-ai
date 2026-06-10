@@ -93,9 +93,10 @@ export function WorkflowManager() {
             ? triggerTypeLabel(w.trigger_type)
             : triggerTypeLabel("pipeline_stage");
         const agentName = agents.find((a) => a.id === w.agent_id)?.name ?? "No responder";
-        const stepCount = ((w.graph as { nodes?: unknown[] })?.nodes ?? []).filter(
-          (n) => (n as { type?: string }).type === "message",
-        ).length;
+        const stepCount = ((w.graph as { nodes?: unknown[] })?.nodes ?? []).filter((n) => {
+          const t = (n as { type?: string }).type;
+          return t === "message" || t === "workflow";
+        }).length;
         return (
           <div key={w.id} className="flex items-center justify-between gap-3 rounded-xl border bg-card p-4">
             <div className="min-w-0">
