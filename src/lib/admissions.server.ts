@@ -20,12 +20,13 @@ async function rawAdmin(): Promise<AdminClient> {
 }
 
 // Space-aware client. When the current async context is bound to a space (via
-// runInSpace), tenant tables are automatically filtered/tagged by that space.
+// runInSpace) tenant tables are filtered/tagged by that space; otherwise it
+// falls back to the Default Space so legacy single-tenant behaviour is preserved.
 async function admin(): Promise<AdminClient> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { currentSpaceId, makeScopedClient } = await import("./space-context.server");
-  const sid = currentSpaceId();
-  return (sid ? makeScopedClient(supabaseAdmin, sid) : supabaseAdmin) as AdminClient;
+  const { currentSpaceId, makeScopedClient, getDefaultSpaceId } = await import("./space-context.server");
+  const sid = currentSpaceId() ?? (await getDefaultSpaceId());
+  return makeScopedClient(supabaseAdmin, sid) as AdminClient;
 }
 
 // Re-export so dashboard/advanced server functions can run admissions helpers
