@@ -762,8 +762,12 @@ export async function deliverHumanMessage(params: {
     .update({ human_takeover: true, status: "pending", updated_at: new Date().toISOString() } as never)
     .eq("phone_number", phone);
 
-  if (!sent) {
-    return { ok: false, error: "Could not deliver via the selected workspace. Message logged to the conversation." };
+  if (!sent.ok) {
+    const reason = sent.error ?? "the connection could not be reached";
+    return {
+      ok: false,
+      error: `Message saved but not delivered: ${reason}`,
+    };
   }
   return { ok: true };
 }
