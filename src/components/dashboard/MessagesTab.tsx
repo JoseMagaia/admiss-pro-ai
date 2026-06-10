@@ -94,6 +94,7 @@ interface Conversation {
   phone_number: string;
   human_takeover: boolean;
   status: string;
+  workspace_id?: string | null;
 }
 
 interface MessageThread {
