@@ -74,6 +74,8 @@ export function WorkflowManager() {
         initial={editing}
         agents={agents}
         workspaces={workspaces}
+        workflows={workflowOptions}
+        variables={variableNames}
         onDone={() => setEditing(null)}
       />
     );
