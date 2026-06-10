@@ -125,11 +125,12 @@ export async function resolveWorkspace(params: {
     if (byId) return byId;
   }
   if (params.instance) {
+    const wanted = String(params.instance).trim();
     const byInstance = rows.find(
       (w) =>
         w.provider_type === "evolution" &&
         w.evolution_instance &&
-        String(w.evolution_instance) === String(params.instance),
+        String(w.evolution_instance).trim() === wanted,
     );
     if (byInstance) return byInstance;
   }
