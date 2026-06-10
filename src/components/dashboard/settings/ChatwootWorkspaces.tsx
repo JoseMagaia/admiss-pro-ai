@@ -261,9 +261,17 @@ function WorkspaceEditor({
           settings
         </label>
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button onClick={() => save.mutate()} disabled={save.isPending || !form.name}>
           <Save className="mr-1 h-4 w-4" /> Save Workspace
+        </Button>
+        <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending}>
+          {test.isPending ? (
+            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+          ) : (
+            <PlugZap className="mr-1 h-4 w-4" />
+          )}
+          Test Connection
         </Button>
         {onCancel && (
           <Button variant="ghost" onClick={onCancel}>
@@ -271,6 +279,7 @@ function WorkspaceEditor({
           </Button>
         )}
       </div>
+
     </div>
   );
 }
