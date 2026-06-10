@@ -10,6 +10,7 @@ import {
   deleteWorkflow,
   listResponderAgents,
   listWorkspaces,
+  listAiVariables,
 } from "@/lib/dashboard.functions";
 import { WorkflowBuilder, type WorkflowRow } from "./WorkflowBuilder";
 
