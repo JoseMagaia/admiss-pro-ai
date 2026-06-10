@@ -1250,6 +1250,13 @@ export const upsertWorkspace = createServerFn({ method: "POST" })
     const evoKey = rest.evolution_api_key;
     if (evoKey === "" || evoKey === "********" || evoKey === undefined) {
       delete (rest as Record<string, unknown>).evolution_api_key;
+    } else if (typeof evoKey === "string") {
+      (rest as Record<string, unknown>).evolution_api_key = evoKey.trim();
+    }
+    // Trim URL/instance to avoid stray whitespace producing 404 "instance not found".
+    for (const field of ["evolution_url", "evolution_instance", "chatwoot_url"] as const) {
+      const v = (rest as Record<string, unknown>)[field];
+      if (typeof v === "string") (rest as Record<string, unknown>)[field] = v.trim();
     }
     // Ensure only one default workspace.
     if (rest.is_default) {
@@ -1314,21 +1321,32 @@ export const setEvolutionWebhook = createServerFn({ method: "POST" })
       apiKey = (row as { evolution_api_key?: string } | null)?.evolution_api_key ?? "";
     }
     if (!apiKey) return { ok: false, error: "Missing Evolution API key." };
+    apiKey = apiKey.trim();
 
-    const base = data.evolution_url.replace(/\/$/, "");
-    const url = `${base}/webhook/set/${encodeURIComponent(data.evolution_instance)}`;
-    try {
-      const res = await fetch(url, {
+    const base = data.evolution_url.trim().replace(/\/+$/, "");
+    const url = `${base}/webhook/set/${encodeURIComponent(data.evolution_instance.trim())}`;
+
+    // Webhook config payload. Older Evolution v2 builds accept a flat body while
+    // newer ones require it wrapped in a `webhook` object — try flat first, then
+    // retry wrapped so this works across versions.
+    const config = {
+      enabled: true,
+      url: data.webhookUrl,
+      webhookByEvents: false,
+      webhookBase64: false,
+      events: ["MESSAGES_UPSERT"],
+    };
+    const post = (body: unknown) =>
+      fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", apikey: apiKey },
-        body: JSON.stringify({
-          enabled: true,
-          url: data.webhookUrl,
-          webhookByEvents: false,
-          webhookBase64: false,
-          events: ["MESSAGES_UPSERT"],
-        }),
+        body: JSON.stringify(body),
       });
+    try {
+      let res = await post(config);
+      if (!res.ok && (res.status === 400 || res.status === 404)) {
+        res = await post({ webhook: config });
+      }
       if (!res.ok) {
         const text = await res.text().catch(() => "");
         return { ok: false, error: `Evolution returned ${res.status}. ${text.slice(0, 200)}` };
