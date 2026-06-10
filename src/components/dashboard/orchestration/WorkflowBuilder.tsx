@@ -52,6 +52,11 @@ export interface WorkflowRow {
   graph: unknown;
 }
 
+// Built-in lead variables always available in message steps.
+const BUILTIN_VARS = ["lead_name", "course_interest", "country_interest", "phone_number"];
+
+
+
 interface MiniAgent {
   id: string;
   name: string;
