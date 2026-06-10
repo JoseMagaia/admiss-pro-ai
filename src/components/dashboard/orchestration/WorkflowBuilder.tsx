@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -16,7 +16,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Save, Plus, MessageSquare, Zap, Trash2, X } from "lucide-react";
+import { Save, Plus, MessageSquare, Zap, Trash2, X, Workflow as WorkflowIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -51,6 +51,11 @@ export interface WorkflowRow {
   enabled: boolean;
   graph: unknown;
 }
+
+// Built-in lead variables always available in message steps.
+const BUILTIN_VARS = ["lead_name", "course_interest", "country_interest", "phone_number"];
+
+
 
 interface MiniAgent {
   id: string;
@@ -123,7 +128,26 @@ function MessageNode({ data, selected }: NodeProps) {
   );
 }
 
-const nodeTypes = { trigger: TriggerNode, message: MessageNode };
+function WorkflowStepNode({ data, selected }: NodeProps) {
+  const d = data as { targetWorkflowName?: string; index?: number } & Parameters<typeof stepTiming>[0];
+  return (
+    <div
+      className={`w-52 rounded-xl border-2 bg-card px-4 py-2 shadow-card ${selected ? "border-primary" : "border-border"}`}
+    >
+      <Handle type="target" position={Position.Top} />
+      <div className="flex items-center gap-2 text-xs font-semibold text-accent-foreground">
+        <WorkflowIcon className="h-3.5 w-3.5" /> Call workflow
+      </div>
+      <p className="mt-1 line-clamp-2 text-xs text-foreground/80">
+        {d.targetWorkflowName || "(no workflow selected)"}
+      </p>
+      <p className="mt-1 text-[10px] text-muted-foreground">{stepTiming(d)}</p>
+      <Handle type="source" position={Position.Bottom} />
+    </div>
+  );
+}
+
+const nodeTypes = { trigger: TriggerNode, message: MessageNode, workflow: WorkflowStepNode };
 
 function defaultGraph(): { nodes: Node[]; edges: Edge[] } {
   return {
@@ -174,11 +198,17 @@ export function WorkflowBuilder({
   initial,
   agents,
   workspaces,
+  workflows,
+  variables,
   onDone,
 }: {
   initial: WorkflowRow;
   agents: MiniAgent[];
   workspaces: MiniWorkspace[];
+  /** Other workflows that a "call workflow" step can enroll the lead into. */
+  workflows?: Array<{ id: string; name: string }>;
+  /** Available variable names for quick insertion into a message step. */
+  variables?: string[];
   onDone: () => void;
 }) {
   const qc = useQueryClient();
@@ -235,37 +265,75 @@ export function WorkflowBuilder({
 
   const messageCount = nodes.filter((n) => n.type === "message").length;
 
-  const addMessage = () => {
-    const id = `m${Date.now()}`;
-    // tail = node with no outgoing edge
+  const messageRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Built-in lead variables always available, plus any custom AI variables.
+  const allVariables = useMemo(
+    () => [...BUILTIN_VARS, ...((variables ?? []).filter((v) => !BUILTIN_VARS.includes(v)))],
+    [variables],
+  );
+
+  // Workflows selectable in a "call workflow" step (excludes the current one).
+  const callableWorkflows = (workflows ?? []).filter((w) => w.id !== initial.id);
+
+  const addStepNode = (type: "message" | "workflow") => {
+    const id = `${type === "workflow" ? "w" : "m"}${Date.now()}`;
     const sources = new Set(edges.map((e) => e.source));
     const tail = nodes.find((n) => !sources.has(n.id)) ?? nodes[nodes.length - 1];
     const y = (tail?.position.y ?? 20) + 120;
+    const baseData = {
+      anchor: "wait",
+      delayValue: messageCount === 0 && type === "message" ? 0 : 1,
+      delayUnit: messageCount === 0 && type === "message" ? "minutes" : "days",
+      offsetValue: 1,
+      offsetUnit: "days",
+    };
     const newNode: Node = {
       id,
-      type: "message",
+      type,
       position: { x: 80, y },
-      data: {
-        content: "",
-        anchor: "wait",
-        delayValue: messageCount === 0 ? 0 : 1,
-        delayUnit: messageCount === 0 ? "minutes" : "days",
-        offsetValue: 1,
-        offsetUnit: "days",
-        index: messageCount,
-      },
+      data:
+        type === "workflow"
+          ? { ...baseData, targetWorkflowId: "", targetWorkflowName: "" }
+          : { ...baseData, content: "", index: messageCount },
     };
     setNodes((nds) => [...nds, newNode]);
     if (tail) setEdges((eds) => addEdge({ source: tail.id, target: id, sourceHandle: null, targetHandle: null }, eds));
     setSelectedId(id);
   };
 
-  const selected = nodes.find((n) => n.id === selectedId && n.type === "message");
+  const addMessage = () => addStepNode("message");
+  const addWorkflowStep = () => addStepNode("workflow");
+
+  const selected = nodes.find(
+    (n) => n.id === selectedId && (n.type === "message" || n.type === "workflow"),
+  );
+  const selectedIsWorkflow = selected?.type === "workflow";
 
   const updateSelected = (patch: Record<string, unknown>) => {
     setNodes((nds) =>
       nds.map((n) => (n.id === selectedId ? { ...n, data: { ...n.data, ...patch } } : n)),
     );
+  };
+
+  const insertVariable = (name: string) => {
+    const token = `{{${name}}}`;
+    const el = messageRef.current;
+    const current = String((selected?.data as { content?: string })?.content ?? "");
+    if (!el) {
+      updateSelected({ content: current + token });
+      return;
+    }
+    const start = el.selectionStart ?? current.length;
+    const end = el.selectionEnd ?? current.length;
+    const next = current.slice(0, start) + token + current.slice(end);
+    updateSelected({ content: next });
+    // Restore focus and caret position after the inserted token.
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + token.length;
+      el.setSelectionRange(pos, pos);
+    });
   };
 
   const deleteSelected = () => {
@@ -466,9 +534,14 @@ export function WorkflowBuilder({
         <label className="flex items-center gap-2 text-sm">
           <Switch checked={enabled} onCheckedChange={setEnabled} /> Workflow enabled
         </label>
-        <Button variant="outline" size="sm" onClick={addMessage}>
-          <Plus className="mr-1 h-4 w-4" /> Add message step
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={addMessage}>
+            <Plus className="mr-1 h-4 w-4" /> Add message step
+          </Button>
+          <Button variant="outline" size="sm" onClick={addWorkflowStep}>
+            <WorkflowIcon className="mr-1 h-4 w-4" /> Call workflow step
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
@@ -493,20 +566,62 @@ export function WorkflowBuilder({
           {selected ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">Edit message</span>
+                <span className="text-sm font-semibold">
+                  {selectedIsWorkflow ? "Edit call workflow" : "Edit message"}
+                </span>
                 <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setSelectedId(null)}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="space-y-1.5">
-                <Label>Message content</Label>
-                <Textarea
-                  value={String((selected.data as { content?: string }).content ?? "")}
-                  onChange={(e) => updateSelected({ content: e.target.value })}
-                  rows={6}
-                  placeholder="The WhatsApp message to send… use {{lead_name}}, {{course_interest}}, {{country_interest}}"
-                />
-              </div>
+
+              {selectedIsWorkflow ? (
+                <div className="space-y-1.5">
+                  <Label>Workflow to call</Label>
+                  <select
+                    value={String((selected.data as { targetWorkflowId?: string }).targetWorkflowId ?? "")}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      const wf = callableWorkflows.find((w) => w.id === id);
+                      updateSelected({ targetWorkflowId: id, targetWorkflowName: wf?.name ?? "" });
+                    }}
+                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">Select a workflow…</option>
+                    {callableWorkflows.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-muted-foreground">
+                    When this step runs, the lead is enrolled into the selected workflow. Save this workflow first
+                    if the target list looks empty.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <Label>Message content</Label>
+                  <Textarea
+                    ref={messageRef}
+                    value={String((selected.data as { content?: string }).content ?? "")}
+                    onChange={(e) => updateSelected({ content: e.target.value })}
+                    rows={6}
+                    placeholder="The WhatsApp message to send… click a variable below to insert it"
+                  />
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {allVariables.map((v) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => insertVariable(v)}
+                        className="rounded-md border border-input bg-muted px-2 py-0.5 text-[11px] font-medium text-foreground/80 transition-colors hover:bg-accent hover:text-accent-foreground"
+                      >
+                        {`{{${v}}}`}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <Label>Scheduling</Label>
                 <select

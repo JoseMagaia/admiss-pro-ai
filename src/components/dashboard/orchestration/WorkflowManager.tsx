@@ -10,6 +10,7 @@ import {
   deleteWorkflow,
   listResponderAgents,
   listWorkspaces,
+  listAiVariables,
 } from "@/lib/dashboard.functions";
 import { WorkflowBuilder, type WorkflowRow } from "./WorkflowBuilder";
 
@@ -31,10 +32,12 @@ export function WorkflowManager() {
   const delFn = useServerFn(deleteWorkflow);
   const agentsFn = useServerFn(listResponderAgents);
   const wsFn = useServerFn(listWorkspaces);
+  const varsFn = useServerFn(listAiVariables);
 
   const { data } = useQuery({ queryKey: ["workflows"], queryFn: () => listFn() });
   const { data: agentsData } = useQuery({ queryKey: ["responder-agents"], queryFn: () => agentsFn() });
   const { data: wsData } = useQuery({ queryKey: ["workspaces"], queryFn: () => wsFn() });
+  const { data: varsData } = useQuery({ queryKey: ["ai-variables"], queryFn: () => varsFn() });
 
   const workflows = (data?.workflows ?? []) as unknown as WorkflowRow[];
   const agents = ((agentsData?.agents ?? []) as unknown as Array<{ id: string; name: string }>).map((a) => ({
@@ -45,6 +48,12 @@ export function WorkflowManager() {
     id: w.id,
     name: w.name,
   }));
+  const workflowOptions = workflows
+    .filter((w) => Boolean(w.id))
+    .map((w) => ({ id: w.id as string, name: w.name }));
+  const variableNames = (
+    (varsData?.variables ?? []) as unknown as Array<{ variable_name: string }>
+  ).map((v) => v.variable_name);
 
   const [editing, setEditing] = useState<WorkflowRow | null>(null);
 
@@ -65,6 +74,8 @@ export function WorkflowManager() {
         initial={editing}
         agents={agents}
         workspaces={workspaces}
+        workflows={workflowOptions}
+        variables={variableNames}
         onDone={() => setEditing(null)}
       />
     );
@@ -82,9 +93,10 @@ export function WorkflowManager() {
             ? triggerTypeLabel(w.trigger_type)
             : triggerTypeLabel("pipeline_stage");
         const agentName = agents.find((a) => a.id === w.agent_id)?.name ?? "No responder";
-        const stepCount = ((w.graph as { nodes?: unknown[] })?.nodes ?? []).filter(
-          (n) => (n as { type?: string }).type === "message",
-        ).length;
+        const stepCount = ((w.graph as { nodes?: unknown[] })?.nodes ?? []).filter((n) => {
+          const t = (n as { type?: string }).type;
+          return t === "message" || t === "workflow";
+        }).length;
         return (
           <div key={w.id} className="flex items-center justify-between gap-3 rounded-xl border bg-card p-4">
             <div className="min-w-0">

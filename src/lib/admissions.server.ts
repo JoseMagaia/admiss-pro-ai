@@ -31,10 +31,15 @@ export interface AiContext {
 export interface WorkspaceRow {
   id: string;
   name: string;
+  /** Connection provider: "chatwoot" (default) or "evolution" (Evolution API / WhatsApp). */
+  provider_type: string;
   chatwoot_url: string | null;
   chatwoot_account_id: string | null;
   chatwoot_inbox_id: string | null;
   chatwoot_api_token: string | null;
+  evolution_url: string | null;
+  evolution_api_key: string | null;
+  evolution_instance: string | null;
   enabled: boolean;
   is_default: boolean;
   use_shared_ai: boolean;
@@ -100,13 +105,15 @@ export async function loadAiContext(): Promise<AiContext> {
 
 // Find the workspace handling an incoming message. Priority:
 // 1. explicit workspace id (e.g. stored on the lead),
-// 2. matching Chatwoot inbox id,
-// 3. matching Chatwoot account id,
-// 4. the default workspace.
+// 2. matching Evolution API instance name,
+// 3. matching Chatwoot inbox id,
+// 4. matching Chatwoot account id,
+// 5. the default workspace.
 export async function resolveWorkspace(params: {
   workspaceId?: string | null;
   inboxId?: string | null;
   accountId?: string | null;
+  instance?: string | null;
 }): Promise<WorkspaceRow | null> {
   const db = await admin();
   const { data } = await db.from("chatwoot_workspaces").select("*").eq("enabled", true);
@@ -116,6 +123,15 @@ export async function resolveWorkspace(params: {
   if (params.workspaceId) {
     const byId = rows.find((w) => w.id === params.workspaceId);
     if (byId) return byId;
+  }
+  if (params.instance) {
+    const byInstance = rows.find(
+      (w) =>
+        w.provider_type === "evolution" &&
+        w.evolution_instance &&
+        String(w.evolution_instance) === String(params.instance),
+    );
+    if (byInstance) return byInstance;
   }
   if (params.inboxId) {
     const byInbox = rows.find((w) => w.chatwoot_inbox_id && String(w.chatwoot_inbox_id) === String(params.inboxId));
@@ -367,6 +383,62 @@ export async function createChatwootConversation(params: {
   }
 }
 
+// Normalize a phone identifier into the digits Evolution API expects (country
+// code + number, no "+" or WhatsApp JID suffix).
+export function toEvolutionNumber(phone: string): string {
+  return String(phone).replace(/@.*$/, "").replace(/[^0-9]/g, "");
+}
+
+// Send a WhatsApp message through an Evolution API instance. Outbound targets
+// the contact's phone number directly (Evolution has no Chatwoot-style
+// conversation id). Best-effort: returns whether the send succeeded.
+export async function sendEvolutionReply(
+  workspace: WorkspaceRow | null,
+  phone: string,
+  message: string,
+): Promise<boolean> {
+  if (!workspace?.evolution_url || !workspace.evolution_api_key || !workspace.evolution_instance) {
+    console.warn("Evolution API not configured; reply not sent to WhatsApp.");
+    return false;
+  }
+  const base = String(workspace.evolution_url).replace(/\/$/, "");
+  const url = `${base}/message/sendText/${encodeURIComponent(workspace.evolution_instance)}`;
+  const number = toEvolutionNumber(phone);
+  if (!number) return false;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: workspace.evolution_api_key,
+      },
+      body: JSON.stringify({ number, text: message }),
+    });
+    return res.ok;
+  } catch (e) {
+    console.error("Evolution reply failed:", e);
+    return false;
+  }
+}
+
+// Provider-agnostic outbound delivery. Routes to Evolution API when the
+// workspace uses that provider, otherwise falls back to Chatwoot. This is the
+// single send path used by the AI engine, responder agents, workflows, manual
+// replies and scheduled messages so behavior stays identical across providers.
+export async function sendWorkspaceMessage(params: {
+  workspace: WorkspaceRow | null;
+  creds: ChatwootCreds | null;
+  phone: string;
+  conversationId: string | null | undefined;
+  message: string;
+}): Promise<boolean> {
+  const { workspace, creds, phone, conversationId, message } = params;
+  if (workspace?.provider_type === "evolution") {
+    return sendEvolutionReply(workspace, phone, message);
+  }
+  return sendChatwootReply(creds, conversationId, message);
+}
+
 
 
 export interface ProcessResult {
@@ -383,9 +455,19 @@ export async function processInboundMessage(params: {
   chatwootContactId?: string | null;
   chatwootInboxId?: string | null;
   chatwootAccountId?: string | null;
+  /** Evolution API instance name (when the message arrived via Evolution webhook). */
+  evolutionInstance?: string | null;
 }): Promise<ProcessResult> {
   const db = await admin();
-  const { phone, message, chatwootConversationId, chatwootContactId, chatwootInboxId, chatwootAccountId } = params;
+  const {
+    phone,
+    message,
+    chatwootConversationId,
+    chatwootContactId,
+    chatwootInboxId,
+    chatwootAccountId,
+    evolutionInstance,
+  } = params;
 
   // Log inbound message.
   await db.from("whatsapp_messages").insert({
@@ -396,8 +478,12 @@ export async function processInboundMessage(params: {
     processed: false,
   });
 
-  // Resolve which Chatwoot workspace this conversation belongs to.
-  const workspace = await resolveWorkspace({ inboxId: chatwootInboxId, accountId: chatwootAccountId });
+  // Resolve which workspace (Chatwoot inbox or Evolution instance) handles this conversation.
+  const workspace = await resolveWorkspace({
+    inboxId: chatwootInboxId,
+    accountId: chatwootAccountId,
+    instance: evolutionInstance,
+  });
   const creds = await resolveCreds(workspace);
 
   const lead = await getOrCreateLead(phone, chatwootConversationId, chatwootContactId, workspace?.id ?? null);
@@ -449,6 +535,7 @@ export async function processInboundMessage(params: {
     lead,
     conversationId: chatwootConversationId ?? lead.chatwoot_conversation_id ?? null,
     creds,
+    workspace,
   });
   if (responderReply !== null) {
     return { reply: responderReply, stage: lead.qualification_status ?? "NEW_LEAD", humanTakeover: false };
@@ -503,8 +590,14 @@ export async function processInboundMessage(params: {
     .eq("sender", "lead")
     .eq("processed", false);
 
-  // Send reply back through Chatwoot.
-  await sendChatwootReply(creds, chatwootConversationId ?? lead.chatwoot_conversation_id, decision.reply);
+  // Send reply back through the lead's connection provider (Chatwoot or Evolution).
+  await sendWorkspaceMessage({
+    workspace,
+    creds,
+    phone,
+    conversationId: chatwootConversationId ?? lead.chatwoot_conversation_id,
+    message: decision.reply,
+  });
 
   return {
     reply: decision.reply,
@@ -567,7 +660,13 @@ export async function deliverHumanMessage(params: {
   const workspace = await resolveWorkspace({ workspaceId: workspaceId as string | null });
   const creds = await resolveCreds(workspace);
 
-  const sent = await sendChatwootReply(creds, conversationId as string | null, message);
+  const sent = await sendWorkspaceMessage({
+    workspace,
+    creds,
+    phone,
+    conversationId: conversationId as string | null,
+    message,
+  });
 
   // Log the human message regardless of Chatwoot delivery so the timeline is complete.
   await db.from("whatsapp_messages").insert({
@@ -637,7 +736,11 @@ import { DEFAULT_AGENT_ID, delayToMs, type StepAnchor } from "./orchestration";
 import { runResponderAgent } from "./ai-engine.server";
 
 export interface WorkflowStep {
+  /** Step kind: send a message, or enroll the lead into another workflow. */
+  kind: "message" | "call_workflow";
   content: string;
+  /** For call_workflow steps: the workflow to enroll the lead into. */
+  targetWorkflowId?: string | null;
   /** Delay before sending this step, in milliseconds (used by the "wait" anchor). */
   delayMs: number;
   /** How this step is scheduled: relative wait, or countdown to a target date. */
@@ -651,6 +754,7 @@ interface GraphNode {
   type?: string;
   data?: {
     content?: string;
+    targetWorkflowId?: string | null;
     delayMinutes?: number;
     delayValue?: number;
     delayUnit?: string;
@@ -732,22 +836,42 @@ async function getLeadAppointmentAt(phone: string): Promise<string | null> {
   return (past as Array<{ appointment_date: string }> | null)?.[0]?.appointment_date ?? null;
 }
 
-// Resolve the ordered message steps from a saved visual graph. Walks the edges
-// starting from the trigger node; falls back to node array order.
+// Resolve the ordered steps from a saved visual graph. Walks the edges starting
+// from the trigger node; falls back to node array order. Includes message steps
+// and "call workflow" steps (which enroll the lead into another workflow).
 export function orderedSteps(graph: unknown): WorkflowStep[] {
   const g = (graph ?? {}) as WorkflowGraph;
   const nodes = g.nodes ?? [];
   const edges = g.edges ?? [];
-  const messageNodes = nodes.filter((n) => n.type === "message" || n.type === undefined);
-  if (messageNodes.length === 0) return [];
+  const isStepNode = (n: GraphNode) => n.type === "message" || n.type === "workflow" || n.type === undefined;
+  const stepNodes = nodes.filter(isStepNode);
+  if (stepNodes.length === 0) return [];
 
   const trigger = nodes.find((n) => n.type === "trigger");
-  const toStep = (n: GraphNode): WorkflowStep => ({
-    content: String(n.data?.content ?? "").trim(),
-    delayMs: nodeDelayMs(n.data),
-    anchor: (n.data?.anchor as StepAnchor) ?? "wait",
-    offsetMs: nodeOffsetMs(n.data),
-  });
+  const toStep = (n: GraphNode): WorkflowStep => {
+    if (n.type === "workflow") {
+      return {
+        kind: "call_workflow",
+        content: "",
+        targetWorkflowId: (n.data?.targetWorkflowId as string | null) ?? null,
+        delayMs: nodeDelayMs(n.data),
+        anchor: (n.data?.anchor as StepAnchor) ?? "wait",
+        offsetMs: nodeOffsetMs(n.data),
+      };
+    }
+    return {
+      kind: "message",
+      content: String(n.data?.content ?? "").trim(),
+      targetWorkflowId: null,
+      delayMs: nodeDelayMs(n.data),
+      anchor: (n.data?.anchor as StepAnchor) ?? "wait",
+      offsetMs: nodeOffsetMs(n.data),
+    };
+  };
+
+  // A step is valid if it has content (message) or a target workflow (call_workflow).
+  const isValid = (s: WorkflowStep) =>
+    s.kind === "call_workflow" ? Boolean(s.targetWorkflowId) : s.content.length > 0;
 
   if (trigger && edges.length > 0) {
     const ordered: WorkflowStep[] = [];
@@ -758,13 +882,14 @@ export function orderedSteps(graph: unknown): WorkflowStep[] {
       if (!edge || seen.has(edge.target)) break;
       seen.add(edge.target);
       const node = nodes.find((n) => n.id === edge.target);
-      if (node && (node.type === "message" || node.type === undefined)) ordered.push(toStep(node));
+      if (node && isStepNode(node)) ordered.push(toStep(node));
       currentId = edge.target;
     }
-    if (ordered.length > 0) return ordered.filter((s) => s.content.length > 0);
+    const filtered = ordered.filter(isValid);
+    if (filtered.length > 0) return filtered;
   }
 
-  return messageNodes.map(toStep).filter((s) => s.content.length > 0);
+  return stepNodes.map(toStep).filter(isValid);
 }
 
 
@@ -785,12 +910,19 @@ async function sendWorkflowMessage(phone: string, message: string, workflowWorks
     .maybeSingle();
 
   const leadRow = (lead as Record<string, unknown> | null) ?? {};
-  const filled = fillTemplate(message, {
-    lead_name: leadRow.lead_name ?? "",
-    course_interest: leadRow.course_interest ?? "",
-    country_interest: leadRow.country_interest ?? "",
-    phone_number: phone,
-  });
+
+  // Merge custom AI variables so workflow messages can use any {{VARIABLE}}
+  // defined in AI Settings, in addition to the built-in lead fields.
+  const { data: customVars } = await db.from("ai_variables").select("variable_name, variable_value");
+  const ctx: Record<string, unknown> = {};
+  for (const v of (customVars as Array<{ variable_name: string; variable_value: string }> | null) ?? []) {
+    ctx[v.variable_name] = v.variable_value;
+  }
+  ctx.lead_name = leadRow.lead_name ?? "";
+  ctx.course_interest = leadRow.course_interest ?? "";
+  ctx.country_interest = leadRow.country_interest ?? "";
+  ctx.phone_number = phone;
+  const filled = fillTemplate(message, ctx);
 
   const workspaceId =
     (conv as Record<string, unknown> | null)?.workspace_id ??
@@ -804,7 +936,13 @@ async function sendWorkflowMessage(phone: string, message: string, workflowWorks
 
   const workspace = await resolveWorkspace({ workspaceId: workspaceId as string | null });
   const creds = await resolveCreds(workspace);
-  const sent = await sendChatwootReply(creds, conversationId as string | null, filled);
+  const sent = await sendWorkspaceMessage({
+    workspace,
+    creds,
+    phone,
+    conversationId: conversationId as string | null,
+    message: filled,
+  });
 
   await db.from("whatsapp_messages").insert({
     phone_number: phone,
@@ -814,6 +952,29 @@ async function sendWorkflowMessage(phone: string, message: string, workflowWorks
     processed: true,
   });
   return sent;
+}
+
+// Execute a single workflow step: send its message, or (for a "call workflow"
+// step) enroll the lead into the target workflow. Enrolling without sendNow lets
+// the cron advance the called workflow on its next tick, which also prevents
+// infinite recursion between workflows that reference each other (the dedup in
+// enrollLeadInWorkflowById stops a lead being enrolled twice in the same flow).
+async function executeWorkflowStep(
+  step: WorkflowStep | undefined,
+  phone: string,
+  workspaceId: string | null,
+  leadId: string | null,
+): Promise<void> {
+  if (!step) return;
+  if (step.kind === "call_workflow") {
+    if (step.targetWorkflowId) {
+      await enrollLeadInWorkflowById({ workflowId: step.targetWorkflowId, phone, leadId, workspaceId });
+    }
+    return;
+  }
+  if (step.content) {
+    await sendWorkflowMessage(phone, step.content, workspaceId);
+  }
 }
 
 
@@ -869,6 +1030,7 @@ async function tryWorkflowResponder(params: {
   lead: LeadRecord;
   conversationId: string | null;
   creds: ChatwootCreds | null;
+  workspace: WorkspaceRow | null;
 }): Promise<string | null> {
   const db = await admin();
   const { data: enrollments } = await db
@@ -941,7 +1103,13 @@ async function tryWorkflowResponder(params: {
       ai_response: reply,
       processed: true,
     });
-    await sendChatwootReply(params.creds, params.conversationId, reply);
+    await sendWorkspaceMessage({
+      workspace: params.workspace,
+      creds: params.creds,
+      phone: params.phone,
+      conversationId: params.conversationId,
+      message: reply,
+    });
     return reply;
   }
 
@@ -1080,7 +1248,12 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
       continue;
     }
 
-    await sendWorkflowMessage(String(enr.phone_number), steps[step].content, (wf.workspace_id as string) ?? null);
+    await executeWorkflowStep(
+      steps[step],
+      String(enr.phone_number),
+      (wf.workspace_id as string) ?? null,
+      (enr.lead_id as string | null) ?? null,
+    );
     sent += 1;
 
     const nextStep = step + 1;
@@ -1111,34 +1284,31 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
   return { enrolled, sent };
 }
 
-// Manually enroll a single lead into a workflow identified by name (case
-// insensitive). Used by the Meeting Outcomes flow to route a lead into the
-// follow-up sequence that matches the recorded outcome. Best-effort: returns a
-// status string describing what happened so the caller can surface it / audit it.
-export async function enrollLeadInWorkflowByName(params: {
-  workflowName: string;
+interface EnrollLeadParams {
   phone: string;
   leadId?: string | null;
-  /** Workspace (Chatwoot connection) to send the messages through. */
+  /** Workspace (connection) to send the messages through. */
   workspaceId?: string | null;
-  /** When true, the first message is sent right away instead of waiting for the cron. */
+  /** When true, the first step runs right away instead of waiting for the cron. */
   sendNow?: boolean;
-  /** Extra delay (ms) before the first message becomes due. Used to honour the
-   *  meeting-outcome edit window so the sequence only fires once the countdown ends. */
+  /** Extra delay (ms) before the first message becomes due. */
   startDelayMs?: number;
   /** Optional per-lead goal/deadline date for countdown-anchored steps. */
   goalAt?: string | null;
-}): Promise<{ status: "enrolled" | "already_enrolled" | "no_workflow" | "no_steps"; workflowId?: string }> {
-  const db = await admin();
-  const { data: rows } = await db.from("workflows").select("*").eq("enabled", true);
-  const workflows = (rows as Array<Record<string, unknown>>) ?? [];
-  const target = workflows.find(
-    (w) => String(w.name ?? "").trim().toLowerCase() === params.workflowName.trim().toLowerCase(),
-  );
-  if (!target) return { status: "no_workflow" };
+}
 
+type EnrollStatus = "enrolled" | "already_enrolled" | "no_workflow" | "no_steps";
+
+// Shared enrollment core: given a resolved workflow row, enroll the lead and
+// optionally fire the first step immediately. Used by both the by-name and
+// by-id helpers.
+async function enrollLeadInWorkflowRow(
+  target: Record<string, unknown>,
+  params: EnrollLeadParams,
+): Promise<{ status: EnrollStatus; workflowId?: string }> {
+  const db = await admin();
   const steps = orderedSteps(target.graph);
-  if (steps.length === 0) return { status: "no_workflow", workflowId: target.id as string };
+  if (steps.length === 0) return { status: "no_steps", workflowId: target.id as string };
 
   // Route messages through the selected workspace for this lead going forward.
   if (params.workspaceId) {
@@ -1163,10 +1333,10 @@ export async function enrollLeadInWorkflowByName(params: {
 
   const goalAt = params.goalAt ?? null;
 
-  // Immediate activation: send the first message now and advance the sequence so
-  // the lead starts receiving the follow-up the moment the outcome is recorded.
+  // Immediate activation: run the first step now and advance the sequence so the
+  // lead starts receiving the follow-up the moment the outcome is recorded.
   if (params.sendNow) {
-    await sendWorkflowMessage(params.phone, steps[0].content, workspaceId);
+    await executeWorkflowStep(steps[0], params.phone, workspaceId, params.leadId ?? null);
     const nextStep = 1;
     if (nextStep >= steps.length) {
       await db.from("workflow_enrollments").insert({
@@ -1217,6 +1387,39 @@ export async function enrollLeadInWorkflowByName(params: {
     next_run_at: new Date(runAtMs).toISOString(),
   } as never);
   return { status: "enrolled", workflowId: target.id as string };
+}
+
+// Manually enroll a single lead into a workflow identified by name (case
+// insensitive). Used by the Meeting Outcomes flow to route a lead into the
+// follow-up sequence that matches the recorded outcome.
+export async function enrollLeadInWorkflowByName(
+  params: EnrollLeadParams & { workflowName: string },
+): Promise<{ status: EnrollStatus; workflowId?: string }> {
+  const db = await admin();
+  const { data: rows } = await db.from("workflows").select("*").eq("enabled", true);
+  const workflows = (rows as Array<Record<string, unknown>>) ?? [];
+  const target = workflows.find(
+    (w) => String(w.name ?? "").trim().toLowerCase() === params.workflowName.trim().toLowerCase(),
+  );
+  if (!target) return { status: "no_workflow" };
+  return enrollLeadInWorkflowRow(target, params);
+}
+
+// Enroll a lead into a workflow by id. Used by "call workflow" steps so renaming
+// the target workflow doesn't break the reference.
+export async function enrollLeadInWorkflowById(
+  params: EnrollLeadParams & { workflowId: string },
+): Promise<{ status: EnrollStatus; workflowId?: string }> {
+  const db = await admin();
+  const { data: row } = await db
+    .from("workflows")
+    .select("*")
+    .eq("id", params.workflowId)
+    .eq("enabled", true)
+    .maybeSingle();
+  const target = row as Record<string, unknown> | null;
+  if (!target) return { status: "no_workflow" };
+  return enrollLeadInWorkflowRow(target, params);
 }
 
 /* ===================== MEETING OUTCOME WORKFLOW TEMPLATES ===================== */

@@ -17,6 +17,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as ApiPublicProcessWorkflowsRouteImport } from './routes/api/public/process-workflows'
 import { Route as ApiPublicProcessScheduledMessagesRouteImport } from './routes/api/public/process-scheduled-messages'
+import { Route as ApiPublicEvolutionWebhookRouteImport } from './routes/api/public/evolution-webhook'
 import { Route as ApiPublicChatwootWebhookRouteImport } from './routes/api/public/chatwoot-webhook'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -60,6 +61,12 @@ const ApiPublicProcessScheduledMessagesRoute =
     path: '/api/public/process-scheduled-messages',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicEvolutionWebhookRoute =
+  ApiPublicEvolutionWebhookRouteImport.update({
+    id: '/api/public/evolution-webhook',
+    path: '/api/public/evolution-webhook',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicChatwootWebhookRoute =
   ApiPublicChatwootWebhookRouteImport.update({
     id: '/api/public/chatwoot-webhook',
@@ -74,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
+  '/api/public/evolution-webhook': typeof ApiPublicEvolutionWebhookRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
 }
@@ -84,6 +92,7 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
+  '/api/public/evolution-webhook': typeof ApiPublicEvolutionWebhookRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
 }
@@ -96,6 +105,7 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
+  '/api/public/evolution-webhook': typeof ApiPublicEvolutionWebhookRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
 }
@@ -108,6 +118,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/dashboard'
     | '/api/public/chatwoot-webhook'
+    | '/api/public/evolution-webhook'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
   fileRoutesByTo: FileRoutesByTo
@@ -118,6 +129,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/dashboard'
     | '/api/public/chatwoot-webhook'
+    | '/api/public/evolution-webhook'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
   id:
@@ -129,6 +141,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/_authenticated/dashboard'
     | '/api/public/chatwoot-webhook'
+    | '/api/public/evolution-webhook'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
   fileRoutesById: FileRoutesById
@@ -140,6 +153,7 @@ export interface RootRouteChildren {
   FeaturesRoute: typeof FeaturesRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiPublicChatwootWebhookRoute: typeof ApiPublicChatwootWebhookRoute
+  ApiPublicEvolutionWebhookRoute: typeof ApiPublicEvolutionWebhookRoute
   ApiPublicProcessScheduledMessagesRoute: typeof ApiPublicProcessScheduledMessagesRoute
   ApiPublicProcessWorkflowsRoute: typeof ApiPublicProcessWorkflowsRoute
 }
@@ -202,6 +216,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicProcessScheduledMessagesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/evolution-webhook': {
+      id: '/api/public/evolution-webhook'
+      path: '/api/public/evolution-webhook'
+      fullPath: '/api/public/evolution-webhook'
+      preLoaderRoute: typeof ApiPublicEvolutionWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/chatwoot-webhook': {
       id: '/api/public/chatwoot-webhook'
       path: '/api/public/chatwoot-webhook'
@@ -230,6 +251,7 @@ const rootRouteChildren: RootRouteChildren = {
   FeaturesRoute: FeaturesRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiPublicChatwootWebhookRoute: ApiPublicChatwootWebhookRoute,
+  ApiPublicEvolutionWebhookRoute: ApiPublicEvolutionWebhookRoute,
   ApiPublicProcessScheduledMessagesRoute:
     ApiPublicProcessScheduledMessagesRoute,
   ApiPublicProcessWorkflowsRoute: ApiPublicProcessWorkflowsRoute,
