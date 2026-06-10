@@ -30,7 +30,8 @@ async function admin(): Promise<AdminClient> {
 
 // Re-export so dashboard/advanced server functions can run admissions helpers
 // inside a resolved space.
-export { runInSpace } from "./space-context.server";
+import { runInSpace } from "./space-context.server";
+export { runInSpace };
 
 import type { ProviderConfig } from "./ai-engine.server";
 
