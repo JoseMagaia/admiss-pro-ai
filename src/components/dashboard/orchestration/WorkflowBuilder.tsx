@@ -263,7 +263,6 @@ export function WorkflowBuilder({
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Built-in lead variables always available, plus any custom AI variables.
-  const BUILTIN_VARS = ["lead_name", "course_interest", "country_interest", "phone_number"];
   const allVariables = useMemo(
     () => [...BUILTIN_VARS, ...((variables ?? []).filter((v) => !BUILTIN_VARS.includes(v)))],
     [variables],
