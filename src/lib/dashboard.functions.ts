@@ -1011,7 +1011,13 @@ export const getDashboardStats = createServerFn({ method: "GET" }).handler(async
 // Send a manual reply from an agent. Sending pauses the AI (human takeover).
 export const sendHumanMessage = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
-    z.object({ phone: z.string().min(1).max(60), message: z.string().min(1).max(4000) }).parse(d),
+    z
+      .object({
+        phone: z.string().min(1).max(60),
+        message: z.string().min(1).max(4000),
+        workspaceId: z.string().uuid().optional(),
+      })
+      .parse(d),
   )
   .handler(async ({ data }) => {
     let me;
@@ -1027,7 +1033,12 @@ export const sendHumanMessage = createServerFn({ method: "POST" })
       .from("conversations")
       .update({ human_takeover: true, status: "pending", assigned_agent: me.email ?? "Agent", ai_resumed: false } as never)
       .eq("phone_number", data.phone);
-    const result = await deliverHumanMessage({ phone: data.phone, message: data.message });
+    const result = await deliverHumanMessage({
+      phone: data.phone,
+      message: data.message,
+      workspaceId: data.workspaceId ?? null,
+      actor: me.email ?? "Agent",
+    });
     return { ok: result.ok, error: result.error ?? null };
   });
 
