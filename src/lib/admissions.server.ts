@@ -130,7 +130,8 @@ export async function resolveWorkspace(params: {
   accountId?: string | null;
   instance?: string | null;
 }): Promise<WorkspaceRow | null> {
-  const db = await admin();
+  // Discovery must search across all spaces to find the owning workspace.
+  const db = await rawAdmin();
   const { data } = await db.from("chatwoot_workspaces").select("*").eq("enabled", true);
   const rows = (data as WorkspaceRow[]) ?? [];
   if (rows.length === 0) return null;
