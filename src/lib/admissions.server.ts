@@ -58,6 +58,7 @@ export interface WorkspaceRow {
   enabled: boolean;
   is_default: boolean;
   use_shared_ai: boolean;
+  space_id?: string | null;
 }
 
 export interface ChatwootCreds {
