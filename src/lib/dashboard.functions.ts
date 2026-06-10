@@ -2,12 +2,6 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { ALL_ROLES, type AppRole } from "@/lib/roles";
 
-// Raw service-role client (NOT space-scoped). Reserved for rare cross-space needs.
-async function rawDb() {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin;
-}
-
 // Resolve the caller's active Space (honors x-space-id, validates membership).
 async function spaceCtx() {
   const { resolveSpaceContext } = await import("./space-context.server");
