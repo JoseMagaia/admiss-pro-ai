@@ -569,10 +569,27 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                 rows={2}
                 className="resize-none"
               />
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <p className="text-[11px] text-muted-foreground">
-                  Sending pauses the AI for this conversation.
-                </p>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground">Send from</span>
+                  <Select
+                    value={sendWorkspace || "__default"}
+                    onValueChange={(v) => setSendWorkspace(v === "__default" ? "" : v)}
+                  >
+                    <SelectTrigger className="h-8 w-[190px] text-xs">
+                      <SelectValue placeholder="Lead's default inbox" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__default">Lead&apos;s default inbox</SelectItem>
+                      {workspaces.map((w) => (
+                        <SelectItem key={w.id} value={w.id}>
+                          {w.name ?? "Unnamed"}
+                          {w.is_default ? " (default)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
