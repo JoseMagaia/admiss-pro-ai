@@ -32,10 +32,12 @@ export function WorkflowManager() {
   const delFn = useServerFn(deleteWorkflow);
   const agentsFn = useServerFn(listResponderAgents);
   const wsFn = useServerFn(listWorkspaces);
+  const varsFn = useServerFn(listAiVariables);
 
   const { data } = useQuery({ queryKey: ["workflows"], queryFn: () => listFn() });
   const { data: agentsData } = useQuery({ queryKey: ["responder-agents"], queryFn: () => agentsFn() });
   const { data: wsData } = useQuery({ queryKey: ["workspaces"], queryFn: () => wsFn() });
+  const { data: varsData } = useQuery({ queryKey: ["ai-variables"], queryFn: () => varsFn() });
 
   const workflows = (data?.workflows ?? []) as unknown as WorkflowRow[];
   const agents = ((agentsData?.agents ?? []) as unknown as Array<{ id: string; name: string }>).map((a) => ({
@@ -46,6 +48,12 @@ export function WorkflowManager() {
     id: w.id,
     name: w.name,
   }));
+  const workflowOptions = workflows
+    .filter((w) => Boolean(w.id))
+    .map((w) => ({ id: w.id as string, name: w.name }));
+  const variableNames = (
+    (varsData?.variables ?? []) as unknown as Array<{ variable_name: string }>
+  ).map((v) => v.variable_name);
 
   const [editing, setEditing] = useState<WorkflowRow | null>(null);
 
