@@ -143,6 +143,8 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const [search, setSearch] = useState("");
   const [active, setActive] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  // Workspace the human agent texts from (empty = lead's default inbox).
+  const [sendWorkspace, setSendWorkspace] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
