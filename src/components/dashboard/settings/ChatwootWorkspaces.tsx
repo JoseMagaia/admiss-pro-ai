@@ -66,6 +66,7 @@ function WorkspaceEditor({
   const qc = useQueryClient();
   const saveFn = useServerFn(upsertWorkspace);
   const webhookFn = useServerFn(setEvolutionWebhook);
+  const testFn = useServerFn(testWorkspaceConnection);
   const [form, setForm] = useState<Workspace>(initial);
   useEffect(() => setForm(initial), [initial]);
 
