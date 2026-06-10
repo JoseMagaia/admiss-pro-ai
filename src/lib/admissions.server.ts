@@ -297,15 +297,22 @@ export async function applyDecision(lead: LeadRecord, decision: QualificationDec
 
 // Send a message to a WhatsApp contact through Chatwoot using the given
 // credentials (workspace-aware, with education_settings fallback).
+export interface SendResult {
+  ok: boolean;
+  error?: string;
+}
+
 export async function sendChatwootReply(
   creds: ChatwootCreds | null,
   conversationId: string | null | undefined,
   message: string,
-): Promise<boolean> {
-  if (!conversationId) return false;
+): Promise<SendResult> {
   if (!creds) {
     console.warn("Chatwoot not configured; reply not sent to WhatsApp.");
-    return false;
+    return { ok: false, error: "Chatwoot isn't set up for this inbox yet." };
+  }
+  if (!conversationId) {
+    return { ok: false, error: "No active Chatwoot conversation for this contact yet." };
   }
   const base = String(creds.url).replace(/\/$/, "");
   const url = `${base}/api/v1/accounts/${creds.accountId}/conversations/${conversationId}/messages`;
@@ -318,10 +325,19 @@ export async function sendChatwootReply(
       },
       body: JSON.stringify({ content: message, message_type: "outgoing" }),
     });
-    return res.ok;
+    if (!res.ok) {
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, error: "Chatwoot rejected the API token (check it in settings)." };
+      }
+      if (res.status === 404) {
+        return { ok: false, error: "Chatwoot couldn't find this conversation or inbox." };
+      }
+      return { ok: false, error: `Chatwoot returned an error (${res.status}).` };
+    }
+    return { ok: true };
   } catch (e) {
     console.error("Chatwoot reply failed:", e);
-    return false;
+    return { ok: false, error: "Couldn't reach the Chatwoot server." };
   }
 }
 
