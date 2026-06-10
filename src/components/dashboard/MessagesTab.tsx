@@ -507,6 +507,15 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
               {activeMsgs.map((m) => {
                 const isLead = m.sender === "lead";
                 const isHuman = m.sender === "agent" || m.sender === "human";
+                if (m.sender === "note") {
+                  return (
+                    <div key={m.id} className="flex justify-center">
+                      <div className="max-w-[85%] rounded-full bg-muted/60 px-3 py-1 text-center text-[11px] text-muted-foreground">
+                        {m.message_content}
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <div key={m.id} className={cn("flex", isLead ? "justify-start" : "justify-end")}>
                     <div
