@@ -1058,19 +1058,23 @@ export const sendHumanMessage = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const { deliverHumanMessage } = await import("./admissions.server");
+    const { deliverHumanMessage, runInSpace } = await import("./admissions.server");
+    const sid = await activeSpaceId();
+    if (!sid) return { ok: false, error: "No active space." };
     const db = await scopedDb();
     // Pause AI for this conversation when an agent steps in.
     await db
       .from("conversations")
       .update({ human_takeover: true, status: "pending", assigned_agent: me.email ?? "Agent", ai_resumed: false } as never)
       .eq("phone_number", data.phone);
-    const result = await deliverHumanMessage({
-      phone: data.phone,
-      message: data.message,
-      workspaceId: data.workspaceId ?? null,
-      actor: me.email ?? "Agent",
-    });
+    const result = await runInSpace(sid, () =>
+      deliverHumanMessage({
+        phone: data.phone,
+        message: data.message,
+        workspaceId: data.workspaceId ?? null,
+        actor: me.email ?? "Agent",
+      }),
+    );
     return { ok: result.ok, error: result.error ?? null };
   });
 
