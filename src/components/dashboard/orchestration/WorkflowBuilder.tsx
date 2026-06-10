@@ -495,7 +495,7 @@ export function WorkflowBuilder({
         )}
 
         <div className="space-y-1.5">
-          <Label>Chatwoot Workspace</Label>
+          <Label>Workspace / Inbox</Label>
           <select
             value={workspaceId}
             onChange={(e) => setWorkspaceId(e.target.value)}

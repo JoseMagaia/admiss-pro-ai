@@ -219,7 +219,7 @@ function AgentEditor({ initial, onDone }: { initial: Agent; onDone: () => void }
           <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Follow-up Closer" />
         </div>
         <div className="space-y-1.5">
-          <Label>Chatwoot Workspace</Label>
+          <Label>Workspace / Inbox</Label>
           <select
             value={form.workspace_id ?? ""}
             onChange={(e) => set("workspace_id", e.target.value || null)}

@@ -612,6 +612,10 @@ export async function deliverHumanMessage(params: {
   phone: string;
   message: string;
   scheduled?: boolean;
+  /** When set, the agent chose to deliver through this specific workspace. */
+  workspaceId?: string | null;
+  /** Label of the agent acting, recorded in the internal switch note. */
+  actor?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const db = await admin();
   const { phone, message } = params;
@@ -636,11 +640,12 @@ export async function deliverHumanMessage(params: {
       .insert({
         phone_number: phone,
         lead_id: (lead as Record<string, unknown> | null)?.id ?? null,
-        workspace_id: (lead as Record<string, unknown> | null)?.workspace_id ?? null,
+        workspace_id:
+          (params.workspaceId ?? (lead as Record<string, unknown> | null)?.workspace_id) ?? null,
         chatwoot_conversation_id: (lead as Record<string, unknown> | null)?.chatwoot_conversation_id ?? null,
         status: "pending",
         human_takeover: true,
-        assigned_agent: "Admissions Team",
+        assigned_agent: params.actor ?? "Admissions Team",
         ai_resumed: false,
       } as never)
       .select("id, chatwoot_conversation_id, workspace_id")
@@ -648,27 +653,74 @@ export async function deliverHumanMessage(params: {
     conv = createdConv;
   }
 
-  const workspaceId =
-    (conv as Record<string, unknown> | null)?.workspace_id ??
-    (lead as Record<string, unknown> | null)?.workspace_id ??
+  const currentWorkspaceId =
+    ((conv as Record<string, unknown> | null)?.workspace_id as string | null) ??
+    ((lead as Record<string, unknown> | null)?.workspace_id as string | null) ??
     null;
-  const conversationId =
-    (conv as Record<string, unknown> | null)?.chatwoot_conversation_id ??
-    (lead as Record<string, unknown> | null)?.chatwoot_conversation_id ??
+  let conversationId =
+    ((conv as Record<string, unknown> | null)?.chatwoot_conversation_id as string | null) ??
+    ((lead as Record<string, unknown> | null)?.chatwoot_conversation_id as string | null) ??
     null;
 
-  const workspace = await resolveWorkspace({ workspaceId: workspaceId as string | null });
+  // Decide which workspace this message is delivered through.
+  const requested = params.workspaceId ?? null;
+  const switching = Boolean(requested) && requested !== currentWorkspaceId;
+  const effectiveWorkspaceId = requested ?? currentWorkspaceId;
+
+  const workspace = await resolveWorkspace({ workspaceId: effectiveWorkspaceId });
   const creds = await resolveCreds(workspace);
+
+  // When the agent switches the delivery workspace, the stored Chatwoot
+  // conversation id belongs to the previous account, so reissue one in the new
+  // workspace and drop an internal note into the same chat window.
+  if (switching) {
+    const prevWorkspace = currentWorkspaceId
+      ? await resolveWorkspace({ workspaceId: currentWorkspaceId })
+      : null;
+
+    if (workspace?.provider_type === "evolution") {
+      conversationId = null;
+    } else {
+      conversationId = await createChatwootConversation({
+        creds,
+        inboxId: workspace?.chatwoot_inbox_id ?? null,
+        phone,
+        name: null,
+      });
+    }
+
+    const fromLabel = prevWorkspace?.name ?? "previous workspace";
+    const toLabel = workspace?.name ?? "default workspace";
+    const actorLabel = params.actor ? ` by ${params.actor}` : "";
+    await db.from("whatsapp_messages").insert({
+      phone_number: phone,
+      message_content: `Delivery workspace switched from "${fromLabel}" to "${toLabel}"${actorLabel}.`,
+      sender: "note",
+      message_type: "text",
+      processed: true,
+    });
+
+    await db
+      .from("conversations")
+      .update({ workspace_id: workspace?.id ?? null, chatwoot_conversation_id: conversationId } as never)
+      .eq("phone_number", phone);
+    if ((lead as Record<string, unknown> | null)?.id) {
+      await db
+        .from("leads")
+        .update({ workspace_id: workspace?.id ?? null } as never)
+        .eq("id", (lead as Record<string, unknown>).id as string);
+    }
+  }
 
   const sent = await sendWorkspaceMessage({
     workspace,
     creds,
     phone,
-    conversationId: conversationId as string | null,
+    conversationId,
     message,
   });
 
-  // Log the human message regardless of Chatwoot delivery so the timeline is complete.
+  // Log the human message regardless of delivery success so the timeline is complete.
   await db.from("whatsapp_messages").insert({
     phone_number: phone,
     message_content: message,
@@ -683,7 +735,7 @@ export async function deliverHumanMessage(params: {
     .eq("phone_number", phone);
 
   if (!sent) {
-    return { ok: false, error: "Could not deliver via Chatwoot. Message logged to the conversation." };
+    return { ok: false, error: "Could not deliver via the selected workspace. Message logged to the conversation." };
   }
   return { ok: true };
 }

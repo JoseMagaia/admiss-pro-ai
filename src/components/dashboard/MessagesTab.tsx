@@ -94,6 +94,7 @@ interface Conversation {
   phone_number: string;
   human_takeover: boolean;
   status: string;
+  workspace_id?: string | null;
 }
 
 interface MessageThread {
@@ -142,6 +143,8 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const [search, setSearch] = useState("");
   const [active, setActive] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  // Workspace the human agent texts from (empty = lead's default inbox).
+  const [sendWorkspace, setSendWorkspace] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -233,8 +236,15 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeMsgs.length, active]);
 
+  // Default the composer's "send from" selector to the conversation's workspace
+  // whenever the open conversation (or its stored workspace) changes.
+  useEffect(() => {
+    setSendWorkspace((activeConv?.workspace_id as string | null) ?? "");
+  }, [active, activeConv?.workspace_id]);
+
   const send = useMutation({
-    mutationFn: (message: string) => sendFn({ data: { phone: activePhone!, message } }),
+    mutationFn: (message: string) =>
+      sendFn({ data: { phone: activePhone!, message, workspaceId: sendWorkspace || undefined } }),
     onSuccess: (r) => {
       const res = r as { ok: boolean; error?: string };
       if (res.ok) {
@@ -497,6 +507,15 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
               {activeMsgs.map((m) => {
                 const isLead = m.sender === "lead";
                 const isHuman = m.sender === "agent" || m.sender === "human";
+                if (m.sender === "note") {
+                  return (
+                    <div key={m.id} className="flex justify-center">
+                      <div className="max-w-[85%] rounded-full bg-muted/60 px-3 py-1 text-center text-[11px] text-muted-foreground">
+                        {m.message_content}
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <div key={m.id} className={cn("flex", isLead ? "justify-start" : "justify-end")}>
                     <div
@@ -550,10 +569,27 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                 rows={2}
                 className="resize-none"
               />
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <p className="text-[11px] text-muted-foreground">
-                  Sending pauses the AI for this conversation.
-                </p>
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] text-muted-foreground">Send from</span>
+                  <Select
+                    value={sendWorkspace || "__default"}
+                    onValueChange={(v) => setSendWorkspace(v === "__default" ? "" : v)}
+                  >
+                    <SelectTrigger className="h-8 w-[190px] text-xs">
+                      <SelectValue placeholder="Lead's default inbox" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__default">Lead&apos;s default inbox</SelectItem>
+                      {workspaces.map((w) => (
+                        <SelectItem key={w.id} value={w.id}>
+                          {w.name ?? "Unnamed"}
+                          {w.is_default ? " (default)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
