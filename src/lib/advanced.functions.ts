@@ -983,6 +983,14 @@ export const executeAgentAction = createServerFn({ method: "POST" })
           "assign_workflow",
           "remove_workflow",
           "set_opportunity",
+          "upsert_ai_variable",
+          "delete_ai_variable",
+          "create_workflow",
+          "update_workflow",
+          "create_responder_agent",
+          "update_responder_agent",
+          "create_http_action",
+          "update_http_action",
         ]),
         args: z.record(z.string(), z.unknown()),
       })
@@ -995,8 +1003,25 @@ export const executeAgentAction = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedAdmin();
     const args = data.args as Record<string, unknown>;
+
+    const auditCfg = async (action: string, entityType: string, entityId: string | null, details: Record<string, unknown>) => {
+      await db.from("audit_logs").insert({
+        actor_email: user.email ?? null,
+        actor_role: user.role ?? null,
+        action,
+        entity_type: entityType,
+        entity_id: entityId,
+        details: { ...details, via: "ai_agent" },
+      } as never);
+    };
+
+    // ---- Configuration actions (no lead phone required) ----
+    const cfg = await executeConfigAction(db, data.name, args, auditCfg);
+    if (cfg) return cfg;
+
+    // ---- Lead-based actions (require a phone number) ----
     const phone = typeof args.phone === "string" ? args.phone.trim() : "";
     if (!phone) return { ok: false, error: "Action is missing a lead phone number." };
 
@@ -1017,6 +1042,7 @@ export const executeAgentAction = createServerFn({ method: "POST" })
         details: { ...details, phone, via: "ai_agent" },
       } as never);
     };
+
 
     try {
       if (data.name === "move_lead_stage") {
