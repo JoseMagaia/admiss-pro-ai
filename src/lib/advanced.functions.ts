@@ -731,6 +731,146 @@ const AGENT_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "upsert_ai_variable",
+      description:
+        "Create or update an AI variable. If a variable with the same name exists it is updated, otherwise created.",
+      parameters: {
+        type: "object",
+        properties: {
+          variable_name: { type: "string", description: "UPPER_SNAKE_CASE name, e.g. TUITION_FEE." },
+          variable_value: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["variable_name", "variable_value"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_ai_variable",
+      description: "Delete an AI variable by its exact name.",
+      parameters: {
+        type: "object",
+        properties: { variable_name: { type: "string" } },
+        required: ["variable_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_workflow",
+      description: "Create a new outbound workflow.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+          trigger_type: {
+            type: "string",
+            description: "One of: manual, pipeline_stage. Defaults to manual.",
+          },
+          enabled: { type: "boolean" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_workflow",
+      description: "Update an existing workflow identified by its current exact name.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The workflow's current name." },
+          new_name: { type: "string" },
+          description: { type: "string" },
+          enabled: { type: "boolean" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_responder_agent",
+      description: "Create a new responder agent.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+          system_prompt: { type: "string" },
+          enabled: { type: "boolean" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_responder_agent",
+      description: "Update an existing responder agent identified by its current exact name.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The agent's current name." },
+          new_name: { type: "string" },
+          description: { type: "string" },
+          system_prompt: { type: "string" },
+          enabled: { type: "boolean" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_http_action",
+      description: "Create a new outbound HTTP action (webhook).",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          trigger_stage: { type: "string", description: "The pipeline stage that fires this action." },
+          url: { type: "string" },
+          method: { type: "string", description: "POST, GET, PUT or PATCH. Defaults to POST." },
+          payload_template: { type: "string", description: "JSON body template; may use {{variables}}." },
+          enabled: { type: "boolean" },
+        },
+        required: ["name", "trigger_stage", "url"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_http_action",
+      description: "Update an existing HTTP action identified by its current exact name.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The action's current name." },
+          new_name: { type: "string" },
+          trigger_stage: { type: "string" },
+          url: { type: "string" },
+          method: { type: "string" },
+          payload_template: { type: "string" },
+          enabled: { type: "boolean" },
+        },
+        required: ["name"],
+      },
+    },
+  },
 ] as const;
 
 export const generateAgentReply = createServerFn({ method: "POST" })
