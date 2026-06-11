@@ -69,6 +69,7 @@ export function SettingsTab({ role }: { role: AppRole | null }) {
         {activeSection === "actions" && <HttpActionsManager />}
         {activeSection === "lab" && <PromptTestingLab />}
         {activeSection === "users" && <UserManagement />}
+        {activeSection === "spaces" && <SpacesManager />}
       </div>
     </div>
   );
