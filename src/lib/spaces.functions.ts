@@ -2,6 +2,21 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { ALL_ROLES, type AppRole } from "@/lib/roles";
 
+export type SpaceLite = { id: string; name: string; status: string; is_default: boolean };
+export type SpaceRow = {
+  id: string;
+  name: string;
+  slug: string | null;
+  status: string;
+  plan: string;
+  feature_flags: Record<string, boolean>;
+  limits: Record<string, number>;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+  member_count: number;
+};
+
 async function admin() {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   return supabaseAdmin;
