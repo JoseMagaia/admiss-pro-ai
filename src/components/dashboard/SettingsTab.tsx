@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network } from "lucide-react";
+import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CompanySettingsForm, ProgramSettingsForm, ChatwootSettingsForm } from "./settings/SettingsForms";
 import { AiPromptEditor } from "./settings/AiPromptEditor";
