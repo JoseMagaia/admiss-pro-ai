@@ -564,7 +564,7 @@ function AudienceManager({
 
       {locked ? (
         <p className="text-sm text-muted-foreground">
-          This campaign is {`${"completed/cancelled"}`}; its audience can no longer be changed.
+          This campaign is finished; its audience can no longer be changed.
         </p>
       ) : (
         <>
