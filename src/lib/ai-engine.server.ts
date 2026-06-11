@@ -206,12 +206,19 @@ function safeParseDecision(content: string, currentStage: string): Qualification
     (updates as Record<string, unknown>)[k] = v;
   }
 
+  const apptRaw = typeof parsed.appointment_date === "string" ? parsed.appointment_date.trim() : "";
+  const apptDate = apptRaw && !Number.isNaN(Date.parse(apptRaw)) ? new Date(apptRaw).toISOString() : null;
+  const apptStatusRaw = typeof parsed.appointment_status === "string" ? parsed.appointment_status.toLowerCase() : "";
+  const apptStatus = (APPOINTMENT_STATUSES as readonly string[]).includes(apptStatusRaw) ? apptStatusRaw : "pending";
+
   return {
     reply: parsed.reply,
     qualification_status: stage,
     updates,
     create_booking: Boolean(parsed.create_booking),
     booking_notes: typeof parsed.booking_notes === "string" ? parsed.booking_notes : undefined,
+    appointment_date: apptDate,
+    appointment_status: apptStatus,
     reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : undefined,
   };
 }
