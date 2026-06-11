@@ -197,7 +197,50 @@ export const createSpace = createServerFn({ method: "POST" })
       .select("id")
       .single();
     if (error) return { ok: false, error: error.message };
-    return { ok: true, error: null, id: (created as { id: string }).id };
+    const spaceId = (created as { id: string }).id;
+
+    // Seed a default "Admissions Pipeline" so the new sub-account has a working
+    // Pipeline board matching the built-in admissions funnel.
+    const { data: pipe } = await db
+      .from("pipelines")
+      .insert({ space_id: spaceId, name: "Admissions Pipeline", is_default: true, position: 0 } as never)
+      .select("id")
+      .single();
+    const pid = (pipe as { id?: string } | null)?.id;
+    if (pid) {
+      await db.from("pipeline_stages").insert([
+        { space_id: spaceId, pipeline_id: pid, label: "New Lead", stage_keys: ["NEW_LEAD", "NAME_CAPTURED"], position: 0 },
+        {
+          space_id: spaceId,
+          pipeline_id: pid,
+          label: "Qualification",
+          stage_keys: [
+            "STRUCTURAL_CONFIRMATION",
+            "COURSE_IDENTIFIED",
+            "DESTINATION_IDENTIFIED",
+            "ACADEMIC_PROFILE_VERIFIED",
+            "DOCUMENT_REQUESTED",
+            "FINANCIAL_ALIGNMENT",
+            "PARENT_CONTACT_RECEIVED",
+          ],
+          position: 1,
+        },
+        { space_id: spaceId, pipeline_id: pid, label: "Qualified", stage_keys: ["QUALIFIED"], position: 2 },
+        { space_id: spaceId, pipeline_id: pid, label: "Booking Pending", stage_keys: ["BOOKING_REQUEST_CREATED"], position: 3 },
+        {
+          space_id: spaceId,
+          pipeline_id: pid,
+          label: "Meeting Scheduled",
+          stage_keys: ["BOOKING_CONFIRMATION_CALL", "SPECIALIST_CONSULTATION"],
+          position: 4,
+        },
+        { space_id: spaceId, pipeline_id: pid, label: "Payment Pending", stage_keys: ["PAYMENT_ACTIVATION"], position: 5 },
+        { space_id: spaceId, pipeline_id: pid, label: "Onboarding", stage_keys: ["ONBOARDING"], position: 6 },
+        { space_id: spaceId, pipeline_id: pid, label: "Disqualified", stage_keys: ["DISQUALIFIED"], position: 7 },
+      ] as never);
+    }
+
+    return { ok: true, error: null, id: spaceId };
   });
 
 export const updateSpace = createServerFn({ method: "POST" })
