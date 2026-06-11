@@ -1282,12 +1282,25 @@ async function tryWorkflowResponder(params: {
       return null;
     }
 
+    // Responder agents may capture a booking time via a hidden directive.
+    const booking = extractBookingDirective(reply);
+    const cleanReply = booking.clean || reply;
+    if (booking.date) {
+      await upsertLeadBooking(db, {
+        phone: params.phone,
+        leadName: params.lead.lead_name ?? null,
+        date: booking.date,
+        status: booking.status,
+        notes: "Set by AI responder agent.",
+      });
+    }
+
     await db.from("whatsapp_messages").insert({
       phone_number: params.phone,
-      message_content: reply,
+      message_content: cleanReply,
       sender: "ai",
       message_type: "text",
-      ai_response: reply,
+      ai_response: cleanReply,
       processed: true,
     });
     await sendWorkspaceMessage({
@@ -1295,9 +1308,9 @@ async function tryWorkflowResponder(params: {
       creds: params.creds,
       phone: params.phone,
       conversationId: params.conversationId,
-      message: reply,
+      message: cleanReply,
     });
-    return reply;
+    return cleanReply;
   }
 
   return null;
