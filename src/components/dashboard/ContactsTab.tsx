@@ -157,6 +157,11 @@ export function ContactsTab() {
               ))}
             </SelectContent>
           </Select>
+          <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={handleExport} disabled={exporting}>
+            <Download className="h-3.5 w-3.5" />
+            Export CSV
+          </Button>
+
         </div>
       </div>
 
