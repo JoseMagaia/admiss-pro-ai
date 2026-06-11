@@ -37,6 +37,8 @@ export function OrchestrationTab() {
       <div>
         {section === "workflows" && <WorkflowManager />}
         {section === "agents" && <ResponderAgentManager />}
+        {section === "campaigns" && <CampaignManager />}
+
       </div>
     </div>
   );
