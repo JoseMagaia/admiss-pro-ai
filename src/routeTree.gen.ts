@@ -17,6 +17,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as ApiPublicProcessWorkflowsRouteImport } from './routes/api/public/process-workflows'
 import { Route as ApiPublicProcessScheduledMessagesRouteImport } from './routes/api/public/process-scheduled-messages'
+import { Route as ApiPublicProcessCampaignsRouteImport } from './routes/api/public/process-campaigns'
 import { Route as ApiPublicEvolutionWebhookRouteImport } from './routes/api/public/evolution-webhook'
 import { Route as ApiPublicChatwootWebhookRouteImport } from './routes/api/public/chatwoot-webhook'
 
@@ -61,6 +62,12 @@ const ApiPublicProcessScheduledMessagesRoute =
     path: '/api/public/process-scheduled-messages',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicProcessCampaignsRoute =
+  ApiPublicProcessCampaignsRouteImport.update({
+    id: '/api/public/process-campaigns',
+    path: '/api/public/process-campaigns',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicEvolutionWebhookRoute =
   ApiPublicEvolutionWebhookRouteImport.update({
     id: '/api/public/evolution-webhook',
@@ -82,6 +89,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
   '/api/public/evolution-webhook': typeof ApiPublicEvolutionWebhookRoute
+  '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
 }
@@ -93,6 +101,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
   '/api/public/evolution-webhook': typeof ApiPublicEvolutionWebhookRoute
+  '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
 }
@@ -106,6 +115,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
   '/api/public/evolution-webhook': typeof ApiPublicEvolutionWebhookRoute
+  '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
 }
@@ -119,6 +129,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/api/public/chatwoot-webhook'
     | '/api/public/evolution-webhook'
+    | '/api/public/process-campaigns'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
   fileRoutesByTo: FileRoutesByTo
@@ -130,6 +141,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/api/public/chatwoot-webhook'
     | '/api/public/evolution-webhook'
+    | '/api/public/process-campaigns'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
   id:
@@ -142,6 +154,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/api/public/chatwoot-webhook'
     | '/api/public/evolution-webhook'
+    | '/api/public/process-campaigns'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
   fileRoutesById: FileRoutesById
@@ -154,6 +167,7 @@ export interface RootRouteChildren {
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiPublicChatwootWebhookRoute: typeof ApiPublicChatwootWebhookRoute
   ApiPublicEvolutionWebhookRoute: typeof ApiPublicEvolutionWebhookRoute
+  ApiPublicProcessCampaignsRoute: typeof ApiPublicProcessCampaignsRoute
   ApiPublicProcessScheduledMessagesRoute: typeof ApiPublicProcessScheduledMessagesRoute
   ApiPublicProcessWorkflowsRoute: typeof ApiPublicProcessWorkflowsRoute
 }
@@ -216,6 +230,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicProcessScheduledMessagesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/process-campaigns': {
+      id: '/api/public/process-campaigns'
+      path: '/api/public/process-campaigns'
+      fullPath: '/api/public/process-campaigns'
+      preLoaderRoute: typeof ApiPublicProcessCampaignsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/evolution-webhook': {
       id: '/api/public/evolution-webhook'
       path: '/api/public/evolution-webhook'
@@ -252,6 +273,7 @@ const rootRouteChildren: RootRouteChildren = {
   SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiPublicChatwootWebhookRoute: ApiPublicChatwootWebhookRoute,
   ApiPublicEvolutionWebhookRoute: ApiPublicEvolutionWebhookRoute,
+  ApiPublicProcessCampaignsRoute: ApiPublicProcessCampaignsRoute,
   ApiPublicProcessScheduledMessagesRoute:
     ApiPublicProcessScheduledMessagesRoute,
   ApiPublicProcessWorkflowsRoute: ApiPublicProcessWorkflowsRoute,

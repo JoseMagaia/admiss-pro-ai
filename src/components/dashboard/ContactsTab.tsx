@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, Contact as ContactIcon, MessageSquare, ArrowUpDown } from "lucide-react";
+import { Search, Contact as ContactIcon, MessageSquare, ArrowUpDown, Download } from "lucide-react";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { listContacts } from "@/lib/dashboard.functions";
+import { exportContactsCsv } from "@/lib/campaigns.functions";
 import { useDashboardNav } from "@/lib/dashboard-nav";
+
 
 interface Contact {
   id: string;
@@ -52,10 +55,38 @@ function withinRange(iso: string | null | undefined, range: string): boolean {
 
 export function ContactsTab() {
   const fn = useServerFn(listContacts);
+  const exportFn = useServerFn(exportContactsCsv);
   const [search, setSearch] = useState("");
   const [timeFilter, setTimeFilter] = useState("all");
   const [sort, setSort] = useState("recent");
+  const [exporting, setExporting] = useState(false);
   const { openConversation } = useDashboardNav();
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = (await exportFn()) as { csv: string; error?: string | null };
+      if (!res.csv) {
+        toast.error(res.error ?? "No contacts to export");
+        return;
+      }
+      const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `contacts-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Contacts exported");
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
+
 
   const { data } = useQuery({
     queryKey: ["contacts"],
@@ -126,6 +157,11 @@ export function ContactsTab() {
               ))}
             </SelectContent>
           </Select>
+          <Button size="sm" variant="outline" className="h-8 gap-1 text-xs" onClick={handleExport} disabled={exporting}>
+            <Download className="h-3.5 w-3.5" />
+            Export CSV
+          </Button>
+
         </div>
       </div>
 
