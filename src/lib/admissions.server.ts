@@ -269,6 +269,56 @@ async function runHttpActions(stage: string, lead: LeadRecord) {
   }
 }
 
+const BOOKING_STATUSES = ["pending", "confirmed", "completed", "cancelled"];
+
+// Create or update a lead's "booking" appointment, writing the agreed time and
+// preserving its status (defaults to pending/confirmation).
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function upsertLeadBooking(
+  db: any,
+  params: { phone: string; leadName: string | null; date: string | null; status: string; notes?: string },
+): Promise<void> {
+  const status = BOOKING_STATUSES.includes((params.status ?? "").toLowerCase())
+    ? params.status.toLowerCase()
+    : "pending";
+  const { data: existing } = await db
+    .from("appointments")
+    .select("id")
+    .eq("phone_number", params.phone)
+    .eq("appointment_type", "booking")
+    .maybeSingle();
+
+  if (!existing) {
+    await db.from("appointments").insert({
+      phone_number: params.phone,
+      lead_name: params.leadName,
+      appointment_type: "booking",
+      status,
+      appointment_date: params.date,
+      notes: params.notes ?? "Set by AI.",
+    });
+  } else {
+    const update: Record<string, unknown> = { status };
+    // Only overwrite the date when the AI actually captured one.
+    if (params.date) update.appointment_date = params.date;
+    await db.from("appointments").update(update as never).eq("id", existing.id);
+  }
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+// Parse an optional [[BOOKING: <iso> | <status>]] directive out of a responder
+// agent's reply. Returns the cleaned message plus any captured booking details.
+function extractBookingDirective(text: string): { date: string | null; status: string; clean: string } {
+  const re = /\[\[\s*BOOKING:\s*([^\]|]+?)\s*(?:\|\s*([a-zA-Z]+)\s*)?\]\]/i;
+  const m = text.match(re);
+  if (!m) return { date: null, status: "pending", clean: text };
+  const parsed = Date.parse(m[1].trim());
+  const date = Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+  const status = (m[2] || "pending").toLowerCase();
+  const clean = text.replace(re, "").trim();
+  return { date, status, clean };
+}
+
 export async function applyDecision(lead: LeadRecord, decision: QualificationDecision): Promise<LeadRecord> {
   const db = await admin();
   const previousStage = lead.qualification_status;
