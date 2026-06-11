@@ -576,8 +576,14 @@ ${leadBlock}
 === RECENT CONVERSATION ===
 ${historyBlock || "(no prior messages)"}
 
+=== BOOKING CAPABILITY ===
+If the lead agrees to a specific date and time for their consultation/booking call, append on a NEW LINE at the very END of your message a directive in EXACTLY this format:
+[[BOOKING: <ISO8601 datetime> | <status>]]
+where <status> is one of: pending, confirmed (use "pending" unless the lead explicitly confirms). Example: [[BOOKING: 2026-06-20T15:00:00Z | pending]]
+This directive is automatically removed before the message is sent — NEVER mention it to the lead. Omit it entirely if no specific date and time was agreed.
+
 === OUTPUT FORMAT ===
-Reply with ONLY the WhatsApp message text to send to the lead. Do not use JSON, labels, or quotation marks around the message.`;
+Reply with ONLY the WhatsApp message text to send to the lead (optionally followed by the booking directive above). Do not use JSON, labels, or quotation marks around the message.`;
 }
 
 export async function runResponderAgent(args: RunResponderArgs): Promise<RunResponderResult> {
