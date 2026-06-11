@@ -114,6 +114,7 @@ function Dashboard() {
         </nav>
 
         <div className="mt-4 space-y-2 border-t border-sidebar-border/50 pt-4">
+          <SpaceSwitcher />
           <div className="px-2">
             <p className="truncate text-sm font-medium">{profile.full_name ?? profile.email}</p>
             <p className="text-xs text-sidebar-foreground/60">{role ? ROLE_LABELS[role] : "No role"}</p>
