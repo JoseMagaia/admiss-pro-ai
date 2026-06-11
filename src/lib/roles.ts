@@ -33,6 +33,7 @@ export const SETTINGS_ACCESS: Record<string, AppRole[]> = {
   actions: ["super_admin"], // HTTP Actions
   provider: ["super_admin"], // AI Provider (built-in vs own key)
   users: ["super_admin"], // User management
+  spaces: ["super_admin"], // Spaces (multi-tenant sub-accounts)
 };
 
 export function canAccessTab(role: AppRole | null | undefined, tab: string): boolean {

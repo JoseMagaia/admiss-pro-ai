@@ -8,6 +8,16 @@ async function admin() {
   return supabaseAdmin;
 }
 
+// Service-role client scoped to the caller's active Space, so agentic actions
+// read and write only within the selected sub-account.
+async function scopedAdmin() {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { makeScopedClient, NO_SPACE, resolveSpaceContext } = await import("./space-context.server");
+  const ctx = await resolveSpaceContext();
+  const sid = ctx && (ctx.isSuperAdmin || ctx.status === "active") ? ctx.spaceId : NO_SPACE;
+  return makeScopedClient(supabaseAdmin, sid);
+}
+
 // Allow super admins and users granted the "advanced" permission.
 async function guardAdvanced() {
   const { getRequestUser } = await import("@/integrations/supabase/role-guard.server");
@@ -721,6 +731,146 @@ const AGENT_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "upsert_ai_variable",
+      description:
+        "Create or update an AI variable. If a variable with the same name exists it is updated, otherwise created.",
+      parameters: {
+        type: "object",
+        properties: {
+          variable_name: { type: "string", description: "UPPER_SNAKE_CASE name, e.g. TUITION_FEE." },
+          variable_value: { type: "string" },
+          description: { type: "string" },
+        },
+        required: ["variable_name", "variable_value"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_ai_variable",
+      description: "Delete an AI variable by its exact name.",
+      parameters: {
+        type: "object",
+        properties: { variable_name: { type: "string" } },
+        required: ["variable_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_workflow",
+      description: "Create a new outbound workflow.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+          trigger_type: {
+            type: "string",
+            description: "One of: manual, pipeline_stage. Defaults to manual.",
+          },
+          enabled: { type: "boolean" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_workflow",
+      description: "Update an existing workflow identified by its current exact name.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The workflow's current name." },
+          new_name: { type: "string" },
+          description: { type: "string" },
+          enabled: { type: "boolean" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_responder_agent",
+      description: "Create a new responder agent.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+          system_prompt: { type: "string" },
+          enabled: { type: "boolean" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_responder_agent",
+      description: "Update an existing responder agent identified by its current exact name.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The agent's current name." },
+          new_name: { type: "string" },
+          description: { type: "string" },
+          system_prompt: { type: "string" },
+          enabled: { type: "boolean" },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_http_action",
+      description: "Create a new outbound HTTP action (webhook).",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          trigger_stage: { type: "string", description: "The pipeline stage that fires this action." },
+          url: { type: "string" },
+          method: { type: "string", description: "POST, GET, PUT or PATCH. Defaults to POST." },
+          payload_template: { type: "string", description: "JSON body template; may use {{variables}}." },
+          enabled: { type: "boolean" },
+        },
+        required: ["name", "trigger_stage", "url"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_http_action",
+      description: "Update an existing HTTP action identified by its current exact name.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The action's current name." },
+          new_name: { type: "string" },
+          trigger_stage: { type: "string" },
+          url: { type: "string" },
+          method: { type: "string" },
+          payload_template: { type: "string" },
+          enabled: { type: "boolean" },
+        },
+        required: ["name"],
+      },
+    },
+  },
 ] as const;
 
 export const generateAgentReply = createServerFn({ method: "POST" })
@@ -744,26 +894,40 @@ export const generateAgentReply = createServerFn({ method: "POST" })
     if ("error" in target) return { reply: "", actions: [], error: target.error };
 
     const analytics = await buildAnalytics(data.days ?? 30, { includeContent: true });
-    const db = await admin();
-    const { data: wfRows } = await db
-      .from("workflows")
-      .select("name, enabled")
-      .eq("enabled", true)
-      .limit(200);
-    const workflowNames = ((wfRows ?? []) as Array<{ name: string }>).map((w) => w.name);
+    const db = await scopedAdmin();
+    const [{ data: wfRows }, { data: varRows }, { data: agentRows }, { data: actionRows }] = await Promise.all([
+      db.from("workflows").select("name, enabled, description").limit(200),
+      db.from("ai_variables").select("variable_name, description").limit(300),
+      db.from("responder_agents").select("name, enabled").limit(200),
+      db.from("http_actions").select("name, trigger_stage, method, enabled").limit(200),
+    ]);
+    const workflows = ((wfRows ?? []) as Array<{ name: string; enabled: boolean; description: string | null }>);
+    const workflowNames = workflows.filter((w) => w.enabled).map((w) => w.name);
+    const catalogue = {
+      workflows,
+      aiVariables: (varRows ?? []) as Array<{ variable_name: string; description: string | null }>,
+      responderAgents: (agentRows ?? []) as Array<{ name: string; enabled: boolean }>,
+      httpActions: (actionRows ?? []) as Array<{ name: string; trigger_stage: string; method: string; enabled: boolean }>,
+    };
 
     const system = `You are an agentic operations assistant for an international education admissions platform.
 You can both answer questions AND take actions on the platform by calling the provided tools.
 You are given a JSON analytics snapshot including a "leadDirectory" (leads with phone, name, stage, interests) and a "messageLog" (recent message contents/timestamps). Use these to identify the right lead phone numbers.
+You are also given a "catalogue" of the current configuration: workflows, AI variables, responder agents and HTTP actions. Use the EXACT names from the catalogue when editing existing items.
 Available workflow names for assign/remove: ${JSON.stringify(workflowNames)}.
 Rules:
-- When the user asks you to change something (move a lead, edit a lead, assign/remove a workflow, set opportunity values), call the appropriate tool with concrete arguments. You may call several tools in one turn.
+- When the user asks you to change something — move/edit a lead, assign/remove a workflow, set opportunity values, create or edit an AI variable, create or edit a workflow, create or edit a responder agent, or create or edit an HTTP action — call the appropriate tool with concrete arguments. You may call several tools in one turn.
+- AI variable names must be UPPER_SNAKE_CASE (letters, numbers, underscores).
 - Each tool call is only a PROPOSAL — a human will approve or reject it before it runs. Briefly describe what you are proposing in your text reply.
-- Only act on leads that exist in the data. If you cannot find the lead or required info, ask for clarification instead of guessing.
+- Only act on leads that exist in the data, and only edit configuration items that exist in the catalogue. If you cannot find the item or required info, ask for clarification instead of guessing.
 - For analysis-only questions, just answer in concise Markdown without calling tools.
+
+Configuration catalogue:
+${JSON.stringify(catalogue)}
 
 Analytics snapshot (last ${analytics.rangeDays} days where time-based):
 ${JSON.stringify(analytics)}`;
+
 
     try {
       const res = await fetch(target.url, {
@@ -808,6 +972,220 @@ ${JSON.stringify(analytics)}`;
     }
   });
 
+type CfgResult = { ok: boolean; error: string | null; result?: string };
+type CfgAudit = (
+  action: string,
+  entityType: string,
+  entityId: string | null,
+  details: Record<string, unknown>,
+) => Promise<void>;
+
+const CONFIG_ACTIONS = new Set([
+  "upsert_ai_variable",
+  "delete_ai_variable",
+  "create_workflow",
+  "update_workflow",
+  "create_responder_agent",
+  "update_responder_agent",
+  "create_http_action",
+  "update_http_action",
+]);
+
+const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+const VALID_METHODS = new Set(["POST", "GET", "PUT", "PATCH"]);
+
+// Execute config-level agentic actions (AI variables, workflows, responder
+// agents, HTTP actions). Returns null when `name` is not a config action so the
+// caller can fall through to lead-based actions.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function executeConfigAction(
+  db: any,
+  name: string,
+  args: Record<string, unknown>,
+  audit: CfgAudit,
+): Promise<CfgResult | null> {
+  if (!CONFIG_ACTIONS.has(name)) return null;
+
+  try {
+    if (name === "upsert_ai_variable") {
+      const varName = str(args.variable_name).toUpperCase();
+      if (!/^[A-Z0-9_]+$/.test(varName)) return { ok: false, error: "Variable name must be UPPER_SNAKE_CASE." };
+      const value = typeof args.variable_value === "string" ? args.variable_value.slice(0, 2000) : "";
+      const description = typeof args.description === "string" ? args.description.slice(0, 500) : null;
+      const { data: existing } = await db
+        .from("ai_variables")
+        .select("id")
+        .eq("variable_name", varName)
+        .maybeSingle();
+      const exId = (existing as { id?: string } | null)?.id;
+      if (exId) {
+        const { error } = await db
+          .from("ai_variables")
+          .update({ variable_value: value, description } as never)
+          .eq("id", exId);
+        if (error) return { ok: false, error: error.message };
+        await audit("ai_variable_updated", "ai_variable", exId, { variable_name: varName });
+        return { ok: true, error: null, result: `Updated variable ${varName}` };
+      }
+      const { error } = await db
+        .from("ai_variables")
+        .insert({ variable_name: varName, variable_value: value, description } as never);
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_variable_created", "ai_variable", null, { variable_name: varName });
+      return { ok: true, error: null, result: `Created variable ${varName}` };
+    }
+
+    if (name === "delete_ai_variable") {
+      const varName = str(args.variable_name).toUpperCase();
+      if (!varName) return { ok: false, error: "Missing variable name." };
+      const { data: existing } = await db
+        .from("ai_variables")
+        .select("id")
+        .eq("variable_name", varName)
+        .maybeSingle();
+      const exId = (existing as { id?: string } | null)?.id;
+      if (!exId) return { ok: false, error: "Variable not found." };
+      const { error } = await db.from("ai_variables").delete().eq("id", exId);
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_variable_deleted", "ai_variable", exId, { variable_name: varName });
+      return { ok: true, error: null, result: `Deleted variable ${varName}` };
+    }
+
+    if (name === "create_workflow") {
+      const wfName = str(args.name);
+      if (!wfName) return { ok: false, error: "Missing workflow name." };
+      const triggerType = str(args.trigger_type) === "pipeline_stage" ? "pipeline_stage" : "manual";
+      const { data: created, error } = await db
+        .from("workflows")
+        .insert({
+          name: wfName,
+          description: typeof args.description === "string" ? args.description.slice(0, 1000) : null,
+          enabled: typeof args.enabled === "boolean" ? args.enabled : false,
+          trigger_type: triggerType,
+          trigger_segment: "manual",
+          trigger_config: {},
+          graph: {},
+        } as never)
+        .select("id")
+        .single();
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_workflow_created", "workflow", (created as { id?: string } | null)?.id ?? null, { name: wfName });
+      return { ok: true, error: null, result: `Created workflow "${wfName}"` };
+    }
+
+    if (name === "update_workflow") {
+      const wfName = str(args.name);
+      if (!wfName) return { ok: false, error: "Missing workflow name." };
+      const { data: wf } = await db.from("workflows").select("id").ilike("name", wfName).maybeSingle();
+      const wfId = (wf as { id?: string } | null)?.id;
+      if (!wfId) return { ok: false, error: "Workflow not found." };
+      const patch: Record<string, unknown> = {};
+      if (str(args.new_name)) patch.name = str(args.new_name);
+      if (typeof args.description === "string") patch.description = args.description.slice(0, 1000);
+      if (typeof args.enabled === "boolean") patch.enabled = args.enabled;
+      if (Object.keys(patch).length === 0) return { ok: false, error: "No fields to update." };
+      const { error } = await db.from("workflows").update(patch as never).eq("id", wfId);
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_workflow_updated", "workflow", wfId, { name: wfName, fields: Object.keys(patch) });
+      return { ok: true, error: null, result: `Updated workflow "${wfName}"` };
+    }
+
+    if (name === "create_responder_agent") {
+      const agName = str(args.name);
+      if (!agName) return { ok: false, error: "Missing agent name." };
+      const { data: created, error } = await db
+        .from("responder_agents")
+        .insert({
+          name: agName,
+          description: typeof args.description === "string" ? args.description.slice(0, 1000) : null,
+          system_prompt: typeof args.system_prompt === "string" ? args.system_prompt.slice(0, 20000) : "",
+          enabled: typeof args.enabled === "boolean" ? args.enabled : true,
+        } as never)
+        .select("id")
+        .single();
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_responder_agent_created", "responder_agent", (created as { id?: string } | null)?.id ?? null, {
+        name: agName,
+      });
+      return { ok: true, error: null, result: `Created responder agent "${agName}"` };
+    }
+
+    if (name === "update_responder_agent") {
+      const agName = str(args.name);
+      if (!agName) return { ok: false, error: "Missing agent name." };
+      const { data: ag } = await db.from("responder_agents").select("id").ilike("name", agName).maybeSingle();
+      const agId = (ag as { id?: string } | null)?.id;
+      if (!agId) return { ok: false, error: "Responder agent not found." };
+      const patch: Record<string, unknown> = {};
+      if (str(args.new_name)) patch.name = str(args.new_name);
+      if (typeof args.description === "string") patch.description = args.description.slice(0, 1000);
+      if (typeof args.system_prompt === "string") patch.system_prompt = args.system_prompt.slice(0, 20000);
+      if (typeof args.enabled === "boolean") patch.enabled = args.enabled;
+      if (Object.keys(patch).length === 0) return { ok: false, error: "No fields to update." };
+      const { error } = await db.from("responder_agents").update(patch as never).eq("id", agId);
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_responder_agent_updated", "responder_agent", agId, { name: agName, fields: Object.keys(patch) });
+      return { ok: true, error: null, result: `Updated responder agent "${agName}"` };
+    }
+
+    if (name === "create_http_action") {
+      const acName = str(args.name);
+      const triggerStage = str(args.trigger_stage);
+      const url = str(args.url);
+      if (!acName || !triggerStage || !url) return { ok: false, error: "Name, trigger stage and URL are required." };
+      if (!/^https?:\/\//i.test(url)) return { ok: false, error: "URL must start with http:// or https://." };
+      const method = VALID_METHODS.has(str(args.method).toUpperCase()) ? str(args.method).toUpperCase() : "POST";
+      const { data: created, error } = await db
+        .from("http_actions")
+        .insert({
+          name: acName,
+          trigger_stage: triggerStage,
+          url,
+          method,
+          headers: {},
+          payload_template: typeof args.payload_template === "string" ? args.payload_template.slice(0, 10000) : "{}",
+          enabled: typeof args.enabled === "boolean" ? args.enabled : true,
+        } as never)
+        .select("id")
+        .single();
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_http_action_created", "http_action", (created as { id?: string } | null)?.id ?? null, {
+        name: acName,
+      });
+      return { ok: true, error: null, result: `Created HTTP action "${acName}"` };
+    }
+
+    if (name === "update_http_action") {
+      const acName = str(args.name);
+      if (!acName) return { ok: false, error: "Missing action name." };
+      const { data: ac } = await db.from("http_actions").select("id").ilike("name", acName).maybeSingle();
+      const acId = (ac as { id?: string } | null)?.id;
+      if (!acId) return { ok: false, error: "HTTP action not found." };
+      const patch: Record<string, unknown> = {};
+      if (str(args.new_name)) patch.name = str(args.new_name);
+      if (str(args.trigger_stage)) patch.trigger_stage = str(args.trigger_stage);
+      if (str(args.url)) {
+        const url = str(args.url);
+        if (!/^https?:\/\//i.test(url)) return { ok: false, error: "URL must start with http:// or https://." };
+        patch.url = url;
+      }
+      if (VALID_METHODS.has(str(args.method).toUpperCase())) patch.method = str(args.method).toUpperCase();
+      if (typeof args.payload_template === "string") patch.payload_template = args.payload_template.slice(0, 10000);
+      if (typeof args.enabled === "boolean") patch.enabled = args.enabled;
+      if (Object.keys(patch).length === 0) return { ok: false, error: "No fields to update." };
+      const { error } = await db.from("http_actions").update(patch as never).eq("id", acId);
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_http_action_updated", "http_action", acId, { name: acName, fields: Object.keys(patch) });
+      return { ok: true, error: null, result: `Updated HTTP action "${acName}"` };
+    }
+
+    return { ok: false, error: "Unknown configuration action." };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Action failed" };
+  }
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 // Execute a single approved agent action. Validated per-action and audit-logged.
 export const executeAgentAction = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
@@ -819,6 +1197,14 @@ export const executeAgentAction = createServerFn({ method: "POST" })
           "assign_workflow",
           "remove_workflow",
           "set_opportunity",
+          "upsert_ai_variable",
+          "delete_ai_variable",
+          "create_workflow",
+          "update_workflow",
+          "create_responder_agent",
+          "update_responder_agent",
+          "create_http_action",
+          "update_http_action",
         ]),
         args: z.record(z.string(), z.unknown()),
       })
@@ -831,8 +1217,25 @@ export const executeAgentAction = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
-    const db = await admin();
+    const db = await scopedAdmin();
     const args = data.args as Record<string, unknown>;
+
+    const auditCfg = async (action: string, entityType: string, entityId: string | null, details: Record<string, unknown>) => {
+      await db.from("audit_logs").insert({
+        actor_email: user.email ?? null,
+        actor_role: user.role ?? null,
+        action,
+        entity_type: entityType,
+        entity_id: entityId,
+        details: { ...details, via: "ai_agent" },
+      } as never);
+    };
+
+    // ---- Configuration actions (no lead phone required) ----
+    const cfg = await executeConfigAction(db, data.name, args, auditCfg);
+    if (cfg) return cfg;
+
+    // ---- Lead-based actions (require a phone number) ----
     const phone = typeof args.phone === "string" ? args.phone.trim() : "";
     if (!phone) return { ok: false, error: "Action is missing a lead phone number." };
 
@@ -853,6 +1256,7 @@ export const executeAgentAction = createServerFn({ method: "POST" })
         details: { ...details, phone, via: "ai_agent" },
       } as never);
     };
+
 
     try {
       if (data.name === "move_lead_stage") {

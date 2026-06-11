@@ -1,5 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { getActiveSpaceContext } from "@/lib/spaces.functions";
 import {
   GraduationCap,
   Users,
@@ -30,6 +33,7 @@ import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
 import { canAccessTab, canAccessAdvanced, ROLE_LABELS } from "@/lib/roles";
 import { DashboardNavProvider } from "@/lib/dashboard-nav";
+import { SpaceSwitcher } from "@/components/dashboard/SpaceSwitcher";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -61,6 +65,9 @@ function Dashboard() {
   const [tab, setTab] = useState<TabId>("leads");
   const [pendingConversation, setPendingConversation] = useState<string | null>(null);
 
+  const spaceCtxFn = useServerFn(getActiveSpaceContext);
+  const { data: spaceCtx } = useQuery({ queryKey: ["active-space-context"], queryFn: () => spaceCtxFn() });
+
   const openConversation = useCallback((phone: string) => {
     setPendingConversation(phone);
     setTab("messages");
@@ -77,11 +84,21 @@ function Dashboard() {
   }
 
   const role = profile.role;
-  const advancedAccess = canAccessAdvanced(role, profile.permissions);
-  const tabs = ALL_TABS.filter((t) =>
-    t.id === "advanced" ? advancedAccess : canAccessTab(role, t.id),
-  );
+  const flags = spaceCtx?.flags ?? {};
+  const isSuperAdmin = spaceCtx?.isSuperAdmin ?? role === "super_admin";
+  const suspended = spaceCtx?.status === "suspended" && !isSuperAdmin;
+  // A feature is visible when its flag is on (default on if unknown) — super
+  // admins always see everything regardless of the active Space's plan.
+  const flagOn = (key: string) => isSuperAdmin || flags[key] !== false;
+
+  const advancedAccess = canAccessAdvanced(role, profile.permissions) && flagOn("advanced");
+  const tabs = ALL_TABS.filter((t) => {
+    if (t.id === "advanced") return advancedAccess;
+    if (t.id === "orchestration" && !flagOn("orchestration")) return false;
+    return canAccessTab(role, t.id);
+  });
   const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id ?? "leads";
+
 
   return (
     <DashboardNavProvider value={{ openConversation }}>
@@ -113,6 +130,7 @@ function Dashboard() {
         </nav>
 
         <div className="mt-4 space-y-2 border-t border-sidebar-border/50 pt-4">
+          <SpaceSwitcher />
           <div className="px-2">
             <p className="truncate text-sm font-medium">{profile.full_name ?? profile.email}</p>
             <p className="text-xs text-sidebar-foreground/60">{role ? ROLE_LABELS[role] : "No role"}</p>
@@ -165,22 +183,35 @@ function Dashboard() {
             </p>
           </header>
 
-          {activeTab !== "settings" &&
-            activeTab !== "orchestration" &&
-            activeTab !== "advanced" &&
-            activeTab !== "meeting_outcomes" && <DashboardStats />}
+          {suspended ? (
+            <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-8 text-center">
+              <h2 className="font-display text-lg font-semibold text-destructive">This Space is suspended</h2>
+              <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                Access to {spaceCtx?.name || "this Space"} is currently paused. Please contact your administrator to
+                restore access.
+              </p>
+            </div>
+          ) : (
+            <>
+              {activeTab !== "settings" &&
+                activeTab !== "orchestration" &&
+                activeTab !== "advanced" &&
+                activeTab !== "meeting_outcomes" && <DashboardStats />}
 
-          <div className="mt-6">
-            {activeTab === "leads" && <LeadsTab />}
-            {activeTab === "messages" && <MessagesTab pendingConversation={pendingConversation} onPendingHandled={() => setPendingConversation(null)} />}
-            {activeTab === "contacts" && <ContactsTab />}
-            {activeTab === "bookings" && <BookingsTab />}
-            {activeTab === "pipeline" && <PipelineTab canAdvanced={advancedAccess} />}
-            {activeTab === "meeting_outcomes" && <MeetingOutcomesTab />}
-            {activeTab === "orchestration" && <OrchestrationTab />}
-            {activeTab === "advanced" && <AdvancedTab />}
-            {activeTab === "settings" && <SettingsTab role={role} />}
-          </div>
+              <div className="mt-6">
+                {activeTab === "leads" && <LeadsTab />}
+                {activeTab === "messages" && <MessagesTab pendingConversation={pendingConversation} onPendingHandled={() => setPendingConversation(null)} />}
+                {activeTab === "contacts" && <ContactsTab />}
+                {activeTab === "bookings" && <BookingsTab />}
+                {activeTab === "pipeline" && <PipelineTab canAdvanced={advancedAccess} />}
+                {activeTab === "meeting_outcomes" && <MeetingOutcomesTab />}
+                {activeTab === "orchestration" && <OrchestrationTab />}
+                {activeTab === "advanced" && <AdvancedTab />}
+                {activeTab === "settings" && <SettingsTab role={role} />}
+              </div>
+            </>
+          )}
+
         </div>
       </main>
       <Toaster position="top-right" richColors />

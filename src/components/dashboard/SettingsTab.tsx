@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network } from "lucide-react";
+import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CompanySettingsForm, ProgramSettingsForm, ChatwootSettingsForm } from "./settings/SettingsForms";
 import { AiPromptEditor } from "./settings/AiPromptEditor";
@@ -9,6 +9,7 @@ import { PromptTestingLab } from "./settings/PromptTestingLab";
 import { AiProviderSettings } from "./settings/AiProviderSettings";
 import { UserManagement } from "./settings/UserManagement";
 import { ChatwootWorkspaces } from "./settings/ChatwootWorkspaces";
+import { SpacesManager } from "./settings/SpacesManager";
 import { canAccessSettingsSection, type AppRole } from "@/lib/roles";
 
 const SECTIONS = [
@@ -22,6 +23,7 @@ const SECTIONS = [
   { id: "actions", label: "HTTP Actions", icon: Webhook },
   { id: "lab", label: "Prompt Lab", icon: FlaskConical },
   { id: "users", label: "Users", icon: UserCog },
+  { id: "spaces", label: "Spaces", icon: Boxes },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -67,6 +69,7 @@ export function SettingsTab({ role }: { role: AppRole | null }) {
         {activeSection === "actions" && <HttpActionsManager />}
         {activeSection === "lab" && <PromptTestingLab />}
         {activeSection === "users" && <UserManagement />}
+        {activeSection === "spaces" && <SpacesManager />}
       </div>
     </div>
   );
