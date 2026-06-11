@@ -440,37 +440,21 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
       >
         {active ? (
           <>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-              <span className="flex min-w-0 items-center gap-2 font-semibold">
-                <button
-                  onClick={() => setActive(null)}
-                  className="md:hidden"
-                  aria-label="Back to conversations"
-                >
-                  <ArrowLeft className="h-4 w-4 text-muted-foreground" />
-                </button>
-                <MessageSquare className="hidden h-4 w-4 text-primary md:block" />
-                <span className="truncate">{active}</span>
-              </span>
-              <div className="flex items-center gap-3">
-                {canPause && activePhone && <LeadWorkflowManager phone={activePhone} />}
-                {canPause && workflowState && (
-                  <Button
-                    size="sm"
-                    variant={workflowState === "paused" ? "default" : "outline"}
-                    className="h-7 gap-1 px-2 text-xs"
-                    disabled={pauseWorkflow.isPending}
-                    onClick={() => pauseWorkflow.mutate(workflowState !== "paused")}
+            <div className="border-b px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-2 font-semibold">
+                  <button
+                    onClick={() => setActive(null)}
+                    className="-ml-1 shrink-0 rounded-md p-1 hover:bg-muted md:hidden"
+                    aria-label="Back to conversations"
                   >
-                    {workflowState === "paused" ? (
-                      <Play className="h-3.5 w-3.5" />
-                    ) : (
-                      <Pause className="h-3.5 w-3.5" />
-                    )}
-                    {workflowState === "paused" ? "Resume workflow" : "Pause workflow"}
-                  </Button>
-                )}
-                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <ArrowLeft className="h-5 w-5 text-muted-foreground" />
+                  </button>
+                  <MessageSquare className="hidden h-4 w-4 text-primary md:block" />
+                  <span className="truncate">{active}</span>
+                </span>
+                {/* AI toggle — always visible and easy to tap on mobile. */}
+                <label className="flex shrink-0 items-center gap-1.5 rounded-full border bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground">
                   {takeover ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                   AI {takeover ? "paused" : "active"}
                   <Switch
@@ -480,6 +464,28 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                   />
                 </label>
               </div>
+              {/* Workflow controls — own row so they stay reachable on small screens. */}
+              {canPause && activePhone && (
+                <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-0.5">
+                  <LeadWorkflowManager phone={activePhone} />
+                  {workflowState && (
+                    <Button
+                      size="sm"
+                      variant={workflowState === "paused" ? "default" : "outline"}
+                      className="h-8 shrink-0 gap-1 px-2.5 text-xs"
+                      disabled={pauseWorkflow.isPending}
+                      onClick={() => pauseWorkflow.mutate(workflowState !== "paused")}
+                    >
+                      {workflowState === "paused" ? (
+                        <Play className="h-3.5 w-3.5" />
+                      ) : (
+                        <Pause className="h-3.5 w-3.5" />
+                      )}
+                      {workflowState === "paused" ? "Resume workflow" : "Pause workflow"}
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
 
 
