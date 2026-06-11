@@ -91,7 +91,15 @@ export const listLeadPipelines = createServerFn({ method: "GET" }).handler(async
     .limit(10000);
   if (error) return { map: [], error: error.message };
 
-  const { data: offers } = await db.from("offers").select("id, pipeline_id").limit(5000);
+  const offerIds = Array.from(
+    new Set(((opps as any[]) ?? []).map((o) => o.offer_id).filter(Boolean) as string[]),
+  );
+  if (offerIds.length === 0) return { map: [], error: null };
+
+  // Offers may have been created without a space tag, so look them up by id
+  // with the raw client and map each to its assigned pipeline.
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: offers } = await supabaseAdmin.from("offers").select("id, pipeline_id").in("id", offerIds);
   const offerMap = new Map<string, string | null>(
     ((offers as any[]) ?? []).map((o) => [o.id, o.pipeline_id ?? null]),
   );
