@@ -1758,6 +1758,94 @@ export async function stopCampaignsForPhone(phone: string): Promise<void> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// Deliver a single campaign message to a contact through the unified messaging
+// layer (Chatwoot or Evolution), WITHOUT flagging human takeover — so the AI
+// agents, workflows and CRM automations remain free to handle any reply. Creates
+// the lead/conversation (and a Chatwoot conversation when needed) on demand.
+export async function deliverCampaignMessage(params: {
+  phone: string;
+  message: string;
+  workspaceId?: string | null;
+  name?: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  const db = await admin();
+  const { phone, message } = params;
+
+  let { data: lead } = await db
+    .from("leads")
+    .select("id, chatwoot_conversation_id, workspace_id")
+    .eq("phone_number", phone)
+    .maybeSingle();
+  if (!lead) {
+    lead = (await getOrCreateLead(phone, null, null, params.workspaceId ?? null)) as unknown as typeof lead;
+  }
+  const { data: conv } = await db
+    .from("conversations")
+    .select("id, chatwoot_conversation_id, workspace_id")
+    .eq("phone_number", phone)
+    .maybeSingle();
+
+  const leadRow = (lead as Record<string, unknown> | null) ?? {};
+  const convRow = (conv as Record<string, unknown> | null) ?? null;
+
+  const effectiveWorkspaceId =
+    params.workspaceId ??
+    (convRow?.workspace_id as string | null) ??
+    (leadRow.workspace_id as string | null) ??
+    null;
+
+  const workspace = await resolveWorkspace({ workspaceId: effectiveWorkspaceId });
+  const creds = await resolveCreds(workspace);
+
+  let conversationId =
+    (convRow?.chatwoot_conversation_id as string | null) ??
+    (leadRow.chatwoot_conversation_id as string | null) ??
+    null;
+
+  // Chatwoot needs an existing conversation to post into; create one on demand.
+  if (workspace && workspace.provider_type !== "evolution" && !conversationId) {
+    conversationId = await createChatwootConversation({
+      creds,
+      inboxId: workspace.chatwoot_inbox_id ?? null,
+      phone,
+      name: params.name ?? null,
+    });
+  }
+
+  if (!convRow) {
+    await db.from("conversations").insert({
+      phone_number: phone,
+      lead_id: (leadRow.id as string | null) ?? null,
+      workspace_id: workspace?.id ?? null,
+      chatwoot_conversation_id: conversationId,
+      status: "open",
+      human_takeover: false,
+    } as never);
+  } else if (workspace?.id && (!convRow.workspace_id || (conversationId && !convRow.chatwoot_conversation_id))) {
+    await db
+      .from("conversations")
+      .update({ workspace_id: workspace.id, chatwoot_conversation_id: conversationId } as never)
+      .eq("phone_number", phone);
+  }
+
+  const sent = await sendWorkspaceMessage({ workspace, creds, phone, conversationId, message });
+
+  // Log the campaign message so it appears in the conversation timeline.
+  await db.from("whatsapp_messages").insert({
+    phone_number: phone,
+    message_content: message,
+    sender: "campaign",
+    message_type: "text",
+    processed: true,
+  });
+
+  if (!sent.ok) {
+    return { ok: false, error: sent.error ?? "delivery failed" };
+  }
+  return { ok: true };
+}
+
+
 // Process due drip campaigns: advances scheduled campaigns into running, sends
 // the next batch of pending recipients for each running campaign (respecting
 // batch size, inter-message delay, and start/end windows), and marks campaigns
