@@ -611,6 +611,13 @@ export async function processInboundMessage(params: {
     processed: false,
   });
 
+  // Drip Campaigns: a reply from this contact stops any further campaign
+  // messages to them and records the reply for campaign reporting. The reply
+  // itself continues through the normal inbound pipeline below (inbox,
+  // AI agents, workflows, CRM), so all existing automations still fire.
+  await stopCampaignsForPhone(phone);
+
+
   const lead = await getOrCreateLead(phone, chatwootConversationId, chatwootContactId, workspace?.id ?? null);
 
   // Track / upsert conversation.
