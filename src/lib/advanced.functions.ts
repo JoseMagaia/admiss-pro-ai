@@ -972,6 +972,220 @@ ${JSON.stringify(analytics)}`;
     }
   });
 
+type CfgResult = { ok: boolean; error: string | null; result?: string };
+type CfgAudit = (
+  action: string,
+  entityType: string,
+  entityId: string | null,
+  details: Record<string, unknown>,
+) => Promise<void>;
+
+const CONFIG_ACTIONS = new Set([
+  "upsert_ai_variable",
+  "delete_ai_variable",
+  "create_workflow",
+  "update_workflow",
+  "create_responder_agent",
+  "update_responder_agent",
+  "create_http_action",
+  "update_http_action",
+]);
+
+const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+const VALID_METHODS = new Set(["POST", "GET", "PUT", "PATCH"]);
+
+// Execute config-level agentic actions (AI variables, workflows, responder
+// agents, HTTP actions). Returns null when `name` is not a config action so the
+// caller can fall through to lead-based actions.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function executeConfigAction(
+  db: any,
+  name: string,
+  args: Record<string, unknown>,
+  audit: CfgAudit,
+): Promise<CfgResult | null> {
+  if (!CONFIG_ACTIONS.has(name)) return null;
+
+  try {
+    if (name === "upsert_ai_variable") {
+      const varName = str(args.variable_name).toUpperCase();
+      if (!/^[A-Z0-9_]+$/.test(varName)) return { ok: false, error: "Variable name must be UPPER_SNAKE_CASE." };
+      const value = typeof args.variable_value === "string" ? args.variable_value.slice(0, 2000) : "";
+      const description = typeof args.description === "string" ? args.description.slice(0, 500) : null;
+      const { data: existing } = await db
+        .from("ai_variables")
+        .select("id")
+        .eq("variable_name", varName)
+        .maybeSingle();
+      const exId = (existing as { id?: string } | null)?.id;
+      if (exId) {
+        const { error } = await db
+          .from("ai_variables")
+          .update({ variable_value: value, description } as never)
+          .eq("id", exId);
+        if (error) return { ok: false, error: error.message };
+        await audit("ai_variable_updated", "ai_variable", exId, { variable_name: varName });
+        return { ok: true, error: null, result: `Updated variable ${varName}` };
+      }
+      const { error } = await db
+        .from("ai_variables")
+        .insert({ variable_name: varName, variable_value: value, description } as never);
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_variable_created", "ai_variable", null, { variable_name: varName });
+      return { ok: true, error: null, result: `Created variable ${varName}` };
+    }
+
+    if (name === "delete_ai_variable") {
+      const varName = str(args.variable_name).toUpperCase();
+      if (!varName) return { ok: false, error: "Missing variable name." };
+      const { data: existing } = await db
+        .from("ai_variables")
+        .select("id")
+        .eq("variable_name", varName)
+        .maybeSingle();
+      const exId = (existing as { id?: string } | null)?.id;
+      if (!exId) return { ok: false, error: "Variable not found." };
+      const { error } = await db.from("ai_variables").delete().eq("id", exId);
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_variable_deleted", "ai_variable", exId, { variable_name: varName });
+      return { ok: true, error: null, result: `Deleted variable ${varName}` };
+    }
+
+    if (name === "create_workflow") {
+      const wfName = str(args.name);
+      if (!wfName) return { ok: false, error: "Missing workflow name." };
+      const triggerType = str(args.trigger_type) === "pipeline_stage" ? "pipeline_stage" : "manual";
+      const { data: created, error } = await db
+        .from("workflows")
+        .insert({
+          name: wfName,
+          description: typeof args.description === "string" ? args.description.slice(0, 1000) : null,
+          enabled: typeof args.enabled === "boolean" ? args.enabled : false,
+          trigger_type: triggerType,
+          trigger_segment: "manual",
+          trigger_config: {},
+          graph: {},
+        } as never)
+        .select("id")
+        .single();
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_workflow_created", "workflow", (created as { id?: string } | null)?.id ?? null, { name: wfName });
+      return { ok: true, error: null, result: `Created workflow "${wfName}"` };
+    }
+
+    if (name === "update_workflow") {
+      const wfName = str(args.name);
+      if (!wfName) return { ok: false, error: "Missing workflow name." };
+      const { data: wf } = await db.from("workflows").select("id").ilike("name", wfName).maybeSingle();
+      const wfId = (wf as { id?: string } | null)?.id;
+      if (!wfId) return { ok: false, error: "Workflow not found." };
+      const patch: Record<string, unknown> = {};
+      if (str(args.new_name)) patch.name = str(args.new_name);
+      if (typeof args.description === "string") patch.description = args.description.slice(0, 1000);
+      if (typeof args.enabled === "boolean") patch.enabled = args.enabled;
+      if (Object.keys(patch).length === 0) return { ok: false, error: "No fields to update." };
+      const { error } = await db.from("workflows").update(patch as never).eq("id", wfId);
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_workflow_updated", "workflow", wfId, { name: wfName, fields: Object.keys(patch) });
+      return { ok: true, error: null, result: `Updated workflow "${wfName}"` };
+    }
+
+    if (name === "create_responder_agent") {
+      const agName = str(args.name);
+      if (!agName) return { ok: false, error: "Missing agent name." };
+      const { data: created, error } = await db
+        .from("responder_agents")
+        .insert({
+          name: agName,
+          description: typeof args.description === "string" ? args.description.slice(0, 1000) : null,
+          system_prompt: typeof args.system_prompt === "string" ? args.system_prompt.slice(0, 20000) : "",
+          enabled: typeof args.enabled === "boolean" ? args.enabled : true,
+        } as never)
+        .select("id")
+        .single();
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_responder_agent_created", "responder_agent", (created as { id?: string } | null)?.id ?? null, {
+        name: agName,
+      });
+      return { ok: true, error: null, result: `Created responder agent "${agName}"` };
+    }
+
+    if (name === "update_responder_agent") {
+      const agName = str(args.name);
+      if (!agName) return { ok: false, error: "Missing agent name." };
+      const { data: ag } = await db.from("responder_agents").select("id").ilike("name", agName).maybeSingle();
+      const agId = (ag as { id?: string } | null)?.id;
+      if (!agId) return { ok: false, error: "Responder agent not found." };
+      const patch: Record<string, unknown> = {};
+      if (str(args.new_name)) patch.name = str(args.new_name);
+      if (typeof args.description === "string") patch.description = args.description.slice(0, 1000);
+      if (typeof args.system_prompt === "string") patch.system_prompt = args.system_prompt.slice(0, 20000);
+      if (typeof args.enabled === "boolean") patch.enabled = args.enabled;
+      if (Object.keys(patch).length === 0) return { ok: false, error: "No fields to update." };
+      const { error } = await db.from("responder_agents").update(patch as never).eq("id", agId);
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_responder_agent_updated", "responder_agent", agId, { name: agName, fields: Object.keys(patch) });
+      return { ok: true, error: null, result: `Updated responder agent "${agName}"` };
+    }
+
+    if (name === "create_http_action") {
+      const acName = str(args.name);
+      const triggerStage = str(args.trigger_stage);
+      const url = str(args.url);
+      if (!acName || !triggerStage || !url) return { ok: false, error: "Name, trigger stage and URL are required." };
+      if (!/^https?:\/\//i.test(url)) return { ok: false, error: "URL must start with http:// or https://." };
+      const method = VALID_METHODS.has(str(args.method).toUpperCase()) ? str(args.method).toUpperCase() : "POST";
+      const { data: created, error } = await db
+        .from("http_actions")
+        .insert({
+          name: acName,
+          trigger_stage: triggerStage,
+          url,
+          method,
+          headers: {},
+          payload_template: typeof args.payload_template === "string" ? args.payload_template.slice(0, 10000) : "{}",
+          enabled: typeof args.enabled === "boolean" ? args.enabled : true,
+        } as never)
+        .select("id")
+        .single();
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_http_action_created", "http_action", (created as { id?: string } | null)?.id ?? null, {
+        name: acName,
+      });
+      return { ok: true, error: null, result: `Created HTTP action "${acName}"` };
+    }
+
+    if (name === "update_http_action") {
+      const acName = str(args.name);
+      if (!acName) return { ok: false, error: "Missing action name." };
+      const { data: ac } = await db.from("http_actions").select("id").ilike("name", acName).maybeSingle();
+      const acId = (ac as { id?: string } | null)?.id;
+      if (!acId) return { ok: false, error: "HTTP action not found." };
+      const patch: Record<string, unknown> = {};
+      if (str(args.new_name)) patch.name = str(args.new_name);
+      if (str(args.trigger_stage)) patch.trigger_stage = str(args.trigger_stage);
+      if (str(args.url)) {
+        const url = str(args.url);
+        if (!/^https?:\/\//i.test(url)) return { ok: false, error: "URL must start with http:// or https://." };
+        patch.url = url;
+      }
+      if (VALID_METHODS.has(str(args.method).toUpperCase())) patch.method = str(args.method).toUpperCase();
+      if (typeof args.payload_template === "string") patch.payload_template = args.payload_template.slice(0, 10000);
+      if (typeof args.enabled === "boolean") patch.enabled = args.enabled;
+      if (Object.keys(patch).length === 0) return { ok: false, error: "No fields to update." };
+      const { error } = await db.from("http_actions").update(patch as never).eq("id", acId);
+      if (error) return { ok: false, error: error.message };
+      await audit("ai_http_action_updated", "http_action", acId, { name: acName, fields: Object.keys(patch) });
+      return { ok: true, error: null, result: `Updated HTTP action "${acName}"` };
+    }
+
+    return { ok: false, error: "Unknown configuration action." };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Action failed" };
+  }
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
 // Execute a single approved agent action. Validated per-action and audit-logged.
 export const executeAgentAction = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
