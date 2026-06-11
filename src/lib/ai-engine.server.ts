@@ -61,6 +61,10 @@ export interface QualificationDecision {
   updates: Partial<LeadRecord>;
   create_booking: boolean;
   booking_notes?: string;
+  /** ISO 8601 datetime the lead agreed to for the booking/consultation call. */
+  appointment_date?: string | null;
+  /** Booking status: pending (confirmation), confirmed, completed, cancelled. */
+  appointment_status?: string;
   reasoning?: string;
 }
 
