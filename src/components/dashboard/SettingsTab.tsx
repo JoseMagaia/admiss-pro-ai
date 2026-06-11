@@ -9,6 +9,7 @@ import { PromptTestingLab } from "./settings/PromptTestingLab";
 import { AiProviderSettings } from "./settings/AiProviderSettings";
 import { UserManagement } from "./settings/UserManagement";
 import { ChatwootWorkspaces } from "./settings/ChatwootWorkspaces";
+import { SpacesManager } from "./settings/SpacesManager";
 import { canAccessSettingsSection, type AppRole } from "@/lib/roles";
 
 const SECTIONS = [
