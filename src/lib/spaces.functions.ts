@@ -55,7 +55,43 @@ function slugify(name: string): string {
     .slice(0, 50) || "space";
 }
 
+/* ----------------------- Active space context ----------------------- */
+
+export type ActiveSpaceContext = {
+  spaceId: string | null;
+  name: string;
+  plan: string;
+  status: string;
+  isSuperAdmin: boolean;
+  flags: Record<string, boolean>;
+  limits: Record<string, number>;
+};
+
+// The caller's resolved active Space, with its feature flags and limits. Used
+// by the dashboard to gate features and show a suspended notice.
+export const getActiveSpaceContext = createServerFn({ method: "GET" }).handler(async (): Promise<ActiveSpaceContext> => {
+  const { resolveSpaceContext } = await import("./space-context.server");
+  const ctx = await resolveSpaceContext();
+  if (!ctx) {
+    return { spaceId: null, name: "", plan: "", status: "active", isSuperAdmin: false, flags: {}, limits: {} };
+  }
+  const db = await admin();
+  const { data } = await db.from("spaces").select("name, plan").eq("id", ctx.spaceId).maybeSingle();
+  const s = data as { name?: string; plan?: string } | null;
+  return {
+    spaceId: ctx.spaceId,
+    name: s?.name ?? "",
+    plan: s?.plan ?? "",
+    status: ctx.status,
+    isSuperAdmin: ctx.isSuperAdmin,
+    flags: ctx.flags ?? {},
+    limits: ctx.limits ?? {},
+  };
+});
+
 /* ----------------------- Spaces a user can view ----------------------- */
+
+
 
 // Returns the Spaces the caller may switch between. Super admins see all
 // Spaces; other users see only the Spaces they belong to. Used by the header
