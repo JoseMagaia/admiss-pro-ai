@@ -30,6 +30,7 @@ import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
 import { canAccessTab, canAccessAdvanced, ROLE_LABELS } from "@/lib/roles";
 import { DashboardNavProvider } from "@/lib/dashboard-nav";
+import { SpaceSwitcher } from "@/components/dashboard/SpaceSwitcher";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
