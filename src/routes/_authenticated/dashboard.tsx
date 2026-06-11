@@ -65,6 +65,9 @@ function Dashboard() {
   const [tab, setTab] = useState<TabId>("leads");
   const [pendingConversation, setPendingConversation] = useState<string | null>(null);
 
+  const spaceCtxFn = useServerFn(getActiveSpaceContext);
+  const { data: spaceCtx } = useQuery({ queryKey: ["active-space-context"], queryFn: () => spaceCtxFn() });
+
   const openConversation = useCallback((phone: string) => {
     setPendingConversation(phone);
     setTab("messages");
@@ -81,11 +84,21 @@ function Dashboard() {
   }
 
   const role = profile.role;
-  const advancedAccess = canAccessAdvanced(role, profile.permissions);
-  const tabs = ALL_TABS.filter((t) =>
-    t.id === "advanced" ? advancedAccess : canAccessTab(role, t.id),
-  );
+  const flags = spaceCtx?.flags ?? {};
+  const isSuperAdmin = spaceCtx?.isSuperAdmin ?? role === "super_admin";
+  const suspended = spaceCtx?.status === "suspended" && !isSuperAdmin;
+  // A feature is visible when its flag is on (default on if unknown) — super
+  // admins always see everything regardless of the active Space's plan.
+  const flagOn = (key: string) => isSuperAdmin || flags[key] !== false;
+
+  const advancedAccess = canAccessAdvanced(role, profile.permissions) && flagOn("advanced");
+  const tabs = ALL_TABS.filter((t) => {
+    if (t.id === "advanced") return advancedAccess;
+    if (t.id === "orchestration" && !flagOn("orchestration")) return false;
+    return canAccessTab(role, t.id);
+  });
   const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id ?? "leads";
+
 
   return (
     <DashboardNavProvider value={{ openConversation }}>
