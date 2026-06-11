@@ -1701,3 +1701,174 @@ export async function ensureMeetingOutcomeWorkflows(): Promise<{ created: number
   return { created };
 }
 
+/* ===================== DRIP CAMPAIGNS ===================== */
+
+const PHONE_DIGITS = (p: string | null | undefined): string =>
+  String(p ?? "").replace(/@.*$/, "").replace(/[^0-9]/g, "");
+
+// Render a campaign template, replacing {{merge_field}} tokens with the
+// recipient's merge data (with sensible defaults derived from name/phone).
+export function renderCampaignTemplate(
+  template: string,
+  recipient: { name?: string | null; phone_number: string; merge_data?: Record<string, unknown> | null },
+): string {
+  const name = (recipient.name ?? "").trim();
+  const firstName = name ? name.split(/\s+/)[0] : "";
+  const data: Record<string, unknown> = {
+    name,
+    full_name: name,
+    first_name: firstName,
+    phone: recipient.phone_number,
+    phone_number: recipient.phone_number,
+    ...(recipient.merge_data ?? {}),
+  };
+  return String(template ?? "").replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_m, key: string) => {
+    const v = data[key];
+    return v === undefined || v === null ? "" : String(v);
+  });
+}
+
+// When a contact replies, stop further campaign sends to that contact and
+// record the reply for campaign reporting. Runs inside the current space.
+export async function stopCampaignsForPhone(phone: string): Promise<void> {
+  try {
+    const db = await admin();
+    const digits = PHONE_DIGITS(phone);
+    const { data: rows } = await db
+      .from("campaign_recipients")
+      .select("id, phone_number, status")
+      .in("status", ["pending", "sent", "delivered", "opened"]);
+    const matches = ((rows as Array<{ id: string; phone_number: string; status: string }>) ?? []).filter((r) => {
+      const d = PHONE_DIGITS(r.phone_number);
+      return d && (d === digits || d.endsWith(digits) || digits.endsWith(d));
+    });
+    if (matches.length === 0) return;
+    const nowIso = new Date().toISOString();
+    await db
+      .from("campaign_recipients")
+      .update({ status: "replied", replied_at: nowIso } as never)
+      .in(
+        "id",
+        matches.map((m) => m.id),
+      );
+  } catch (e) {
+    console.error("stopCampaignsForPhone failed:", e);
+  }
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Process due drip campaigns: advances scheduled campaigns into running, sends
+// the next batch of pending recipients for each running campaign (respecting
+// batch size, inter-message delay, and start/end windows), and marks campaigns
+// completed when no recipients remain. Called every minute by the cron route.
+export async function processCampaigns(): Promise<{ campaigns: number; sent: number }> {
+  const db = await rawAdmin();
+  const { getDefaultSpaceId } = await import("./space-context.server");
+  const fallbackSpace = await getDefaultSpaceId();
+  const now = Date.now();
+  const nowIso = new Date().toISOString();
+  const startBudget = Date.now();
+  const TIME_BUDGET_MS = 50_000;
+
+  const { data: camps } = await db
+    .from("campaigns")
+    .select("*")
+    .in("status", ["scheduled", "running"])
+    .order("last_batch_at", { ascending: true, nullsFirst: true })
+    .limit(20);
+
+  let campaignsTouched = 0;
+  let totalSent = 0;
+
+  for (const c of (camps as Array<Record<string, unknown>>) ?? []) {
+    if (Date.now() - startBudget > TIME_BUDGET_MS) break;
+
+    const id = String(c.id);
+    const spaceId = (c.space_id as string | null) ?? fallbackSpace;
+    const startAt = c.start_at ? new Date(String(c.start_at)).getTime() : null;
+    const endAt = c.end_at ? new Date(String(c.end_at)).getTime() : null;
+
+    // End window passed → finish the campaign.
+    if (endAt !== null && now > endAt) {
+      await db.from("campaigns").update({ status: "completed" } as never).eq("id", id);
+      continue;
+    }
+    // Not yet started.
+    if (startAt !== null && now < startAt) continue;
+    // Flip scheduled → running once the window opens.
+    if (c.status === "scheduled") {
+      await db.from("campaigns").update({ status: "running" } as never).eq("id", id);
+    }
+
+    const batchSize = Math.min(Math.max(1, Number(c.batch_size) || 25), 100);
+    const delaySeconds = Math.min(Math.max(0, Number(c.delay_seconds) || 0), 5);
+    const workspaceId = (c.workspace_id as string | null) ?? null;
+    const template = String(c.message_template ?? "");
+
+    const { data: pending } = await db
+      .from("campaign_recipients")
+      .select("id, phone_number, name, merge_data")
+      .eq("campaign_id", id)
+      .eq("status", "pending")
+      .order("created_at", { ascending: true })
+      .limit(batchSize);
+
+    const batch = (pending as Array<Record<string, unknown>>) ?? [];
+
+    if (batch.length === 0) {
+      // No pending left → mark completed.
+      await db.from("campaigns").update({ status: "completed" } as never).eq("id", id);
+      continue;
+    }
+
+    campaignsTouched += 1;
+
+    for (const r of batch) {
+      if (Date.now() - startBudget > TIME_BUDGET_MS) break;
+      const rid = String(r.id);
+      const phone = String(r.phone_number);
+      const message = renderCampaignTemplate(template, {
+        name: (r.name as string | null) ?? null,
+        phone_number: phone,
+        merge_data: (r.merge_data as Record<string, unknown> | null) ?? null,
+      });
+      const result = await runInSpace(spaceId, () =>
+        deliverHumanMessage({
+          phone,
+          message,
+          scheduled: true,
+          workspaceId,
+          actor: `Campaign: ${String(c.name ?? "")}`,
+        }),
+      );
+      await db
+        .from("campaign_recipients")
+        .update({
+          status: result.ok ? "sent" : "failed",
+          sent_at: new Date().toISOString(),
+          error: result.ok ? null : result.error ?? "delivery failed",
+          attempts: (Number(r.attempts) || 0) + 1,
+        } as never)
+        .eq("id", rid);
+      if (result.ok) totalSent += 1;
+      if (delaySeconds > 0) await sleep(delaySeconds * 1000);
+    }
+
+    await db.from("campaigns").update({ last_batch_at: new Date().toISOString() } as never).eq("id", id);
+
+    // If nothing pending remains after this batch, complete the campaign.
+    const { count } = await db
+      .from("campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", id)
+      .eq("status", "pending");
+    if ((count ?? 0) === 0) {
+      await db.from("campaigns").update({ status: "completed" } as never).eq("id", id);
+    }
+  }
+
+  void nowIso;
+  return { campaigns: campaignsTouched, sent: totalSent };
+}
+
