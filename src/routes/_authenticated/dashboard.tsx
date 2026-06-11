@@ -183,22 +183,35 @@ function Dashboard() {
             </p>
           </header>
 
-          {activeTab !== "settings" &&
-            activeTab !== "orchestration" &&
-            activeTab !== "advanced" &&
-            activeTab !== "meeting_outcomes" && <DashboardStats />}
+          {suspended ? (
+            <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-8 text-center">
+              <h2 className="font-display text-lg font-semibold text-destructive">This Space is suspended</h2>
+              <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+                Access to {spaceCtx?.name || "this Space"} is currently paused. Please contact your administrator to
+                restore access.
+              </p>
+            </div>
+          ) : (
+            <>
+              {activeTab !== "settings" &&
+                activeTab !== "orchestration" &&
+                activeTab !== "advanced" &&
+                activeTab !== "meeting_outcomes" && <DashboardStats />}
 
-          <div className="mt-6">
-            {activeTab === "leads" && <LeadsTab />}
-            {activeTab === "messages" && <MessagesTab pendingConversation={pendingConversation} onPendingHandled={() => setPendingConversation(null)} />}
-            {activeTab === "contacts" && <ContactsTab />}
-            {activeTab === "bookings" && <BookingsTab />}
-            {activeTab === "pipeline" && <PipelineTab canAdvanced={advancedAccess} />}
-            {activeTab === "meeting_outcomes" && <MeetingOutcomesTab />}
-            {activeTab === "orchestration" && <OrchestrationTab />}
-            {activeTab === "advanced" && <AdvancedTab />}
-            {activeTab === "settings" && <SettingsTab role={role} />}
-          </div>
+              <div className="mt-6">
+                {activeTab === "leads" && <LeadsTab />}
+                {activeTab === "messages" && <MessagesTab pendingConversation={pendingConversation} onPendingHandled={() => setPendingConversation(null)} />}
+                {activeTab === "contacts" && <ContactsTab />}
+                {activeTab === "bookings" && <BookingsTab />}
+                {activeTab === "pipeline" && <PipelineTab canAdvanced={advancedAccess} />}
+                {activeTab === "meeting_outcomes" && <MeetingOutcomesTab />}
+                {activeTab === "orchestration" && <OrchestrationTab />}
+                {activeTab === "advanced" && <AdvancedTab />}
+                {activeTab === "settings" && <SettingsTab role={role} />}
+              </div>
+            </>
+          )}
+
         </div>
       </main>
       <Toaster position="top-right" richColors />
