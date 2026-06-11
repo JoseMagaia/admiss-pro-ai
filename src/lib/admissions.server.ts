@@ -287,24 +287,20 @@ export async function applyDecision(lead: LeadRecord, decision: QualificationDec
 
   const finalLead = (updated as LeadRecord) ?? { ...lead, ...update };
 
-  // Create booking request when advancing into the booking stage.
-  if (decision.create_booking || decision.qualification_status === "BOOKING_REQUEST_CREATED") {
-    const { data: existingBooking } = await db
-      .from("appointments")
-      .select("id")
-      .eq("phone_number", lead.phone_number)
-      .eq("appointment_type", "booking")
-      .maybeSingle();
-
-    if (!existingBooking) {
-      await db.from("appointments").insert({
-        phone_number: lead.phone_number,
-        lead_name: finalLead.lead_name ?? null,
-        appointment_type: "booking",
-        status: "pending",
-        notes: decision.booking_notes ?? "Auto-created by AI after qualification.",
-      });
-    }
+  // Create / update the booking request when advancing into the booking stage
+  // or when the AI captured a specific appointment time for this lead.
+  if (
+    decision.create_booking ||
+    decision.qualification_status === "BOOKING_REQUEST_CREATED" ||
+    decision.appointment_date
+  ) {
+    await upsertLeadBooking(db, {
+      phone: lead.phone_number,
+      leadName: finalLead.lead_name ?? null,
+      date: decision.appointment_date ?? null,
+      status: decision.appointment_status ?? "pending",
+      notes: decision.booking_notes ?? "Auto-created by AI after qualification.",
+    });
   }
 
   // Fire HTTP actions only when the stage actually changed.
