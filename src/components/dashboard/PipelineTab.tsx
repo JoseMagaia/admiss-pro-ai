@@ -8,11 +8,28 @@ import {
   TrendingUp,
   Coins,
   Workflow as WorkflowIcon,
+  Plus,
+  Pencil,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
+  Check,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { listLeads, updateLeadStage } from "@/lib/dashboard.functions";
 import { listOffers, listStageSettings, upsertStageSetting } from "@/lib/advanced.functions";
-import { PIPELINE_COLUMNS, columnForStage, stageLabel } from "@/lib/pipeline";
+import {
+  listPipelines,
+  listLeadPipelines,
+  createPipeline,
+  updatePipeline,
+  deletePipeline,
+  savePipelineStages,
+} from "@/lib/pipelines.functions";
+import { stageLabel } from "@/lib/pipeline";
 import { useDashboardNav } from "@/lib/dashboard-nav";
 import { useAuth } from "@/hooks/useAuth";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
@@ -30,7 +47,6 @@ interface Lead {
 interface Offer {
   id: string;
   name: string;
-  stage: string;
   default_valuation: number;
   expected_liquidity: number;
   currency: string;
@@ -50,6 +66,21 @@ interface StageDraft {
   liquidity: number;
 }
 
+interface Stage {
+  id: string;
+  label: string;
+  stage_keys: string[];
+  position: number;
+}
+
+interface Pipeline {
+  id: string;
+  name: string;
+  is_default: boolean;
+  position: number;
+  stages: Stage[];
+}
+
 // Distinct accent per column so the Opportunities view is easy to scan.
 const STAGE_ACCENTS = [
   "from-sky-500/15 to-sky-500/5 border-sky-500/40 text-sky-600 dark:text-sky-300",
@@ -62,25 +93,45 @@ const STAGE_ACCENTS = [
   "from-rose-500/15 to-rose-500/5 border-rose-500/40 text-rose-600 dark:text-rose-300",
 ];
 
+interface StageEdit {
+  id?: string;
+  label: string;
+  stage_keys: string[];
+}
+
 export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) {
   const qc = useQueryClient();
   const { profile } = useAuth();
-  const canManageWorkflows = profile.role === "super_admin" || profile.role === "admin";
+  const canManage = profile.role === "super_admin" || profile.role === "admin";
   const leadsFn = useServerFn(listLeads);
   const stageFn = useServerFn(updateLeadStage);
   const offersFn = useServerFn(listOffers);
   const settingsFn = useServerFn(listStageSettings);
   const saveSettingFn = useServerFn(upsertStageSetting);
+  const pipelinesFn = useServerFn(listPipelines);
+  const leadPipesFn = useServerFn(listLeadPipelines);
+  const createPipeFn = useServerFn(createPipeline);
+  const updatePipeFn = useServerFn(updatePipeline);
+  const deletePipeFn = useServerFn(deletePipeline);
+  const saveStagesFn = useServerFn(savePipelineStages);
   const { openConversation } = useDashboardNav();
+
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
   const [showOpps, setShowOpps] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, StageDraft>>({});
+  const [selectedPid, setSelectedPid] = useState<string | null>(null);
 
-  const { data } = useQuery({
-    queryKey: ["leads"],
-    queryFn: () => leadsFn(),
-    refetchInterval: 5000,
+  // Stage-editing state.
+  const [editing, setEditing] = useState(false);
+  const [editStages, setEditStages] = useState<StageEdit[]>([]);
+
+  const { data } = useQuery({ queryKey: ["leads"], queryFn: () => leadsFn(), refetchInterval: 5000 });
+  const { data: pipelinesData } = useQuery({ queryKey: ["pipelines"], queryFn: () => pipelinesFn() });
+  const { data: leadPipesData } = useQuery({
+    queryKey: ["lead-pipelines"],
+    queryFn: () => leadPipesFn(),
+    refetchInterval: 8000,
   });
 
   const { data: offersData } = useQuery({
@@ -94,6 +145,31 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
     enabled: canAdvanced && showOpps,
   });
 
+  const pipelines = (pipelinesData?.pipelines ?? []) as Pipeline[];
+  const defaultPipeline = pipelines.find((p) => p.is_default) ?? pipelines[0] ?? null;
+
+  // Keep a valid selected pipeline as data loads/changes.
+  useEffect(() => {
+    if (pipelines.length === 0) return;
+    if (!selectedPid || !pipelines.some((p) => p.id === selectedPid)) {
+      setSelectedPid(defaultPipeline?.id ?? pipelines[0].id);
+    }
+  }, [pipelines, selectedPid, defaultPipeline]);
+
+  const selectedPipeline = pipelines.find((p) => p.id === selectedPid) ?? defaultPipeline;
+  const columns = useMemo(
+    () => [...(selectedPipeline?.stages ?? [])].sort((a, b) => a.position - b.position),
+    [selectedPipeline],
+  );
+
+  const leadPipeMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of (leadPipesData?.map ?? []) as Array<{ lead_id: string; pipeline_id: string }>) {
+      m.set(r.lead_id, r.pipeline_id);
+    }
+    return m;
+  }, [leadPipesData]);
+
   const offers = ((offersData?.offers ?? []) as unknown as Offer[]).filter((o) => o.enabled);
 
   const serverSettings = useMemo(() => {
@@ -102,7 +178,6 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
     return m;
   }, [settingsData]);
 
-  // Hydrate local drafts from server settings whenever they load.
   useEffect(() => {
     if (!settingsData) return;
     setDrafts((prev) => {
@@ -119,6 +194,22 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
       return next;
     });
   }, [settingsData]);
+
+  const allLeads = (data?.leads ?? []) as Lead[];
+
+  // Resolve which pipeline a lead belongs to (by assigned offer, else default).
+  const resolvedPid = (leadId: string) => leadPipeMap.get(leadId) ?? defaultPipeline?.id ?? "";
+
+  const leads = useMemo(
+    () => allLeads.filter((l) => resolvedPid(l.id) === selectedPipeline?.id),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allLeads, leadPipeMap, selectedPipeline, defaultPipeline],
+  );
+
+  // Find the column (stage) a lead belongs to within the selected pipeline.
+  const columnForLead = (status: string): Stage | null => {
+    return columns.find((c) => c.stage_keys.includes(status)) ?? columns[0] ?? null;
+  };
 
   const move = useMutation({
     mutationFn: (vars: { id: string; stage: string }) => stageFn({ data: vars }),
@@ -150,55 +241,51 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
     onError: () => toast.error("Could not save stage settings"),
   });
 
-  const leads = (data?.leads ?? []) as Lead[];
-
-  function settingFor(colId: string): StageDraft {
-    const d = drafts[colId];
+  function settingFor(stageId: string): StageDraft {
+    const d = drafts[stageId];
     if (d) return d;
-    const s = serverSettings.get(colId);
+    const s = serverSettings.get(stageId);
     return { offer_id: s?.offer_id ?? null, valuation: Number(s?.valuation ?? 0), liquidity: Number(s?.liquidity ?? 0) };
   }
 
-  function setDraft(colId: string, patch: Partial<StageDraft>) {
-    setDrafts((prev) => ({ ...prev, [colId]: { ...settingFor(colId), ...patch } }));
+  function setDraft(stageId: string, patch: Partial<StageDraft>) {
+    setDrafts((prev) => ({ ...prev, [stageId]: { ...settingFor(stageId), ...patch } }));
   }
 
-  function commit(colId: string) {
-    saveSetting.mutate({ stage: colId, ...settingFor(colId) });
+  function commit(stageId: string) {
+    saveSetting.mutate({ stage: stageId, ...settingFor(stageId) });
   }
 
-  function onOfferChange(colId: string, offerId: string) {
+  function onOfferChange(stageId: string, offerId: string) {
     const offer = offers.find((o) => o.id === offerId);
-    const current = settingFor(colId);
+    const current = settingFor(stageId);
     const next: StageDraft = {
       offer_id: offerId || null,
-      // Prefill the per-lead values from the offer's defaults when picked.
       valuation: offer ? Number(offer.default_valuation ?? 0) : current.valuation,
       liquidity: offer ? Number(offer.expected_liquidity ?? 0) : current.liquidity,
     };
-    setDrafts((prev) => ({ ...prev, [colId]: next }));
-    saveSetting.mutate({ stage: colId, ...next });
+    setDrafts((prev) => ({ ...prev, [stageId]: next }));
+    saveSetting.mutate({ stage: stageId, ...next });
   }
 
-  function onDrop(colId: string) {
+  function onDrop(stage: Stage) {
     setOverCol(null);
     if (!dragId) return;
-    const col = PIPELINE_COLUMNS.find((c) => c.id === colId);
-    if (!col) return;
     const lead = leads.find((l) => l.id === dragId);
-    if (lead && columnForStage(lead.qualification_status).id !== colId) {
-      move.mutate({ id: dragId, stage: col.stages[0] });
+    if (lead && columnForLead(lead.qualification_status)?.id !== stage.id) {
+      const key = stage.stage_keys[0];
+      if (key) move.mutate({ id: dragId, stage: key });
     }
     setDragId(null);
   }
 
-  const opps = canAdvanced && showOpps;
+  const opps = canAdvanced && showOpps && !editing;
 
   const grandTotal = useMemo(() => {
     if (!opps) return { valuation: 0, liquidity: 0 };
-    return PIPELINE_COLUMNS.reduce(
+    return columns.reduce(
       (acc, col) => {
-        const count = leads.filter((l) => columnForStage(l.qualification_status).id === col.id).length;
+        const count = leads.filter((l) => columnForLead(l.qualification_status)?.id === col.id).length;
         const s = settingFor(col.id);
         acc.valuation += count * s.valuation;
         acc.liquidity += count * s.liquidity;
@@ -207,11 +294,240 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
       { valuation: 0, liquidity: 0 },
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opps, leads, drafts, serverSettings]);
+  }, [opps, leads, drafts, serverSettings, columns]);
+
+  /* ----------------------------- Pipeline management ----------------------------- */
+
+  const refreshPipelines = () => {
+    qc.invalidateQueries({ queryKey: ["pipelines"] });
+    qc.invalidateQueries({ queryKey: ["lead-pipelines"] });
+  };
+
+  const createPipe = useMutation({
+    mutationFn: (name: string) => createPipeFn({ data: { name } }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error: string | null; id?: string };
+      if (!res.ok) return toast.error(res.error ?? "Could not create pipeline");
+      toast.success("Pipeline created");
+      if (res.id) setSelectedPid(res.id);
+      refreshPipelines();
+    },
+    onError: () => toast.error("Could not create pipeline"),
+  });
+
+  const renamePipe = useMutation({
+    mutationFn: (vars: { id: string; name: string }) => updatePipeFn({ data: vars }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error: string | null };
+      if (!res.ok) return toast.error(res.error ?? "Could not rename pipeline");
+      toast.success("Pipeline renamed");
+      refreshPipelines();
+    },
+    onError: () => toast.error("Could not rename pipeline"),
+  });
+
+  const removePipe = useMutation({
+    mutationFn: (id: string) => deletePipeFn({ data: { id } }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error: string | null };
+      if (!res.ok) return toast.error(res.error ?? "Could not delete pipeline");
+      toast.success("Pipeline deleted");
+      setSelectedPid(defaultPipeline?.id ?? null);
+      refreshPipelines();
+    },
+    onError: () => toast.error("Could not delete pipeline"),
+  });
+
+  const saveStages = useMutation({
+    mutationFn: (vars: { pipelineId: string; stages: StageEdit[] }) => saveStagesFn({ data: vars }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error: string | null };
+      if (!res.ok) return toast.error(res.error ?? "Could not save stages");
+      toast.success("Stages saved");
+      setEditing(false);
+      refreshPipelines();
+    },
+    onError: () => toast.error("Could not save stages"),
+  });
+
+  function startEditing() {
+    if (!selectedPipeline) return;
+    setEditStages(columns.map((c) => ({ id: c.id, label: c.label, stage_keys: c.stage_keys })));
+    setShowOpps(false);
+    setEditing(true);
+  }
+
+  function moveStage(idx: number, dir: -1 | 1) {
+    setEditStages((prev) => {
+      const next = [...prev];
+      const target = idx + dir;
+      if (target < 0 || target >= next.length) return prev;
+      [next[idx], next[target]] = [next[target], next[idx]];
+      return next;
+    });
+  }
+
+  function handleNewPipeline() {
+    const name = window.prompt("Name your new pipeline");
+    if (name && name.trim()) createPipe.mutate(name.trim());
+  }
+
+  function handleRename() {
+    if (!selectedPipeline) return;
+    const name = window.prompt("Rename pipeline", selectedPipeline.name);
+    if (name && name.trim()) renamePipe.mutate({ id: selectedPipeline.id, name: name.trim() });
+  }
+
+  function handleDeletePipeline() {
+    if (!selectedPipeline || selectedPipeline.is_default) return;
+    if (window.confirm(`Delete pipeline "${selectedPipeline.name}"? Leads stay on their offer/default pipeline.`)) {
+      removePipe.mutate(selectedPipeline.id);
+    }
+  }
 
   return (
     <div className="space-y-3">
-      {canAdvanced && (
+      {/* Pipeline selector + management */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {pipelines.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                setSelectedPid(p.id);
+                setEditing(false);
+              }}
+              className={cn(
+                "rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors",
+                selectedPipeline?.id === p.id
+                  ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                  : "text-muted-foreground hover:bg-muted",
+              )}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+
+        {canManage && (
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Button size="sm" variant="outline" className="h-8 gap-1 px-2 text-xs" onClick={handleNewPipeline}>
+              <Plus className="h-3.5 w-3.5" /> Pipeline
+            </Button>
+            {selectedPipeline && (
+              <>
+                <Button
+                  size="sm"
+                  variant={editing ? "default" : "outline"}
+                  className="h-8 gap-1 px-2 text-xs"
+                  onClick={() => (editing ? setEditing(false) : startEditing())}
+                >
+                  <Pencil className="h-3.5 w-3.5" /> {editing ? "Close editor" : "Edit stages"}
+                </Button>
+                <Button size="sm" variant="ghost" className="h-8 gap-1 px-2 text-xs" onClick={handleRename}>
+                  Rename
+                </Button>
+                {!selectedPipeline.is_default && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 gap-1 px-2 text-xs text-destructive"
+                    onClick={handleDeletePipeline}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
+                  </Button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Stage editor */}
+      {editing && selectedPipeline && (
+        <div className="rounded-2xl border bg-card p-4 shadow-card">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="font-display text-sm font-semibold">Edit stages — {selectedPipeline.name}</h3>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 gap-1 px-2 text-xs"
+                onClick={() => setEditStages((p) => [...p, { label: "New stage", stage_keys: [] }])}
+              >
+                <Plus className="h-3.5 w-3.5" /> Add stage
+              </Button>
+              <Button
+                size="sm"
+                className="h-8 gap-1 px-2 text-xs"
+                disabled={saveStages.isPending || editStages.length === 0}
+                onClick={() =>
+                  saveStages.mutate({
+                    pipelineId: selectedPipeline.id,
+                    stages: editStages
+                      .map((s) => ({ ...s, label: s.label.trim() }))
+                      .filter((s) => s.label.length > 0),
+                  })
+                }
+              >
+                <Check className="h-3.5 w-3.5" /> Save
+              </Button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {editStages.map((s, idx) => (
+              <div key={s.id ?? `new-${idx}`} className="flex items-center gap-2">
+                <span className="w-6 text-center text-xs text-muted-foreground">{idx + 1}</span>
+                <Input
+                  value={s.label}
+                  onChange={(e) =>
+                    setEditStages((prev) => prev.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x)))
+                  }
+                  className="h-9 flex-1"
+                  placeholder="Stage name"
+                />
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  disabled={idx === 0}
+                  onClick={() => moveStage(idx, -1)}
+                  aria-label="Move up"
+                >
+                  <ChevronUp className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  disabled={idx === editStages.length - 1}
+                  onClick={() => moveStage(idx, 1)}
+                  aria-label="Move down"
+                >
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8 text-destructive"
+                  onClick={() => setEditStages((prev) => prev.filter((_, i) => i !== idx))}
+                  aria-label="Remove stage"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Renaming or reordering is safe — the AI keeps using the built-in admissions stages. New columns are managed
+            manually by agents.
+          </p>
+        </div>
+      )}
+
+      {/* Opportunities toggle */}
+      {canAdvanced && !editing && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           {opps ? (
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -223,9 +539,7 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
               </span>
             </div>
           ) : (
-            <span className="text-sm text-muted-foreground">
-              Turn on Opportunities to value each pipeline stage.
-            </span>
+            <span className="text-sm text-muted-foreground">Turn on Opportunities to value each pipeline stage.</span>
           )}
           <button
             type="button"
@@ -243,14 +557,14 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
         </div>
       )}
 
+      {/* Board */}
       <div className="flex gap-4 overflow-x-auto pb-4">
-        {PIPELINE_COLUMNS.map((col, idx) => {
-          const colLeads = leads.filter((l) => columnForStage(l.qualification_status).id === col.id);
+        {columns.map((col, idx) => {
+          const colLeads = leads.filter((l) => columnForLead(l.qualification_status)?.id === col.id);
           const s = settingFor(col.id);
           const colValuation = opps ? colLeads.length * s.valuation : 0;
           const colLiquidity = opps ? colLeads.length * s.liquidity : 0;
           const accent = STAGE_ACCENTS[idx % STAGE_ACCENTS.length];
-          const colOffers = offers;
           return (
             <div
               key={col.id}
@@ -259,7 +573,7 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
                 setOverCol(col.id);
               }}
               onDragLeave={() => setOverCol((c) => (c === col.id ? null : c))}
-              onDrop={() => onDrop(col.id)}
+              onDrop={() => onDrop(col)}
               className={cn(
                 "flex w-72 shrink-0 flex-col rounded-2xl border bg-muted/30 transition-colors",
                 opps && cn("bg-gradient-to-b", accent),
@@ -274,7 +588,7 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
               </div>
 
               {opps && (
-                <div className={cn("space-y-2 border-b bg-card/60 px-4 py-3 text-xs")}>
+                <div className="space-y-2 border-b bg-card/60 px-4 py-3 text-xs">
                   <div className="space-y-1">
                     <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                       Offer
@@ -285,19 +599,14 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
                       className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
                     >
                       <option value="">No offer</option>
-                      {colOffers.map((o) => (
+                      {offers.map((o) => (
                         <option key={o.id} value={o.id}>
                           {o.name}
                         </option>
                       ))}
-                      {s.offer_id && !colOffers.some((o) => o.id === s.offer_id) &&
-                        offers
-                          .filter((o) => o.id === s.offer_id)
-                          .map((o) => (
-                            <option key={o.id} value={o.id}>
-                              {o.name}
-                            </option>
-                          ))}
+                      {s.offer_id && !offers.some((o) => o.id === s.offer_id) && (
+                        <option value={s.offer_id}>(assigned offer)</option>
+                      )}
                     </select>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
@@ -358,7 +667,7 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
                     <div className="flex items-start justify-between gap-2">
                       <span className="text-sm font-semibold">{l.lead_name ?? l.phone_number}</span>
                       <div className="flex shrink-0 items-center gap-1">
-                        {canManageWorkflows && (
+                        {canManage && (
                           <span
                             onMouseDown={(e) => e.stopPropagation()}
                             onClick={(e) => e.stopPropagation()}
@@ -410,6 +719,11 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
             </div>
           );
         })}
+        {columns.length === 0 && (
+          <p className="py-12 text-center text-sm text-muted-foreground">
+            This pipeline has no stages yet.
+          </p>
+        )}
       </div>
     </div>
   );
