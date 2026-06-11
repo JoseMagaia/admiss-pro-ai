@@ -55,10 +55,38 @@ function withinRange(iso: string | null | undefined, range: string): boolean {
 
 export function ContactsTab() {
   const fn = useServerFn(listContacts);
+  const exportFn = useServerFn(exportContactsCsv);
   const [search, setSearch] = useState("");
   const [timeFilter, setTimeFilter] = useState("all");
   const [sort, setSort] = useState("recent");
+  const [exporting, setExporting] = useState(false);
   const { openConversation } = useDashboardNav();
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = (await exportFn()) as { csv: string; error?: string | null };
+      if (!res.csv) {
+        toast.error(res.error ?? "No contacts to export");
+        return;
+      }
+      const blob = new Blob([res.csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `contacts-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Contacts exported");
+    } catch {
+      toast.error("Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
+
 
   const { data } = useQuery({
     queryKey: ["contacts"],
