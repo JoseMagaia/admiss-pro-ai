@@ -326,6 +326,23 @@ export const addSpaceMember = createServerFn({ method: "POST" })
       return { ok: false, error: (e as Error).message };
     }
     const db = await admin();
+
+    // Enforce the Space's max_users limit (only counts new members).
+    const [{ data: space }, { count }] = await Promise.all([
+      db.from("spaces").select("limits").eq("id", data.spaceId).maybeSingle(),
+      db.from("space_members").select("id", { count: "exact", head: true }).eq("space_id", data.spaceId),
+    ]);
+    const maxUsers = (space as { limits?: { max_users?: number } } | null)?.limits?.max_users;
+    const { data: existingMember } = await db
+      .from("space_members")
+      .select("id")
+      .eq("space_id", data.spaceId)
+      .eq("user_id", data.userId)
+      .maybeSingle();
+    if (!existingMember && typeof maxUsers === "number" && maxUsers > 0 && (count ?? 0) >= maxUsers) {
+      return { ok: false, error: `Plan limit reached: this Space allows up to ${maxUsers} members.` };
+    }
+
     const { error } = await db
       .from("space_members")
       .upsert(
