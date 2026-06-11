@@ -249,6 +249,128 @@ export type Database = {
           },
         ]
       }
+      campaign_recipients: {
+        Row: {
+          attempts: number
+          campaign_id: string
+          created_at: string
+          delivered_at: string | null
+          error: string | null
+          id: string
+          lead_id: string | null
+          merge_data: Json
+          name: string | null
+          opened_at: string | null
+          phone_number: string
+          replied_at: string | null
+          sent_at: string | null
+          space_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          campaign_id: string
+          created_at?: string
+          delivered_at?: string | null
+          error?: string | null
+          id?: string
+          lead_id?: string | null
+          merge_data?: Json
+          name?: string | null
+          opened_at?: string | null
+          phone_number: string
+          replied_at?: string | null
+          sent_at?: string | null
+          space_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          campaign_id?: string
+          created_at?: string
+          delivered_at?: string | null
+          error?: string | null
+          id?: string
+          lead_id?: string | null
+          merge_data?: Json
+          name?: string | null
+          opened_at?: string | null
+          phone_number?: string
+          replied_at?: string | null
+          sent_at?: string | null
+          space_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_recipients_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaigns: {
+        Row: {
+          batch_size: number
+          channel: string
+          created_at: string
+          created_by: string | null
+          delay_seconds: number
+          end_at: string | null
+          id: string
+          last_batch_at: string | null
+          message_template: string
+          name: string
+          send_rate_per_min: number
+          space_id: string
+          start_at: string | null
+          status: string
+          updated_at: string
+          workspace_id: string | null
+        }
+        Insert: {
+          batch_size?: number
+          channel?: string
+          created_at?: string
+          created_by?: string | null
+          delay_seconds?: number
+          end_at?: string | null
+          id?: string
+          last_batch_at?: string | null
+          message_template?: string
+          name: string
+          send_rate_per_min?: number
+          space_id: string
+          start_at?: string | null
+          status?: string
+          updated_at?: string
+          workspace_id?: string | null
+        }
+        Update: {
+          batch_size?: number
+          channel?: string
+          created_at?: string
+          created_by?: string | null
+          delay_seconds?: number
+          end_at?: string | null
+          id?: string
+          last_batch_at?: string | null
+          message_template?: string
+          name?: string
+          send_rate_per_min?: number
+          space_id?: string
+          start_at?: string | null
+          status?: string
+          updated_at?: string
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
       chatwoot_workspaces: {
         Row: {
           chatwoot_account_id: string | null
