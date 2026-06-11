@@ -269,6 +269,56 @@ async function runHttpActions(stage: string, lead: LeadRecord) {
   }
 }
 
+const BOOKING_STATUSES = ["pending", "confirmed", "completed", "cancelled"];
+
+// Create or update a lead's "booking" appointment, writing the agreed time and
+// preserving its status (defaults to pending/confirmation).
+/* eslint-disable @typescript-eslint/no-explicit-any */
+async function upsertLeadBooking(
+  db: any,
+  params: { phone: string; leadName: string | null; date: string | null; status: string; notes?: string },
+): Promise<void> {
+  const status = BOOKING_STATUSES.includes((params.status ?? "").toLowerCase())
+    ? params.status.toLowerCase()
+    : "pending";
+  const { data: existing } = await db
+    .from("appointments")
+    .select("id")
+    .eq("phone_number", params.phone)
+    .eq("appointment_type", "booking")
+    .maybeSingle();
+
+  if (!existing) {
+    await db.from("appointments").insert({
+      phone_number: params.phone,
+      lead_name: params.leadName,
+      appointment_type: "booking",
+      status,
+      appointment_date: params.date,
+      notes: params.notes ?? "Set by AI.",
+    });
+  } else {
+    const update: Record<string, unknown> = { status };
+    // Only overwrite the date when the AI actually captured one.
+    if (params.date) update.appointment_date = params.date;
+    await db.from("appointments").update(update as never).eq("id", existing.id);
+  }
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+// Parse an optional [[BOOKING: <iso> | <status>]] directive out of a responder
+// agent's reply. Returns the cleaned message plus any captured booking details.
+function extractBookingDirective(text: string): { date: string | null; status: string; clean: string } {
+  const re = /\[\[\s*BOOKING:\s*([^\]|]+?)\s*(?:\|\s*([a-zA-Z]+)\s*)?\]\]/i;
+  const m = text.match(re);
+  if (!m) return { date: null, status: "pending", clean: text };
+  const parsed = Date.parse(m[1].trim());
+  const date = Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+  const status = (m[2] || "pending").toLowerCase();
+  const clean = text.replace(re, "").trim();
+  return { date, status, clean };
+}
+
 export async function applyDecision(lead: LeadRecord, decision: QualificationDecision): Promise<LeadRecord> {
   const db = await admin();
   const previousStage = lead.qualification_status;
@@ -287,24 +337,20 @@ export async function applyDecision(lead: LeadRecord, decision: QualificationDec
 
   const finalLead = (updated as LeadRecord) ?? { ...lead, ...update };
 
-  // Create booking request when advancing into the booking stage.
-  if (decision.create_booking || decision.qualification_status === "BOOKING_REQUEST_CREATED") {
-    const { data: existingBooking } = await db
-      .from("appointments")
-      .select("id")
-      .eq("phone_number", lead.phone_number)
-      .eq("appointment_type", "booking")
-      .maybeSingle();
-
-    if (!existingBooking) {
-      await db.from("appointments").insert({
-        phone_number: lead.phone_number,
-        lead_name: finalLead.lead_name ?? null,
-        appointment_type: "booking",
-        status: "pending",
-        notes: decision.booking_notes ?? "Auto-created by AI after qualification.",
-      });
-    }
+  // Create / update the booking request when advancing into the booking stage
+  // or when the AI captured a specific appointment time for this lead.
+  if (
+    decision.create_booking ||
+    decision.qualification_status === "BOOKING_REQUEST_CREATED" ||
+    decision.appointment_date
+  ) {
+    await upsertLeadBooking(db, {
+      phone: lead.phone_number,
+      leadName: finalLead.lead_name ?? null,
+      date: decision.appointment_date ?? null,
+      status: decision.appointment_status ?? "pending",
+      notes: decision.booking_notes ?? "Auto-created by AI after qualification.",
+    });
   }
 
   // Fire HTTP actions only when the stage actually changed.
@@ -1236,12 +1282,25 @@ async function tryWorkflowResponder(params: {
       return null;
     }
 
+    // Responder agents may capture a booking time via a hidden directive.
+    const booking = extractBookingDirective(reply);
+    const cleanReply = booking.clean || reply;
+    if (booking.date) {
+      await upsertLeadBooking(db, {
+        phone: params.phone,
+        leadName: params.lead.lead_name ?? null,
+        date: booking.date,
+        status: booking.status,
+        notes: "Set by AI responder agent.",
+      });
+    }
+
     await db.from("whatsapp_messages").insert({
       phone_number: params.phone,
-      message_content: reply,
+      message_content: cleanReply,
       sender: "ai",
       message_type: "text",
-      ai_response: reply,
+      ai_response: cleanReply,
       processed: true,
     });
     await sendWorkspaceMessage({
@@ -1249,9 +1308,9 @@ async function tryWorkflowResponder(params: {
       creds: params.creds,
       phone: params.phone,
       conversationId: params.conversationId,
-      message: reply,
+      message: cleanReply,
     });
-    return reply;
+    return cleanReply;
   }
 
   return null;

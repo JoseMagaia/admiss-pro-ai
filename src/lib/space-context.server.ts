@@ -34,6 +34,8 @@ export const TENANT_TABLES = new Set<string>([
   "report_conversations",
   "ai_provider_pool",
   "audit_logs",
+  "pipelines",
+  "pipeline_stages",
 ]);
 
 // A space id that matches nothing — used as a safe fallback so reads return

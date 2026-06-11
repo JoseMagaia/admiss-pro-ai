@@ -67,6 +67,7 @@ const offerSchema = z.object({
   expected_liquidity: z.number().min(0).max(1_000_000_000),
   currency: z.string().min(1).max(8),
   enabled: z.boolean(),
+  pipeline_id: z.string().uuid().nullable().optional(),
 });
 
 export const upsertOffer = createServerFn({ method: "POST" })

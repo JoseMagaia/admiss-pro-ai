@@ -685,6 +685,7 @@ export type Database = {
           expected_liquidity: number
           id: string
           name: string
+          pipeline_id: string | null
           products: string | null
           space_id: string | null
           stage: string
@@ -700,6 +701,7 @@ export type Database = {
           expected_liquidity?: number
           id?: string
           name: string
+          pipeline_id?: string | null
           products?: string | null
           space_id?: string | null
           stage?: string
@@ -715,6 +717,7 @@ export type Database = {
           expected_liquidity?: number
           id?: string
           name?: string
+          pipeline_id?: string | null
           products?: string | null
           space_id?: string | null
           stage?: string
@@ -723,7 +726,100 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "offers_pipeline_id_fkey"
+            columns: ["pipeline_id"]
+            isOneToOne: false
+            referencedRelation: "pipelines"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "offers_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipeline_stages: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          pipeline_id: string
+          position: number
+          space_id: string | null
+          stage_keys: string[]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+          pipeline_id: string
+          position?: number
+          space_id?: string | null
+          stage_keys?: string[]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          pipeline_id?: string
+          position?: number
+          space_id?: string | null
+          stage_keys?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipeline_stages_pipeline_id_fkey"
+            columns: ["pipeline_id"]
+            isOneToOne: false
+            referencedRelation: "pipelines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipeline_stages_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipelines: {
+        Row: {
+          created_at: string
+          id: string
+          is_default: boolean
+          name: string
+          position: number
+          space_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          name: string
+          position?: number
+          space_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          name?: string
+          position?: number
+          space_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipelines_space_id_fkey"
             columns: ["space_id"]
             isOneToOne: false
             referencedRelation: "spaces"

@@ -2,6 +2,7 @@
 // Imported only from server functions / server routes.
 import {
   AI_FINAL_STAGE,
+  APPOINTMENT_STATUSES,
   QUALIFICATION_STAGES,
   type QualificationStage,
 } from "./pipeline";
@@ -60,6 +61,10 @@ export interface QualificationDecision {
   updates: Partial<LeadRecord>;
   create_booking: boolean;
   booking_notes?: string;
+  /** ISO 8601 datetime the lead agreed to for the booking/consultation call. */
+  appointment_date?: string | null;
+  /** Booking status: pending (confirmation), confirmed, completed, cancelled. */
+  appointment_status?: string;
   reasoning?: string;
 }
 
@@ -164,9 +169,12 @@ Reply with a SINGLE valid JSON object and nothing else:
   },
   "create_booking": false,
   "booking_notes": "",
+  "appointment_date": null,
+  "appointment_status": "pending",
   "reasoning": "1 short sentence"
 }
-Only include fields in "updates" that you learned in THIS turn (use null otherwise). Set create_booking to true ONLY when the lead reaches QUALIFIED and you are advancing to BOOKING_REQUEST_CREATED.`;
+Only include fields in "updates" that you learned in THIS turn (use null otherwise). Set create_booking to true ONLY when the lead reaches QUALIFIED and you are advancing to BOOKING_REQUEST_CREATED.
+Set "appointment_date" to an ISO 8601 datetime (e.g. "2026-06-20T15:00:00Z") ONLY when the lead has agreed to a specific date and time for their booking/consultation call; otherwise keep it null. Keep "appointment_status" as "pending" until the lead explicitly confirms the slot, then you may use "confirmed". This writes the time onto the Booking tab while preserving the booking status.`;
 }
 
 function safeParseDecision(content: string, currentStage: string): QualificationDecision {
@@ -198,12 +206,19 @@ function safeParseDecision(content: string, currentStage: string): Qualification
     (updates as Record<string, unknown>)[k] = v;
   }
 
+  const apptRaw = typeof parsed.appointment_date === "string" ? parsed.appointment_date.trim() : "";
+  const apptDate = apptRaw && !Number.isNaN(Date.parse(apptRaw)) ? new Date(apptRaw).toISOString() : null;
+  const apptStatusRaw = typeof parsed.appointment_status === "string" ? parsed.appointment_status.toLowerCase() : "";
+  const apptStatus = (APPOINTMENT_STATUSES as readonly string[]).includes(apptStatusRaw) ? apptStatusRaw : "pending";
+
   return {
     reply: parsed.reply,
     qualification_status: stage,
     updates,
     create_booking: Boolean(parsed.create_booking),
     booking_notes: typeof parsed.booking_notes === "string" ? parsed.booking_notes : undefined,
+    appointment_date: apptDate,
+    appointment_status: apptStatus,
     reasoning: typeof parsed.reasoning === "string" ? parsed.reasoning : undefined,
   };
 }
@@ -561,8 +576,14 @@ ${leadBlock}
 === RECENT CONVERSATION ===
 ${historyBlock || "(no prior messages)"}
 
+=== BOOKING CAPABILITY ===
+If the lead agrees to a specific date and time for their consultation/booking call, append on a NEW LINE at the very END of your message a directive in EXACTLY this format:
+[[BOOKING: <ISO8601 datetime> | <status>]]
+where <status> is one of: pending, confirmed (use "pending" unless the lead explicitly confirms). Example: [[BOOKING: 2026-06-20T15:00:00Z | pending]]
+This directive is automatically removed before the message is sent — NEVER mention it to the lead. Omit it entirely if no specific date and time was agreed.
+
 === OUTPUT FORMAT ===
-Reply with ONLY the WhatsApp message text to send to the lead. Do not use JSON, labels, or quotation marks around the message.`;
+Reply with ONLY the WhatsApp message text to send to the lead (optionally followed by the booking directive above). Do not use JSON, labels, or quotation marks around the message.`;
 }
 
 export async function runResponderAgent(args: RunResponderArgs): Promise<RunResponderResult> {

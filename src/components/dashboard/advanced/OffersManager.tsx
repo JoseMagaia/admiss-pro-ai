@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { listOffers, upsertOffer, deleteOffer } from "@/lib/advanced.functions";
+import { listPipelines } from "@/lib/pipelines.functions";
 import { PIPELINE_COLUMNS } from "@/lib/pipeline";
 
 interface OfferRow {
@@ -21,6 +22,7 @@ interface OfferRow {
   expected_liquidity: number;
   currency: string;
   enabled: boolean;
+  pipeline_id: string | null;
 }
 
 const EMPTY: OfferRow = {
@@ -33,6 +35,7 @@ const EMPTY: OfferRow = {
   expected_liquidity: 0,
   currency: "USD",
   enabled: true,
+  pipeline_id: null,
 };
 
 function stageLabel(id: string) {
@@ -44,8 +47,11 @@ export function OffersManager() {
   const listFn = useServerFn(listOffers);
   const saveFn = useServerFn(upsertOffer);
   const delFn = useServerFn(deleteOffer);
+  const pipelinesFn = useServerFn(listPipelines);
 
   const { data } = useQuery({ queryKey: ["offers"], queryFn: () => listFn() });
+  const { data: pipelinesData } = useQuery({ queryKey: ["pipelines"], queryFn: () => pipelinesFn() });
+  const pipelines = (pipelinesData?.pipelines ?? []) as Array<{ id: string; name: string; is_default: boolean }>;
   const offers = ((data?.offers ?? []) as unknown as OfferRow[]).map((o) => ({
     ...o,
     // Fall back to the legacy single stage when no multi-stage list is set yet.
@@ -127,6 +133,25 @@ export function OffersManager() {
               })}
             </div>
             <p className="text-xs text-muted-foreground">Select all stages this offer applies to.</p>
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Pipeline</Label>
+            <select
+              value={o.pipeline_id ?? ""}
+              onChange={(e) => set({ pipeline_id: e.target.value || null })}
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            >
+              <option value="">Default pipeline</option>
+              {pipelines.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.is_default ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Leads holding this offer appear in this pipeline on the Pipeline board.
+            </p>
           </div>
           <div className="space-y-1.5">
             <Label>Currency</Label>
