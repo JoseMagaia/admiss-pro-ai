@@ -23,6 +23,7 @@ const SECTIONS = [
   { id: "actions", label: "HTTP Actions", icon: Webhook },
   { id: "lab", label: "Prompt Lab", icon: FlaskConical },
   { id: "users", label: "Users", icon: UserCog },
+  { id: "spaces", label: "Spaces", icon: Boxes },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
