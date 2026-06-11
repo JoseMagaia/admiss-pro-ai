@@ -134,6 +134,25 @@ export function OffersManager() {
             </div>
             <p className="text-xs text-muted-foreground">Select all stages this offer applies to.</p>
           </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Pipeline</Label>
+            <select
+              value={o.pipeline_id ?? ""}
+              onChange={(e) => set({ pipeline_id: e.target.value || null })}
+              className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            >
+              <option value="">Default pipeline</option>
+              {pipelines.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.is_default ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Leads holding this offer appear in this pipeline on the Pipeline board.
+            </p>
+          </div>
           <div className="space-y-1.5">
             <Label>Currency</Label>
             <Input value={o.currency} onChange={(e) => set({ currency: e.target.value.toUpperCase().slice(0, 8) })} placeholder="USD" />
