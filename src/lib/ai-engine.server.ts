@@ -2,6 +2,7 @@
 // Imported only from server functions / server routes.
 import {
   AI_FINAL_STAGE,
+  APPOINTMENT_STATUSES,
   QUALIFICATION_STAGES,
   type QualificationStage,
 } from "./pipeline";
