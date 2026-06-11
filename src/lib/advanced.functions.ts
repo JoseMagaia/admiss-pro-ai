@@ -754,26 +754,40 @@ export const generateAgentReply = createServerFn({ method: "POST" })
     if ("error" in target) return { reply: "", actions: [], error: target.error };
 
     const analytics = await buildAnalytics(data.days ?? 30, { includeContent: true });
-    const db = await admin();
-    const { data: wfRows } = await db
-      .from("workflows")
-      .select("name, enabled")
-      .eq("enabled", true)
-      .limit(200);
-    const workflowNames = ((wfRows ?? []) as Array<{ name: string }>).map((w) => w.name);
+    const db = await scopedAdmin();
+    const [{ data: wfRows }, { data: varRows }, { data: agentRows }, { data: actionRows }] = await Promise.all([
+      db.from("workflows").select("name, enabled, description").limit(200),
+      db.from("ai_variables").select("variable_name, description").limit(300),
+      db.from("responder_agents").select("name, enabled").limit(200),
+      db.from("http_actions").select("name, trigger_stage, method, enabled").limit(200),
+    ]);
+    const workflows = ((wfRows ?? []) as Array<{ name: string; enabled: boolean; description: string | null }>);
+    const workflowNames = workflows.filter((w) => w.enabled).map((w) => w.name);
+    const catalogue = {
+      workflows,
+      aiVariables: (varRows ?? []) as Array<{ variable_name: string; description: string | null }>,
+      responderAgents: (agentRows ?? []) as Array<{ name: string; enabled: boolean }>,
+      httpActions: (actionRows ?? []) as Array<{ name: string; trigger_stage: string; method: string; enabled: boolean }>,
+    };
 
     const system = `You are an agentic operations assistant for an international education admissions platform.
 You can both answer questions AND take actions on the platform by calling the provided tools.
 You are given a JSON analytics snapshot including a "leadDirectory" (leads with phone, name, stage, interests) and a "messageLog" (recent message contents/timestamps). Use these to identify the right lead phone numbers.
+You are also given a "catalogue" of the current configuration: workflows, AI variables, responder agents and HTTP actions. Use the EXACT names from the catalogue when editing existing items.
 Available workflow names for assign/remove: ${JSON.stringify(workflowNames)}.
 Rules:
-- When the user asks you to change something (move a lead, edit a lead, assign/remove a workflow, set opportunity values), call the appropriate tool with concrete arguments. You may call several tools in one turn.
+- When the user asks you to change something — move/edit a lead, assign/remove a workflow, set opportunity values, create or edit an AI variable, create or edit a workflow, create or edit a responder agent, or create or edit an HTTP action — call the appropriate tool with concrete arguments. You may call several tools in one turn.
+- AI variable names must be UPPER_SNAKE_CASE (letters, numbers, underscores).
 - Each tool call is only a PROPOSAL — a human will approve or reject it before it runs. Briefly describe what you are proposing in your text reply.
-- Only act on leads that exist in the data. If you cannot find the lead or required info, ask for clarification instead of guessing.
+- Only act on leads that exist in the data, and only edit configuration items that exist in the catalogue. If you cannot find the item or required info, ask for clarification instead of guessing.
 - For analysis-only questions, just answer in concise Markdown without calling tools.
+
+Configuration catalogue:
+${JSON.stringify(catalogue)}
 
 Analytics snapshot (last ${analytics.rangeDays} days where time-based):
 ${JSON.stringify(analytics)}`;
+
 
     try {
       const res = await fetch(target.url, {
