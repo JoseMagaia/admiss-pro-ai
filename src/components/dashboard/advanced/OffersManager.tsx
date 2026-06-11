@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { listOffers, upsertOffer, deleteOffer } from "@/lib/advanced.functions";
+import { listPipelines } from "@/lib/pipelines.functions";
 import { PIPELINE_COLUMNS } from "@/lib/pipeline";
 
 interface OfferRow {
@@ -21,6 +22,7 @@ interface OfferRow {
   expected_liquidity: number;
   currency: string;
   enabled: boolean;
+  pipeline_id: string | null;
 }
 
 const EMPTY: OfferRow = {
@@ -33,6 +35,7 @@ const EMPTY: OfferRow = {
   expected_liquidity: 0,
   currency: "USD",
   enabled: true,
+  pipeline_id: null,
 };
 
 function stageLabel(id: string) {
@@ -44,8 +47,11 @@ export function OffersManager() {
   const listFn = useServerFn(listOffers);
   const saveFn = useServerFn(upsertOffer);
   const delFn = useServerFn(deleteOffer);
+  const pipelinesFn = useServerFn(listPipelines);
 
   const { data } = useQuery({ queryKey: ["offers"], queryFn: () => listFn() });
+  const { data: pipelinesData } = useQuery({ queryKey: ["pipelines"], queryFn: () => pipelinesFn() });
+  const pipelines = (pipelinesData?.pipelines ?? []) as Array<{ id: string; name: string; is_default: boolean }>;
   const offers = ((data?.offers ?? []) as unknown as OfferRow[]).map((o) => ({
     ...o,
     // Fall back to the legacy single stage when no multi-stage list is set yet.
