@@ -8,6 +8,16 @@ async function admin() {
   return supabaseAdmin;
 }
 
+// Service-role client scoped to the caller's active Space, so agentic actions
+// read and write only within the selected sub-account.
+async function scopedAdmin() {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { makeScopedClient, NO_SPACE, resolveSpaceContext } = await import("./space-context.server");
+  const ctx = await resolveSpaceContext();
+  const sid = ctx && (ctx.isSuperAdmin || ctx.status === "active") ? ctx.spaceId : NO_SPACE;
+  return makeScopedClient(supabaseAdmin, sid);
+}
+
 // Allow super admins and users granted the "advanced" permission.
 async function guardAdvanced() {
   const { getRequestUser } = await import("@/integrations/supabase/role-guard.server");
