@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, Contact as ContactIcon, MessageSquare, ArrowUpDown } from "lucide-react";
+import { Search, Contact as ContactIcon, MessageSquare, ArrowUpDown, Download } from "lucide-react";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -13,7 +14,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { listContacts } from "@/lib/dashboard.functions";
+import { exportContactsCsv } from "@/lib/campaigns.functions";
 import { useDashboardNav } from "@/lib/dashboard-nav";
+
 
 interface Contact {
   id: string;
