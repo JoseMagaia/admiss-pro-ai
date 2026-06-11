@@ -58,7 +58,7 @@ export const listMySpaces = createServerFn({ method: "GET" }).handler(async () =
       .select("id, name, status, is_default")
       .order("is_default", { ascending: false })
       .order("name", { ascending: true });
-    return { spaces: (data ?? []) as unknown[], isSuperAdmin: true, error: null };
+    return { spaces: (data ?? []) as SpaceLite[], isSuperAdmin: true, error: null };
   }
 
   const { data: memberships } = await db
@@ -73,7 +73,7 @@ export const listMySpaces = createServerFn({ method: "GET" }).handler(async () =
     .in("id", ids)
     .eq("status", "active")
     .order("name", { ascending: true });
-  return { spaces: (spaces ?? []) as unknown[], isSuperAdmin: false, error: null };
+  return { spaces: (spaces ?? []) as SpaceLite[], isSuperAdmin: false, error: null };
 });
 
 /* ----------------------- Super admin: manage spaces ----------------------- */
@@ -102,7 +102,7 @@ export const listSpaces = createServerFn({ method: "GET" }).handler(async () => 
     ...s,
     member_count: counts.get(s.id) ?? 0,
   }));
-  return { spaces: withCounts as unknown[], error: null };
+  return { spaces: withCounts as SpaceRow[], error: null };
 });
 
 export const createSpace = createServerFn({ method: "POST" })
