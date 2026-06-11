@@ -77,6 +77,14 @@ const ACTION_LABELS: Record<string, string> = {
   assign_workflow: "Assign workflow",
   remove_workflow: "Remove workflow",
   set_opportunity: "Set opportunity values",
+  upsert_ai_variable: "Create / update AI variable",
+  delete_ai_variable: "Delete AI variable",
+  create_workflow: "Create workflow",
+  update_workflow: "Update workflow",
+  create_responder_agent: "Create responder agent",
+  update_responder_agent: "Update responder agent",
+  create_http_action: "Create HTTP action",
+  update_http_action: "Update HTTP action",
 };
 
 function describeAction(a: ProposedAction): string {
@@ -94,6 +102,22 @@ function describeAction(a: ProposedAction): string {
       return `Remove "${g("workflow_name")}" from ${g("phone")}`;
     case "set_opportunity":
       return `${g("phone")} → valuation ${g("valuation") || 0}, liquidity ${g("liquidity") || 0}`;
+    case "upsert_ai_variable":
+      return `Set variable ${g("variable_name")} = "${g("variable_value")}"`;
+    case "delete_ai_variable":
+      return `Delete variable ${g("variable_name")}`;
+    case "create_workflow":
+      return `Create workflow "${g("name")}"${g("enabled") === "true" ? " (enabled)" : ""}`;
+    case "update_workflow":
+      return `Update workflow "${g("name")}"${g("new_name") ? ` → "${g("new_name")}"` : ""}`;
+    case "create_responder_agent":
+      return `Create responder agent "${g("name")}"`;
+    case "update_responder_agent":
+      return `Update responder agent "${g("name")}"${g("new_name") ? ` → "${g("new_name")}"` : ""}`;
+    case "create_http_action":
+      return `Create HTTP action "${g("name")}" → ${g("method") || "POST"} ${g("url")}`;
+    case "update_http_action":
+      return `Update HTTP action "${g("name")}"`;
     default:
       return a.name;
   }
