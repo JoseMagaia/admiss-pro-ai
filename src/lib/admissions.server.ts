@@ -1922,14 +1922,14 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
         merge_data: (r.merge_data as Record<string, unknown> | null) ?? null,
       });
       const result = await runInSpace(spaceId, () =>
-        deliverHumanMessage({
+        deliverCampaignMessage({
           phone,
           message,
-          scheduled: true,
           workspaceId,
-          actor: `Campaign: ${String(c.name ?? "")}`,
+          name: (r.name as string | null) ?? null,
         }),
       );
+
       await db
         .from("campaign_recipients")
         .update({
