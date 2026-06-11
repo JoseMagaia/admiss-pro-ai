@@ -169,9 +169,12 @@ Reply with a SINGLE valid JSON object and nothing else:
   },
   "create_booking": false,
   "booking_notes": "",
+  "appointment_date": null,
+  "appointment_status": "pending",
   "reasoning": "1 short sentence"
 }
-Only include fields in "updates" that you learned in THIS turn (use null otherwise). Set create_booking to true ONLY when the lead reaches QUALIFIED and you are advancing to BOOKING_REQUEST_CREATED.`;
+Only include fields in "updates" that you learned in THIS turn (use null otherwise). Set create_booking to true ONLY when the lead reaches QUALIFIED and you are advancing to BOOKING_REQUEST_CREATED.
+Set "appointment_date" to an ISO 8601 datetime (e.g. "2026-06-20T15:00:00Z") ONLY when the lead has agreed to a specific date and time for their booking/consultation call; otherwise keep it null. Keep "appointment_status" as "pending" until the lead explicitly confirms the slot, then you may use "confirmed". This writes the time onto the Booking tab while preserving the booking status.`;
 }
 
 function safeParseDecision(content: string, currentStage: string): QualificationDecision {
