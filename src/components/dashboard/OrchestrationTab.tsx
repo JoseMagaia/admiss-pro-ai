@@ -1,13 +1,16 @@
 import { useState } from "react";
-import { Workflow as WorkflowIcon, Bot } from "lucide-react";
+import { Workflow as WorkflowIcon, Bot, Send } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WorkflowManager } from "./orchestration/WorkflowManager";
 import { ResponderAgentManager } from "./orchestration/ResponderAgentManager";
+import { CampaignManager } from "./orchestration/CampaignManager";
 
 const SECTIONS = [
   { id: "workflows", label: "Workflows", icon: WorkflowIcon },
   { id: "agents", label: "Responder Agents", icon: Bot },
+  { id: "campaigns", label: "Drip Campaigns", icon: Send },
 ] as const;
+
 
 type SectionId = (typeof SECTIONS)[number]["id"];
 
