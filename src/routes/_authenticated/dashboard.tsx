@@ -110,7 +110,11 @@ function Dashboard() {
           <img
             src={brand.logoDark}
             alt={`${brand.name} logo`}
-            className="h-14 w-auto max-w-[200px] object-contain"
+            className="w-auto object-contain"
+            style={{
+              height: `${(56 * brand.scale) / 100}px`,
+              maxWidth: `${(200 * brand.scale) / 100}px`,
+            }}
           />
         </Link>
         <nav className="flex flex-1 flex-col gap-1">
