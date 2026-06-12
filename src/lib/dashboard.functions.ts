@@ -446,6 +446,7 @@ const settingsSchema = z.object({
   brand_tagline: z.string().max(300).nullable().optional(),
   logo_light_url: z.string().max(3_000_000).nullable().optional(),
   logo_dark_url: z.string().max(3_000_000).nullable().optional(),
+  logo_scale: z.coerce.number().int().min(50).max(300).nullable().optional(),
 });
 
 // Chatwoot fields are super-admin only; company/program fields allow admin too.
