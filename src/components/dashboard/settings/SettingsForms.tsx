@@ -285,6 +285,12 @@ export function CompanySettingsForm() {
               dark
             />
           </div>
+          <LogoScaleField
+            value={form.logo_scale}
+            onChange={(v) => set("logo_scale", v)}
+            previewLight={form.logo_light_url}
+            previewDark={form.logo_dark_url}
+          />
           <Button onClick={() => save.mutate(form)} disabled={save.isPending}>
             <Save className="mr-1 h-4 w-4" /> Save Branding
           </Button>
