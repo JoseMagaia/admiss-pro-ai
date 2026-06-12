@@ -52,6 +52,12 @@ export type CampaignRow = {
   batch_size: number;
   delay_seconds: number;
   send_rate_per_min: number;
+  message_variations: string[];
+  batch_break_seconds: number;
+  send_days: number[];
+  send_window_start: string | null;
+  send_window_end: string | null;
+  send_timezone: string;
   start_at: string | null;
   end_at: string | null;
   last_batch_at: string | null;
