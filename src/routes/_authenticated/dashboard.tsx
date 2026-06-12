@@ -34,6 +34,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { canAccessTab, canAccessAdvanced, ROLE_LABELS } from "@/lib/roles";
 import { DashboardNavProvider } from "@/lib/dashboard-nav";
 import { SpaceSwitcher } from "@/components/dashboard/SpaceSwitcher";
+import { useBranding } from "@/lib/useBranding";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
