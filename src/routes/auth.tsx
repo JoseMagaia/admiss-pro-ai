@@ -52,7 +52,7 @@ function AuthPage() {
           <ArrowLeft className="h-4 w-4" /> Back to site
         </Link>
         <div className="rounded-2xl border bg-card p-8 shadow-elevated">
-          <div class="mb-6 flex items-center gap-2">
+          <div className="mb-6 flex items-center gap-2">
             <img src={DEFAULT_BRAND.logoLight} alt={`${DEFAULT_BRAND.name} logo`} className="h-10 w-auto max-w-[140px] object-contain" />
           </div>
           <p className="mb-6 text-xs text-muted-foreground">Admissions Dashboard</p>
