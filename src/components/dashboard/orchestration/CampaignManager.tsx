@@ -403,6 +403,48 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
           </p>
         </div>
 
+        <div className="sm:col-span-2 rounded-lg border bg-muted/20 p-3">
+          <div className="flex items-center justify-between">
+            <Label>Message variations (spintax / A-B rotation)</Label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setVariations((v) => [...v, ""])}
+            >
+              <Plus className="mr-1 h-3.5 w-3.5" /> Add variation
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            The sender rotates evenly between the main template and these variations to reduce the chance of being
+            flagged as spam. Merge fields work here too.
+          </p>
+          <div className="mt-3 space-y-2">
+            {variations.length === 0 && (
+              <p className="text-xs text-muted-foreground">No variations yet — only the main template will be used.</p>
+            )}
+            {variations.map((v, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <Textarea
+                  value={v}
+                  onChange={(e) => setVariations((arr) => arr.map((x, idx) => (idx === i ? e.target.value : x)))}
+                  rows={3}
+                  placeholder={`Variation ${i + 1} — e.g. Hey {{first_name}}! Spots are opening for {{course_interest}}.`}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setVariations((arr) => arr.filter((_, idx) => idx !== i))}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div>
           <Label>Batch size (per minute)</Label>
           <Input
