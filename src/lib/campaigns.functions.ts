@@ -248,14 +248,20 @@ export const updateCampaign = createServerFn({ method: "POST" })
       "channel",
       "workspace_id",
       "message_template",
+      "message_variations",
       "batch_size",
       "delay_seconds",
+      "batch_break_seconds",
       "send_rate_per_min",
+      "send_days",
+      "send_timezone",
     ] as const) {
       if (data[k] !== undefined) patch[k] = data[k];
     }
     if (data.start_at !== undefined) patch.start_at = data.start_at || null;
     if (data.end_at !== undefined) patch.end_at = data.end_at || null;
+    if (data.send_window_start !== undefined) patch.send_window_start = data.send_window_start || null;
+    if (data.send_window_end !== undefined) patch.send_window_end = data.send_window_end || null;
     if (Object.keys(patch).length === 0) return { ok: false, error: "Nothing to update." };
     const { error } = await db.from("campaigns").update(patch as any).eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };
