@@ -47,6 +47,17 @@ const CHANNELS = [
   { id: "other", label: "Other" },
 ] as const;
 
+// 0 = Sunday … 6 = Saturday (matches JS Date.getDay()).
+const WEEKDAYS: { value: number; label: string }[] = [
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+  { value: 0, label: "Sun" },
+];
+
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
   scheduled: "bg-warning/15 text-warning",
@@ -281,6 +292,14 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
   const [sendRate, setSendRate] = useState(existing?.send_rate_per_min ?? 60);
   const [startAt, setStartAt] = useState(toLocalInput(existing?.start_at));
   const [endAt, setEndAt] = useState(toLocalInput(existing?.end_at));
+  const [variations, setVariations] = useState<string[]>(existing?.message_variations ?? []);
+  const [batchBreak, setBatchBreak] = useState(Math.round((existing?.batch_break_seconds ?? 60) / 60));
+  const [sendDays, setSendDays] = useState<number[]>(existing?.send_days ?? [0, 1, 2, 3, 4, 5, 6]);
+  const [windowStart, setWindowStart] = useState(existing?.send_window_start ?? "");
+  const [windowEnd, setWindowEnd] = useState(existing?.send_window_end ?? "");
+  const [timezone, setTimezone] = useState(
+    existing?.send_timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+  );
 
   const locked = existing ? !["draft", "scheduled", "paused"].includes(existing.status) : false;
 
@@ -305,9 +324,15 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
         channel: channel as "whatsapp" | "sms" | "email" | "other",
         workspace_id: workspaceId,
         message_template: template,
+        message_variations: variations.map((v) => v.trim()).filter(Boolean),
         batch_size: Number(batchSize),
         delay_seconds: Number(delaySeconds),
+        batch_break_seconds: Math.max(0, Math.round(Number(batchBreak) * 60)),
         send_rate_per_min: Number(sendRate),
+        send_days: sendDays.length ? sendDays : [0, 1, 2, 3, 4, 5, 6],
+        send_window_start: windowStart || null,
+        send_window_end: windowEnd || null,
+        send_timezone: timezone || "UTC",
         start_at: fromLocalInput(startAt),
         end_at: fromLocalInput(endAt),
       };
@@ -389,6 +414,48 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
           </p>
         </div>
 
+        <div className="sm:col-span-2 rounded-lg border bg-muted/20 p-3">
+          <div className="flex items-center justify-between">
+            <Label>Message variations (spintax / A-B rotation)</Label>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setVariations((v) => [...v, ""])}
+            >
+              <Plus className="mr-1 h-3.5 w-3.5" /> Add variation
+            </Button>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            The sender rotates evenly between the main template and these variations to reduce the chance of being
+            flagged as spam. Merge fields work here too.
+          </p>
+          <div className="mt-3 space-y-2">
+            {variations.length === 0 && (
+              <p className="text-xs text-muted-foreground">No variations yet — only the main template will be used.</p>
+            )}
+            {variations.map((v, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <Textarea
+                  value={v}
+                  onChange={(e) => setVariations((arr) => arr.map((x, idx) => (idx === i ? e.target.value : x)))}
+                  rows={3}
+                  placeholder={`Variation ${i + 1} — e.g. Hey {{first_name}}! Spots are opening for {{course_interest}}.`}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setVariations((arr) => arr.filter((_, idx) => idx !== i))}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div>
           <Label>Batch size (per minute)</Label>
           <Input
@@ -419,7 +486,68 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
             onChange={(e) => setSendRate(Number(e.target.value))}
           />
         </div>
-        <div />
+        <div>
+          <Label>Break between batches (min)</Label>
+          <Input
+            type="number"
+            min={0}
+            max={1440}
+            value={batchBreak}
+            onChange={(e) => setBatchBreak(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="sm:col-span-2 rounded-lg border bg-muted/20 p-3">
+          <Label>Drip sending schedule</Label>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Restrict sending to specific weekdays and a time-of-day window. Messages outside this window wait until the
+            next allowed slot.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {WEEKDAYS.map((d) => {
+              const on = sendDays.includes(d.value);
+              return (
+                <button
+                  key={d.value}
+                  type="button"
+                  onClick={() =>
+                    setSendDays((arr) =>
+                      arr.includes(d.value) ? arr.filter((x) => x !== d.value) : [...arr, d.value].sort(),
+                    )
+                  }
+                  className={cn(
+                    "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                    on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70",
+                  )}
+                >
+                  {d.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div>
+              <Label>From (time)</Label>
+              <Input type="time" value={windowStart} onChange={(e) => setWindowStart(e.target.value)} />
+            </div>
+            <div>
+              <Label>To (time)</Label>
+              <Input type="time" value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} />
+            </div>
+            <div>
+              <Label>Timezone</Label>
+              <Input
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                placeholder="e.g. Europe/London"
+              />
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Leave the time fields empty to send at any hour on the selected days.
+          </p>
+        </div>
+
         <div>
           <Label>Start date/time (optional)</Label>
           <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />

@@ -1845,6 +1845,54 @@ export async function deliverCampaignMessage(params: {
   return { ok: true };
 }
 
+// Returns the current weekday (0-6) and minutes-since-midnight for a timezone.
+function nowInTimezone(tz: string): { day: number; minutes: number } {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz || "UTC",
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date());
+    const map: Record<string, string> = {};
+    for (const p of parts) map[p.type] = p.value;
+    const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+    const day = dayMap[map.weekday] ?? new Date().getUTCDay();
+    let hour = Number(map.hour);
+    if (hour === 24) hour = 0; // some runtimes emit "24" for midnight
+    const minutes = hour * 60 + Number(map.minute);
+    return { day, minutes };
+  } catch {
+    const d = new Date();
+    return { day: d.getUTCDay(), minutes: d.getUTCHours() * 60 + d.getUTCMinutes() };
+  }
+}
+
+const hhmmToMinutes = (s: string | null | undefined): number | null => {
+  if (!s) return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(s));
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+};
+
+// True when the campaign is allowed to send right now given its weekday +
+// time-of-day window (interpreted in the campaign's timezone).
+function withinSendSchedule(c: Record<string, unknown>): boolean {
+  const days = (c.send_days as number[] | null) ?? [0, 1, 2, 3, 4, 5, 6];
+  const tz = String(c.send_timezone ?? "UTC");
+  const { day, minutes } = nowInTimezone(tz);
+  if (Array.isArray(days) && days.length > 0 && !days.includes(day)) return false;
+
+  const start = hhmmToMinutes(c.send_window_start as string | null);
+  const end = hhmmToMinutes(c.send_window_end as string | null);
+  if (start === null || end === null) return true; // no time window → any hour
+  if (start === end) return true;
+  if (start < end) return minutes >= start && minutes < end;
+  // Overnight window (e.g. 22:00 → 06:00)
+  return minutes >= start || minutes < end;
+}
+
 
 // Process due drip campaigns: advances scheduled campaigns into running, sends
 // the next batch of pending recipients for each running campaign (respecting
@@ -1884,6 +1932,16 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
     }
     // Not yet started.
     if (startAt !== null && now < startAt) continue;
+    // Outside the allowed weekday / time-of-day window → wait for next slot.
+    if (!withinSendSchedule(c)) continue;
+
+    // Respect the configured break between batches (drip pacing).
+    const batchBreakSeconds = Math.min(Math.max(0, Number(c.batch_break_seconds) || 0), 86400);
+    const lastBatchAt = c.last_batch_at ? new Date(String(c.last_batch_at)).getTime() : null;
+    if (batchBreakSeconds > 0 && lastBatchAt !== null && now - lastBatchAt < batchBreakSeconds * 1000) {
+      continue;
+    }
+
     // Flip scheduled → running once the window opens.
     if (c.status === "scheduled") {
       await db.from("campaigns").update({ status: "running" } as never).eq("id", id);
@@ -1893,6 +1951,10 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
     const delaySeconds = Math.min(Math.max(0, Number(c.delay_seconds) || 0), 5);
     const workspaceId = (c.workspace_id as string | null) ?? null;
     const template = String(c.message_template ?? "");
+    // Rotate evenly between the main template and any variations to reduce spam flags.
+    const variations = ((c.message_variations as string[] | null) ?? []).filter((v) => String(v ?? "").trim());
+    const templatePool = [template, ...variations].filter((t) => String(t ?? "").trim());
+    const pool = templatePool.length > 0 ? templatePool : [template];
 
     const { data: pending } = await db
       .from("campaign_recipients")
@@ -1912,11 +1974,13 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
 
     campaignsTouched += 1;
 
-    for (const r of batch) {
+    for (let bi = 0; bi < batch.length; bi++) {
+      const r = batch[bi];
       if (Date.now() - startBudget > TIME_BUDGET_MS) break;
       const rid = String(r.id);
       const phone = String(r.phone_number);
-      const message = renderCampaignTemplate(template, {
+      const chosenTemplate = pool[(totalSent + bi) % pool.length];
+      const message = renderCampaignTemplate(chosenTemplate, {
         name: (r.name as string | null) ?? null,
         phone_number: phone,
         merge_data: (r.merge_data as Record<string, unknown> | null) ?? null,

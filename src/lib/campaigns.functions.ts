@@ -52,6 +52,12 @@ export type CampaignRow = {
   batch_size: number;
   delay_seconds: number;
   send_rate_per_min: number;
+  message_variations: string[];
+  batch_break_seconds: number;
+  send_days: number[];
+  send_window_start: string | null;
+  send_window_end: string | null;
+  send_timezone: string;
   start_at: string | null;
   end_at: string | null;
   last_batch_at: string | null;
@@ -112,6 +118,12 @@ export const listCampaigns = createServerFn({ method: "GET" }).handler(async () 
     batch_size: c.batch_size,
     delay_seconds: c.delay_seconds,
     send_rate_per_min: c.send_rate_per_min,
+    message_variations: (c.message_variations ?? []) as string[],
+    batch_break_seconds: c.batch_break_seconds ?? 60,
+    send_days: (c.send_days ?? [0, 1, 2, 3, 4, 5, 6]) as number[],
+    send_window_start: c.send_window_start ?? null,
+    send_window_end: c.send_window_end ?? null,
+    send_timezone: c.send_timezone ?? "UTC",
     start_at: c.start_at,
     end_at: c.end_at,
     last_batch_at: c.last_batch_at,
@@ -171,9 +183,15 @@ const campaignInput = z.object({
   channel: z.enum(["whatsapp", "sms", "email", "other"]).default("whatsapp"),
   workspace_id: z.string().uuid().nullable().optional(),
   message_template: z.string().max(8000).default(""),
+  message_variations: z.array(z.string().max(8000)).max(10).default([]),
   batch_size: z.number().int().min(1).max(100).default(25),
   delay_seconds: z.number().int().min(0).max(5).default(2),
+  batch_break_seconds: z.number().int().min(0).max(86400).default(60),
   send_rate_per_min: z.number().int().min(1).max(600).default(60),
+  send_days: z.array(z.number().int().min(0).max(6)).max(7).default([0, 1, 2, 3, 4, 5, 6]),
+  send_window_start: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+  send_window_end: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
+  send_timezone: z.string().max(64).default("UTC"),
   start_at: z.string().nullable().optional(),
   end_at: z.string().nullable().optional(),
 });
@@ -198,7 +216,13 @@ export const createCampaign = createServerFn({ method: "POST" })
         status: "draft",
         batch_size: data.batch_size,
         delay_seconds: data.delay_seconds,
+        batch_break_seconds: data.batch_break_seconds,
         send_rate_per_min: data.send_rate_per_min,
+        message_variations: data.message_variations ?? [],
+        send_days: data.send_days ?? [0, 1, 2, 3, 4, 5, 6],
+        send_window_start: data.send_window_start || null,
+        send_window_end: data.send_window_end || null,
+        send_timezone: data.send_timezone || "UTC",
         start_at: data.start_at || null,
         end_at: data.end_at || null,
         created_by: (me as any)?.userId ?? null,
@@ -224,14 +248,20 @@ export const updateCampaign = createServerFn({ method: "POST" })
       "channel",
       "workspace_id",
       "message_template",
+      "message_variations",
       "batch_size",
       "delay_seconds",
+      "batch_break_seconds",
       "send_rate_per_min",
+      "send_days",
+      "send_timezone",
     ] as const) {
       if (data[k] !== undefined) patch[k] = data[k];
     }
     if (data.start_at !== undefined) patch.start_at = data.start_at || null;
     if (data.end_at !== undefined) patch.end_at = data.end_at || null;
+    if (data.send_window_start !== undefined) patch.send_window_start = data.send_window_start || null;
+    if (data.send_window_end !== undefined) patch.send_window_end = data.send_window_end || null;
     if (Object.keys(patch).length === 0) return { ok: false, error: "Nothing to update." };
     const { error } = await db.from("campaigns").update(patch as any).eq("id", data.id);
     return { ok: !error, error: error?.message ?? null };

@@ -1,10 +1,11 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
-import { GraduationCap, Loader2, ArrowLeft } from "lucide-react";
+import { Loader2, ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DEFAULT_BRAND } from "@/lib/useBranding";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -52,14 +53,9 @@ function AuthPage() {
         </Link>
         <div className="rounded-2xl border bg-card p-8 shadow-elevated">
           <div className="mb-6 flex items-center gap-2">
-            <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-accent">
-              <GraduationCap className="h-5 w-5 text-accent-foreground" />
-            </span>
-            <div>
-              <h1 className="font-display text-lg font-bold leading-none">Linkmoore</h1>
-              <p className="text-xs text-muted-foreground">Admissions Dashboard</p>
-            </div>
+            <img src={DEFAULT_BRAND.logoLight} alt={`${DEFAULT_BRAND.name} logo`} className="h-10 w-auto max-w-[140px] object-contain" />
           </div>
+          <p className="mb-6 text-xs text-muted-foreground">Admissions Dashboard</p>
 
           <h2 className="mb-1 text-xl font-semibold">Sign in</h2>
           <p className="mb-6 text-sm text-muted-foreground">Access the admissions platform with your account.</p>

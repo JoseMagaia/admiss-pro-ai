@@ -441,6 +441,11 @@ const settingsSchema = z.object({
   chatwoot_account_id: z.string().max(100).nullable().optional(),
   chatwoot_inbox_id: z.string().max(100).nullable().optional(),
   chatwoot_api_token: z.string().max(500).nullable().optional(),
+  // White-label branding (per-space)
+  brand_name: z.string().max(120).nullable().optional(),
+  brand_tagline: z.string().max(300).nullable().optional(),
+  logo_light_url: z.string().max(3_000_000).nullable().optional(),
+  logo_dark_url: z.string().max(3_000_000).nullable().optional(),
 });
 
 // Chatwoot fields are super-admin only; company/program fields allow admin too.

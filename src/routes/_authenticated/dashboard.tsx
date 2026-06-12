@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getActiveSpaceContext } from "@/lib/spaces.functions";
 import {
-  GraduationCap,
   Users,
   MessageSquare,
   Calendar,
@@ -34,6 +33,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { canAccessTab, canAccessAdvanced, ROLE_LABELS } from "@/lib/roles";
 import { DashboardNavProvider } from "@/lib/dashboard-nav";
 import { SpaceSwitcher } from "@/components/dashboard/SpaceSwitcher";
+import { useBranding } from "@/lib/useBranding";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -47,14 +47,14 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 });
 
 const ALL_TABS = [
-  { id: "leads", label: "Leads", icon: Users },
   { id: "messages", label: "Messages", icon: MessageSquare },
-  { id: "contacts", label: "Contacts", icon: ContactIcon },
+  { id: "leads", label: "Leads", icon: Users },
   { id: "bookings", label: "Bookings", icon: Calendar },
   { id: "pipeline", label: "Pipeline", icon: KanbanSquare },
   { id: "meeting_outcomes", label: "Meeting Outcomes", icon: ClipboardCheck },
   { id: "orchestration", label: "Orchestration", icon: WorkflowIcon },
   { id: "advanced", label: "Advanced", icon: Gauge },
+  { id: "contacts", label: "Contacts", icon: ContactIcon },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
@@ -62,8 +62,9 @@ type TabId = (typeof ALL_TABS)[number]["id"];
 
 function Dashboard() {
   const { loading, profile, signOut } = useAuth();
-  const [tab, setTab] = useState<TabId>("leads");
+  const [tab, setTab] = useState<TabId>("messages");
   const [pendingConversation, setPendingConversation] = useState<string | null>(null);
+  const brand = useBranding();
 
   const spaceCtxFn = useServerFn(getActiveSpaceContext);
   const { data: spaceCtx } = useQuery({ queryKey: ["active-space-context"], queryFn: () => spaceCtxFn() });
@@ -106,10 +107,11 @@ function Dashboard() {
       {/* Sidebar */}
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-sidebar px-4 py-6 text-sidebar-foreground lg:flex">
         <Link to="/" className="mb-8 flex items-center gap-2 px-2">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-accent">
-            <GraduationCap className="h-5 w-5 text-accent-foreground" />
-          </span>
-          <span className="font-display text-lg font-bold">Linkmoore</span>
+          <img
+            src={brand.logoDark}
+            alt={`${brand.name} logo`}
+            className="h-9 w-auto max-w-[150px] object-contain"
+          />
         </Link>
         <nav className="flex flex-1 flex-col gap-1">
           {tabs.map((t) => (
@@ -179,7 +181,7 @@ function Dashboard() {
           <header className="mb-6">
             <h1 className="font-display text-2xl font-bold capitalize">{activeTab}</h1>
             <p className="text-sm text-muted-foreground">
-              Linkmoore Education · AI Admissions Platform
+              {brand.tagline}
             </p>
           </header>
 
