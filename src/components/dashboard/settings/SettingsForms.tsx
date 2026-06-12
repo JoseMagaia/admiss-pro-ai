@@ -234,7 +234,7 @@ function LogoScaleField({
   );
 }
 
-
+export function CompanySettingsForm() {
   const { form, set, save } = useSettingsForm();
   return (
     <>
