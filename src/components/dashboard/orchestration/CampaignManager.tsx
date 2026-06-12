@@ -281,6 +281,14 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
   const [sendRate, setSendRate] = useState(existing?.send_rate_per_min ?? 60);
   const [startAt, setStartAt] = useState(toLocalInput(existing?.start_at));
   const [endAt, setEndAt] = useState(toLocalInput(existing?.end_at));
+  const [variations, setVariations] = useState<string[]>(existing?.message_variations ?? []);
+  const [batchBreak, setBatchBreak] = useState(Math.round((existing?.batch_break_seconds ?? 60) / 60));
+  const [sendDays, setSendDays] = useState<number[]>(existing?.send_days ?? [0, 1, 2, 3, 4, 5, 6]);
+  const [windowStart, setWindowStart] = useState(existing?.send_window_start ?? "");
+  const [windowEnd, setWindowEnd] = useState(existing?.send_window_end ?? "");
+  const [timezone, setTimezone] = useState(
+    existing?.send_timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+  );
 
   const locked = existing ? !["draft", "scheduled", "paused"].includes(existing.status) : false;
 
