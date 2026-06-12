@@ -316,6 +316,7 @@ export type Database = {
       }
       campaigns: {
         Row: {
+          batch_break_seconds: number
           batch_size: number
           channel: string
           created_at: string
@@ -325,8 +326,13 @@ export type Database = {
           id: string
           last_batch_at: string | null
           message_template: string
+          message_variations: string[]
           name: string
+          send_days: number[]
           send_rate_per_min: number
+          send_timezone: string
+          send_window_end: string | null
+          send_window_start: string | null
           space_id: string
           start_at: string | null
           status: string
@@ -334,6 +340,7 @@ export type Database = {
           workspace_id: string | null
         }
         Insert: {
+          batch_break_seconds?: number
           batch_size?: number
           channel?: string
           created_at?: string
@@ -343,8 +350,13 @@ export type Database = {
           id?: string
           last_batch_at?: string | null
           message_template?: string
+          message_variations?: string[]
           name: string
+          send_days?: number[]
           send_rate_per_min?: number
+          send_timezone?: string
+          send_window_end?: string | null
+          send_window_start?: string | null
           space_id: string
           start_at?: string | null
           status?: string
@@ -352,6 +364,7 @@ export type Database = {
           workspace_id?: string | null
         }
         Update: {
+          batch_break_seconds?: number
           batch_size?: number
           channel?: string
           created_at?: string
@@ -361,8 +374,13 @@ export type Database = {
           id?: string
           last_batch_at?: string | null
           message_template?: string
+          message_variations?: string[]
           name?: string
+          send_days?: number[]
           send_rate_per_min?: number
+          send_timezone?: string
+          send_window_end?: string | null
+          send_window_start?: string | null
           space_id?: string
           start_at?: string | null
           status?: string
@@ -500,6 +518,8 @@ export type Database = {
         Row: {
           active_destinations: string | null
           active_programs: string | null
+          brand_name: string | null
+          brand_tagline: string | null
           chatwoot_account_id: string | null
           chatwoot_api_token: string | null
           chatwoot_inbox_id: string | null
@@ -508,6 +528,8 @@ export type Database = {
           company_name: string
           company_phone: string | null
           id: string
+          logo_dark_url: string | null
+          logo_light_url: string | null
           office_address: string | null
           scholarship_information: string | null
           space_id: string | null
@@ -518,6 +540,8 @@ export type Database = {
         Insert: {
           active_destinations?: string | null
           active_programs?: string | null
+          brand_name?: string | null
+          brand_tagline?: string | null
           chatwoot_account_id?: string | null
           chatwoot_api_token?: string | null
           chatwoot_inbox_id?: string | null
@@ -526,6 +550,8 @@ export type Database = {
           company_name?: string
           company_phone?: string | null
           id?: string
+          logo_dark_url?: string | null
+          logo_light_url?: string | null
           office_address?: string | null
           scholarship_information?: string | null
           space_id?: string | null
@@ -536,6 +562,8 @@ export type Database = {
         Update: {
           active_destinations?: string | null
           active_programs?: string | null
+          brand_name?: string | null
+          brand_tagline?: string | null
           chatwoot_account_id?: string | null
           chatwoot_api_token?: string | null
           chatwoot_inbox_id?: string | null
@@ -544,6 +572,8 @@ export type Database = {
           company_name?: string
           company_phone?: string | null
           id?: string
+          logo_dark_url?: string | null
+          logo_light_url?: string | null
           office_address?: string | null
           scholarship_information?: string | null
           space_id?: string | null
