@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { getSettings, updateSettings, testWorkspaceConnection } from "@/lib/dashboard.functions";
 
 type Settings = Record<string, string | null> & { id?: string };
