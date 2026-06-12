@@ -182,7 +182,7 @@ function Dashboard() {
           <header className="mb-6">
             <h1 className="font-display text-2xl font-bold capitalize">{activeTab}</h1>
             <p className="text-sm text-muted-foreground">
-              Linkmoore Education · AI Admissions Platform
+              {brand.tagline}
             </p>
           </header>
 
