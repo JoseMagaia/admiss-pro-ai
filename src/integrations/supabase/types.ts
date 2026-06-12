@@ -530,6 +530,7 @@ export type Database = {
           id: string
           logo_dark_url: string | null
           logo_light_url: string | null
+          logo_scale: number
           office_address: string | null
           scholarship_information: string | null
           space_id: string | null
@@ -552,6 +553,7 @@ export type Database = {
           id?: string
           logo_dark_url?: string | null
           logo_light_url?: string | null
+          logo_scale?: number
           office_address?: string | null
           scholarship_information?: string | null
           space_id?: string | null
@@ -574,6 +576,7 @@ export type Database = {
           id?: string
           logo_dark_url?: string | null
           logo_light_url?: string | null
+          logo_scale?: number
           office_address?: string | null
           scholarship_information?: string | null
           space_id?: string | null
