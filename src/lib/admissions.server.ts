@@ -1932,6 +1932,16 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
     }
     // Not yet started.
     if (startAt !== null && now < startAt) continue;
+    // Outside the allowed weekday / time-of-day window → wait for next slot.
+    if (!withinSendSchedule(c)) continue;
+
+    // Respect the configured break between batches (drip pacing).
+    const batchBreakSeconds = Math.min(Math.max(0, Number(c.batch_break_seconds) || 0), 86400);
+    const lastBatchAt = c.last_batch_at ? new Date(String(c.last_batch_at)).getTime() : null;
+    if (batchBreakSeconds > 0 && lastBatchAt !== null && now - lastBatchAt < batchBreakSeconds * 1000) {
+      continue;
+    }
+
     // Flip scheduled → running once the window opens.
     if (c.status === "scheduled") {
       await db.from("campaigns").update({ status: "running" } as never).eq("id", id);
@@ -1941,6 +1951,10 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
     const delaySeconds = Math.min(Math.max(0, Number(c.delay_seconds) || 0), 5);
     const workspaceId = (c.workspace_id as string | null) ?? null;
     const template = String(c.message_template ?? "");
+    // Rotate evenly between the main template and any variations to reduce spam flags.
+    const variations = ((c.message_variations as string[] | null) ?? []).filter((v) => String(v ?? "").trim());
+    const templatePool = [template, ...variations].filter((t) => String(t ?? "").trim());
+    const pool = templatePool.length > 0 ? templatePool : [template];
 
     const { data: pending } = await db
       .from("campaign_recipients")
