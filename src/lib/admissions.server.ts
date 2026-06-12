@@ -1974,11 +1974,13 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
 
     campaignsTouched += 1;
 
-    for (const r of batch) {
+    for (let bi = 0; bi < batch.length; bi++) {
+      const r = batch[bi];
       if (Date.now() - startBudget > TIME_BUDGET_MS) break;
       const rid = String(r.id);
       const phone = String(r.phone_number);
-      const message = renderCampaignTemplate(template, {
+      const chosenTemplate = pool[(totalSent + bi) % pool.length];
+      const message = renderCampaignTemplate(chosenTemplate, {
         name: (r.name as string | null) ?? null,
         phone_number: phone,
         merge_data: (r.merge_data as Record<string, unknown> | null) ?? null,
