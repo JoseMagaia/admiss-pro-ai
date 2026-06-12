@@ -38,7 +38,7 @@ export function useBranding(): Branding {
 
   return {
     name: (s?.brand_name || s?.company_name || DEFAULT_BRAND.name) as string,
-    tagline: (s?.brand_tagline ?? DEFAULT_BRAND.tagline) || DEFAULT_BRAND.tagline,
+    tagline: ((s?.brand_tagline as string | null) ?? DEFAULT_BRAND.tagline) || DEFAULT_BRAND.tagline,
     logoLight: (s?.logo_light_url || DEFAULT_BRAND.logoLight) as string,
     logoDark: (s?.logo_dark_url || DEFAULT_BRAND.logoDark) as string,
     scale,
