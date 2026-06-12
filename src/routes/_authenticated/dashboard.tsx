@@ -48,12 +48,12 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 
 const ALL_TABS = [
   { id: "messages", label: "Messages", icon: MessageSquare },
-  { id: "leads", label: "Leads", icon: Users },
   { id: "bookings", label: "Bookings", icon: Calendar },
   { id: "pipeline", label: "Pipeline", icon: KanbanSquare },
   { id: "meeting_outcomes", label: "Meeting Outcomes", icon: ClipboardCheck },
   { id: "orchestration", label: "Orchestration", icon: WorkflowIcon },
   { id: "advanced", label: "Advanced", icon: Gauge },
+  { id: "leads", label: "Leads", icon: Users },
   { id: "contacts", label: "Contacts", icon: ContactIcon },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ] as const;
@@ -110,7 +110,7 @@ function Dashboard() {
           <img
             src={brand.logoDark}
             alt={`${brand.name} logo`}
-            className="h-9 w-auto max-w-[150px] object-contain"
+            className="h-14 w-auto max-w-[200px] object-contain"
           />
         </Link>
         <nav className="flex flex-1 flex-col gap-1">

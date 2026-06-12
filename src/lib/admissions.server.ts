@@ -845,6 +845,52 @@ export async function deliverHumanMessage(params: {
     }
   }
 
+  // Not switching, but the lead's own workspace is a Chatwoot inbox with no
+  // recorded conversation id yet (e.g. evolution-origin lead, or a partial
+  // record). Create one on the lead's workspace so the human reply actually
+  // delivers there instead of failing with "no active conversation".
+  if (
+    !switching &&
+    workspace &&
+    workspace.provider_type !== "evolution" &&
+    !conversationId
+  ) {
+    conversationId = await createChatwootConversation({
+      creds,
+      inboxId: workspace.chatwoot_inbox_id ?? null,
+      phone,
+      name: null,
+    });
+    if (conversationId) {
+      await db
+        .from("conversations")
+        .update({
+          workspace_id: workspace.id,
+          chatwoot_conversation_id: conversationId,
+        } as never)
+        .eq("phone_number", phone);
+      if ((lead as Record<string, unknown> | null)?.id) {
+        await db
+          .from("leads")
+          .update({
+            workspace_id: workspace.id,
+            chatwoot_conversation_id: conversationId,
+          } as never)
+          .eq("id", (lead as Record<string, unknown>).id as string);
+      }
+    }
+  } else if (
+    !switching &&
+    workspace?.id &&
+    workspace.id !== currentWorkspaceId
+  ) {
+    // Persist the resolved workspace so future replies stay on the lead's inbox.
+    await db
+      .from("conversations")
+      .update({ workspace_id: workspace.id } as never)
+      .eq("phone_number", phone);
+  }
+
   const sent = await sendWorkspaceMessage({
     workspace,
     creds,
