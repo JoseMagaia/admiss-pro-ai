@@ -475,7 +475,68 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
             onChange={(e) => setSendRate(Number(e.target.value))}
           />
         </div>
-        <div />
+        <div>
+          <Label>Break between batches (min)</Label>
+          <Input
+            type="number"
+            min={0}
+            max={1440}
+            value={batchBreak}
+            onChange={(e) => setBatchBreak(Number(e.target.value))}
+          />
+        </div>
+
+        <div className="sm:col-span-2 rounded-lg border bg-muted/20 p-3">
+          <Label>Drip sending schedule</Label>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Restrict sending to specific weekdays and a time-of-day window. Messages outside this window wait until the
+            next allowed slot.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {WEEKDAYS.map((d) => {
+              const on = sendDays.includes(d.value);
+              return (
+                <button
+                  key={d.value}
+                  type="button"
+                  onClick={() =>
+                    setSendDays((arr) =>
+                      arr.includes(d.value) ? arr.filter((x) => x !== d.value) : [...arr, d.value].sort(),
+                    )
+                  }
+                  className={cn(
+                    "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                    on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/70",
+                  )}
+                >
+                  {d.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div>
+              <Label>From (time)</Label>
+              <Input type="time" value={windowStart} onChange={(e) => setWindowStart(e.target.value)} />
+            </div>
+            <div>
+              <Label>To (time)</Label>
+              <Input type="time" value={windowEnd} onChange={(e) => setWindowEnd(e.target.value)} />
+            </div>
+            <div>
+              <Label>Timezone</Label>
+              <Input
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                placeholder="e.g. Europe/London"
+              />
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Leave the time fields empty to send at any hour on the selected days.
+          </p>
+        </div>
+
         <div>
           <Label>Start date/time (optional)</Label>
           <Input type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
