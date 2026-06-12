@@ -63,8 +63,9 @@ type TabId = (typeof ALL_TABS)[number]["id"];
 
 function Dashboard() {
   const { loading, profile, signOut } = useAuth();
-  const [tab, setTab] = useState<TabId>("leads");
+  const [tab, setTab] = useState<TabId>("messages");
   const [pendingConversation, setPendingConversation] = useState<string | null>(null);
+  const brand = useBranding();
 
   const spaceCtxFn = useServerFn(getActiveSpaceContext);
   const { data: spaceCtx } = useQuery({ queryKey: ["active-space-context"], queryFn: () => spaceCtxFn() });
