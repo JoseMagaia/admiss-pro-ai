@@ -47,6 +47,17 @@ const CHANNELS = [
   { id: "other", label: "Other" },
 ] as const;
 
+// 0 = Sunday … 6 = Saturday (matches JS Date.getDay()).
+const WEEKDAYS: { value: number; label: string }[] = [
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+  { value: 0, label: "Sun" },
+];
+
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
   scheduled: "bg-warning/15 text-warning",
