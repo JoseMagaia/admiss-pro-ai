@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getActiveSpaceContext } from "@/lib/spaces.functions";
 import {
-  GraduationCap,
   Users,
   MessageSquare,
   Calendar,
