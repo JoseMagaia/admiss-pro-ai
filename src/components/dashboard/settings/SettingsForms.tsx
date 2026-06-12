@@ -183,7 +183,58 @@ function LogoUpload({
   );
 }
 
-export function CompanySettingsForm() {
+// Slider that controls how large the logo is rendered (as a percentage of the
+// default size), with a live preview against the dark sidebar background.
+function LogoScaleField({
+  value,
+  onChange,
+  previewLight,
+  previewDark,
+}: {
+  value: string | number | null | undefined;
+  onChange: (v: string) => void;
+  previewLight?: string | null;
+  previewDark?: string | null;
+}) {
+  const n = Number(value);
+  const scale = Number.isFinite(n) && n > 0 ? n : 100;
+  const preview = previewDark || previewLight;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <Label>Logo Size</Label>
+        <span className="text-xs font-medium text-muted-foreground">{scale}%</span>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Scales how large the logo appears in the sidebar. 100% is the default size.
+      </p>
+      <Slider
+        value={[scale]}
+        min={50}
+        max={300}
+        step={5}
+        onValueChange={(v) => onChange(String(v[0]))}
+      />
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-muted-foreground">Preview</span>
+        <div className="flex min-h-[64px] flex-1 items-center justify-center overflow-hidden rounded-lg bg-sidebar px-4 py-3">
+          {preview ? (
+            <img
+              src={preview}
+              alt="Logo preview"
+              className="w-auto object-contain"
+              style={{ height: `${(56 * scale) / 100}px`, maxWidth: `${(200 * scale) / 100}px` }}
+            />
+          ) : (
+            <span className="text-[10px] text-sidebar-foreground/60">Upload a logo to preview</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
   const { form, set, save } = useSettingsForm();
   return (
     <>
