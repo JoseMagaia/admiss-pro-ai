@@ -47,14 +47,14 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 });
 
 const ALL_TABS = [
-  { id: "leads", label: "Leads", icon: Users },
   { id: "messages", label: "Messages", icon: MessageSquare },
-  { id: "contacts", label: "Contacts", icon: ContactIcon },
+  { id: "leads", label: "Leads", icon: Users },
   { id: "bookings", label: "Bookings", icon: Calendar },
   { id: "pipeline", label: "Pipeline", icon: KanbanSquare },
   { id: "meeting_outcomes", label: "Meeting Outcomes", icon: ClipboardCheck },
   { id: "orchestration", label: "Orchestration", icon: WorkflowIcon },
   { id: "advanced", label: "Advanced", icon: Gauge },
+  { id: "contacts", label: "Contacts", icon: ContactIcon },
   { id: "settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
