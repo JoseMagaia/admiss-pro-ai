@@ -818,6 +818,42 @@ export type Database = {
           },
         ]
       }
+      inbound_routes: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          did: string
+          id: string
+          no_answer_action: string
+          ring_group_id: string | null
+          space_id: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          did: string
+          id?: string
+          no_answer_action?: string
+          ring_group_id?: string | null
+          space_id: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          did?: string
+          id?: string
+          no_answer_action?: string
+          ring_group_id?: string | null
+          space_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       lead_opportunities: {
         Row: {
           created_at: string
@@ -1362,6 +1398,69 @@ export type Database = {
           },
         ]
       }
+      ring_group_members: {
+        Row: {
+          created_at: string
+          id: string
+          position: number
+          ring_group_id: string
+          space_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          position?: number
+          ring_group_id: string
+          space_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          position?: number
+          ring_group_id?: string
+          space_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ring_groups: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          id: string
+          name: string
+          ring_seconds: number
+          space_id: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name: string
+          ring_seconds?: number
+          space_id: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          name?: string
+          ring_seconds?: number
+          space_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       scheduled_messages: {
         Row: {
           chatwoot_conversation_id: string | null
@@ -1577,6 +1676,7 @@ export type Database = {
           created_at: string
           enabled: boolean
           id: string
+          inbound_enabled: boolean
           provider: string
           sip_display_name: string | null
           sip_domain: string | null
@@ -1596,6 +1696,7 @@ export type Database = {
           created_at?: string
           enabled?: boolean
           id?: string
+          inbound_enabled?: boolean
           provider?: string
           sip_display_name?: string | null
           sip_domain?: string | null
@@ -1615,6 +1716,7 @@ export type Database = {
           created_at?: string
           enabled?: boolean
           id?: string
+          inbound_enabled?: boolean
           provider?: string
           sip_display_name?: string | null
           sip_domain?: string | null

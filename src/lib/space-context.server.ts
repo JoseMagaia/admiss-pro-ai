@@ -43,6 +43,9 @@ export const TENANT_TABLES = new Set<string>([
   "call_callbacks",
   "dial_campaigns",
   "dial_campaign_members",
+  "ring_groups",
+  "ring_group_members",
+  "inbound_routes",
 ]);
 
 // A space id that matches nothing — used as a safe fallback so reads return
