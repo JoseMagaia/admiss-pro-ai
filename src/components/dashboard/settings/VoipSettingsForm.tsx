@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Save, Loader2, Phone } from "lucide-react";
+import { Save, Loader2, Phone, PhoneIncoming } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -16,12 +16,15 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { getVoipSettings, saveVoipSettings } from "@/lib/calls.functions";
 import { SettingsCard } from "./SettingsForms";
+import { RingGroupsManager } from "./RingGroupsManager";
+import { InboundRoutesManager } from "./InboundRoutesManager";
 import { useProjectUrl } from "@/lib/useProjectUrl";
 
 type VoipForm = {
   id?: string;
   provider: "disabled" | "sip" | "twilio";
   enabled: boolean;
+  inbound_enabled?: boolean;
   sip_ws_server?: string | null;
   sip_domain?: string | null;
   sip_uri?: string | null;
@@ -64,7 +67,8 @@ export function VoipSettingsForm() {
   const getFn = useServerFn(getVoipSettings);
   const saveFn = useServerFn(saveVoipSettings);
   const twimlUrl = useProjectUrl("/api/public/voip/twiml");
-  const [form, setForm] = useState<VoipForm>({ provider: "disabled", enabled: false });
+  const inboundUrl = useProjectUrl("/api/public/voip/inbound");
+  const [form, setForm] = useState<VoipForm>({ provider: "disabled", enabled: false, inbound_enabled: false });
 
   const { data } = useQuery({ queryKey: ["voip-settings"], queryFn: () => getFn() });
 
@@ -105,6 +109,16 @@ export function VoipSettingsForm() {
             <p className="text-xs text-muted-foreground">Turn the softphone on for this Space.</p>
           </div>
           <Switch checked={form.enabled} onCheckedChange={(v) => set("enabled", v)} />
+        </div>
+
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">Enable incoming calls</p>
+            <p className="text-xs text-muted-foreground">
+              Ring agents in the browser for inbound calls (Twilio) or answer inbound SIP calls.
+            </p>
+          </div>
+          <Switch checked={Boolean(form.inbound_enabled)} onCheckedChange={(v) => set("inbound_enabled", v)} />
         </div>
 
         <div className="space-y-1.5">
@@ -153,6 +167,15 @@ export function VoipSettingsForm() {
             <p className="mt-1">Set your TwiML App's Voice Request URL (HTTP POST) to:</p>
             <code className="mt-1 block break-all rounded bg-background px-2 py-1">{twimlUrl}</code>
           </div>
+          {form.inbound_enabled && (
+            <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5 font-medium text-foreground">
+                <PhoneIncoming className="h-3.5 w-3.5" /> Inbound number Voice URL
+              </div>
+              <p className="mt-1">Set each incoming Twilio number's Voice Request URL (HTTP POST) to:</p>
+              <code className="mt-1 block break-all rounded bg-background px-2 py-1">{inboundUrl}</code>
+            </div>
+          )}
           <Field label="Account SID" value={form.twilio_account_sid} onChange={(v) => set("twilio_account_sid", v)} placeholder="ACxxxxxxxx" />
           <Field label="API Key SID" value={form.twilio_api_key_sid} onChange={(v) => set("twilio_api_key_sid", v)} placeholder="SKxxxxxxxx" />
           <Field
@@ -177,6 +200,13 @@ export function VoipSettingsForm() {
         {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
         Save telephony settings
       </Button>
+
+      {form.inbound_enabled && form.provider !== "disabled" && (
+        <>
+          <RingGroupsManager />
+          <InboundRoutesManager />
+        </>
+      )}
     </div>
   );
 }

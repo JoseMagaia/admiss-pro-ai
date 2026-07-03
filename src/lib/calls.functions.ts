@@ -35,6 +35,13 @@ async function isAuthed(): Promise<boolean> {
 
 const ANY_ROLE = ALL_ROLES;
 
+// Deterministic, collision-free Twilio client identity for a user. Used both
+// when minting the browser token and when building inbound TwiML so an incoming
+// call can ring the exact browser clients in a ring group.
+export function agentIdentity(userId: string): string {
+  return `agent_${userId.replace(/-/g, "")}`;
+}
+
 // Fields returned to the browser softphone. SIP passwords / short-lived Twilio
 // tokens are only ever handed to an authenticated user.
 type SipClientConfig = {
@@ -46,11 +53,15 @@ type SipClientConfig = {
   domain: string;
   displayName: string;
   callerId: string;
+  identity: string;
+  inbound: boolean;
 };
 type TwilioClientConfig = {
   provider: "twilio";
   token: string;
   callerId: string;
+  identity: string;
+  inbound: boolean;
 };
 type DisabledConfig = { provider: "disabled"; reason: string };
 type VoipClientConfig = SipClientConfig | TwilioClientConfig | DisabledConfig;
@@ -84,6 +95,7 @@ const voipSchema = z.object({
   twilio_api_key_secret: z.string().max(500).nullable().optional(),
   twilio_twiml_app_sid: z.string().max(100).nullable().optional(),
   twilio_caller_id: z.string().max(60).nullable().optional(),
+  inbound_enabled: z.boolean().optional(),
 });
 
 // Secret fields the UI sends as "" when the user left them untouched — never
@@ -154,6 +166,8 @@ export const getVoipClientConfig = createServerFn({ method: "GET" }).handler(
       return { config: { provider: "disabled", reason: "Calling is not set up yet. Ask a super admin to configure telephony." } };
     }
 
+    const inbound = Boolean(s.inbound_enabled);
+
     if (s.provider === "sip") {
       const wsServer = String(s.sip_ws_server ?? "");
       const uri = String(s.sip_uri ?? "");
@@ -170,6 +184,8 @@ export const getVoipClientConfig = createServerFn({ method: "GET" }).handler(
           domain: String(s.sip_domain ?? ""),
           displayName: String(s.sip_display_name ?? ""),
           callerId: String(s.sip_uri ?? ""),
+          identity: agentIdentity(u.userId),
+          inbound,
         },
       };
     }
@@ -188,9 +204,11 @@ export const getVoipClientConfig = createServerFn({ method: "GET" }).handler(
           apiKeySid,
           apiKeySecret,
           twimlAppSid,
-          identity: `agent_${u.userId.slice(0, 8)}`,
+          identity: agentIdentity(u.userId),
         });
-        return { config: { provider: "twilio", token, callerId: String(s.twilio_caller_id ?? "") } };
+        return {
+          config: { provider: "twilio", token, callerId: String(s.twilio_caller_id ?? ""), identity: agentIdentity(u.userId), inbound },
+        };
       } catch {
         return { config: { provider: "disabled", reason: "Could not create a Twilio session." } };
       }
@@ -496,4 +514,200 @@ export const searchDialContacts = createServerFn({ method: "POST" })
     }
     const { data: leads } = await query.order("updated_at", { ascending: false }).limit(50);
     return { contacts: leads ?? [] };
+  });
+
+/* ----------------------- RING GROUPS / INBOUND ----------------------- */
+
+// Users that can be added to a ring group (any authed user with a profile).
+// Super admin only — used by the telephony settings screens.
+export const listSpaceAgents = createServerFn({ method: "GET" }).handler(async () => {
+  try {
+    await guard(["super_admin"]);
+  } catch {
+    return { agents: [] as Array<{ user_id: string; full_name: string | null; email: string | null; role: string | null }> };
+  }
+  const db = await scopedDb();
+  const [{ data: profiles }, { data: roles }] = await Promise.all([
+    db.from("profiles").select("user_id, email, full_name").order("full_name", { ascending: true }),
+    db.from("user_roles").select("user_id, role"),
+  ]);
+  const roleMap = new Map<string, string>();
+  for (const r of (roles as Array<{ user_id: string; role: string }> | null) ?? []) roleMap.set(r.user_id, r.role);
+  const agents = ((profiles as Array<{ user_id: string; email: string | null; full_name: string | null }> | null) ?? []).map(
+    (p) => ({ user_id: p.user_id, full_name: p.full_name, email: p.email, role: roleMap.get(p.user_id) ?? null }),
+  );
+  return { agents };
+});
+
+export type RingGroupRow = {
+  id: string;
+  name: string;
+  ring_seconds: number;
+  active: boolean;
+  member_ids: string[];
+};
+
+export const listRingGroups = createServerFn({ method: "GET" }).handler(async (): Promise<{ groups: RingGroupRow[] }> => {
+  try {
+    await guard(["super_admin"]);
+  } catch {
+    return { groups: [] };
+  }
+  const db = await scopedDb();
+  const { data: groups } = await db.from("ring_groups").select("*").order("created_at", { ascending: false }).limit(200);
+  const rows = (groups as Array<{ id: string; name: string; ring_seconds: number; active: boolean }> | null) ?? [];
+  const { data: members } = await db
+    .from("ring_group_members")
+    .select("ring_group_id, user_id, position")
+    .order("position", { ascending: true });
+  const memberMap = new Map<string, string[]>();
+  for (const m of (members as Array<{ ring_group_id: string; user_id: string }> | null) ?? []) {
+    memberMap.set(m.ring_group_id, [...(memberMap.get(m.ring_group_id) ?? []), m.user_id]);
+  }
+  return {
+    groups: rows.map((g) => ({
+      id: g.id,
+      name: g.name,
+      ring_seconds: g.ring_seconds,
+      active: g.active,
+      member_ids: memberMap.get(g.id) ?? [],
+    })),
+  };
+});
+
+const ringGroupSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(200),
+  ring_seconds: z.number().int().min(5).max(120).optional(),
+  active: z.boolean().optional(),
+  member_ids: z.array(z.string().uuid()).max(50).optional(),
+});
+
+export const saveRingGroup = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => ringGroupSchema.parse(d))
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message, id: null };
+    }
+    const db = await scopedDb();
+    const { id, member_ids, ...rest } = data;
+    const row: Record<string, unknown> = { name: rest.name };
+    if (rest.ring_seconds !== undefined) row.ring_seconds = rest.ring_seconds;
+    if (rest.active !== undefined) row.active = rest.active;
+
+    let groupId = id ?? null;
+    if (id) {
+      const { error } = await db.from("ring_groups").update(row as never).eq("id", id);
+      if (error) return { ok: false, error: error.message, id: null };
+    } else {
+      const { data: inserted, error } = await db
+        .from("ring_groups")
+        .insert({ ...row, created_by: me.userId } as never)
+        .select("id")
+        .maybeSingle();
+      if (error) return { ok: false, error: error.message, id: null };
+      groupId = (inserted as { id?: string } | null)?.id ?? null;
+    }
+
+    if (groupId && member_ids) {
+      await db.from("ring_group_members").delete().eq("ring_group_id", groupId);
+      if (member_ids.length) {
+        const rows = member_ids.map((uid, i) => ({ ring_group_id: groupId, user_id: uid, position: i }));
+        await db.from("ring_group_members").insert(rows as never);
+      }
+    }
+    return { ok: true, error: null, id: groupId };
+  });
+
+export const deleteRingGroup = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await scopedDb();
+    await db.from("ring_group_members").delete().eq("ring_group_id", data.id);
+    await db.from("inbound_routes").update({ ring_group_id: null } as never).eq("ring_group_id", data.id);
+    const { error } = await db.from("ring_groups").delete().eq("id", data.id);
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+export type InboundRouteRow = {
+  id: string;
+  did: string;
+  ring_group_id: string | null;
+  no_answer_action: string;
+  active: boolean;
+};
+
+export const listInboundRoutes = createServerFn({ method: "GET" }).handler(async (): Promise<{ routes: InboundRouteRow[] }> => {
+  try {
+    await guard(["super_admin"]);
+  } catch {
+    return { routes: [] };
+  }
+  const db = await scopedDb();
+  const { data } = await db.from("inbound_routes").select("*").order("created_at", { ascending: false }).limit(200);
+  const rows = (data as Array<InboundRouteRow> | null) ?? [];
+  return {
+    routes: rows.map((r) => ({
+      id: r.id,
+      did: r.did,
+      ring_group_id: r.ring_group_id ?? null,
+      no_answer_action: r.no_answer_action,
+      active: r.active,
+    })),
+  };
+});
+
+const inboundRouteSchema = z.object({
+  id: z.string().uuid().optional(),
+  did: z.string().min(3).max(60),
+  ring_group_id: z.string().uuid().nullable().optional(),
+  no_answer_action: z.enum(["hangup", "voicemail"]).optional(),
+  active: z.boolean().optional(),
+});
+
+export const saveInboundRoute = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => inboundRouteSchema.parse(d))
+  .handler(async ({ data }) => {
+    let me;
+    try {
+      me = await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message, id: null };
+    }
+    const db = await scopedDb();
+    const { id, ...rest } = data;
+    const row: Record<string, unknown> = { did: rest.did.replace(/[\s\-().]/g, ""), ring_group_id: rest.ring_group_id ?? null };
+    if (rest.no_answer_action !== undefined) row.no_answer_action = rest.no_answer_action;
+    if (rest.active !== undefined) row.active = rest.active;
+    if (id) {
+      const { error } = await db.from("inbound_routes").update(row as never).eq("id", id);
+      return { ok: !error, error: error?.message ?? null, id };
+    }
+    const { data: inserted, error } = await db
+      .from("inbound_routes")
+      .insert({ ...row, created_by: me.userId } as never)
+      .select("id")
+      .maybeSingle();
+    return { ok: !error, error: error?.message ?? null, id: (inserted as { id?: string } | null)?.id ?? null };
+  });
+
+export const deleteInboundRoute = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await scopedDb();
+    const { error } = await db.from("inbound_routes").delete().eq("id", data.id);
+    return { ok: !error, error: error?.message ?? null };
   });

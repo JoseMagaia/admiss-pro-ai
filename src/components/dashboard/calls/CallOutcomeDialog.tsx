@@ -30,6 +30,7 @@ export interface CallTarget {
   lead_name?: string | null;
   durationSec?: number;
   provider?: string | null;
+  direction?: "inbound" | "outbound";
 }
 
 export const CALL_STATUSES = [
@@ -88,7 +89,7 @@ export function CallOutcomeDialog({
         data: {
           phone_number: target.phone_number,
           lead_id: target.lead_id ?? null,
-          direction: "outbound",
+          direction: target.direction ?? "outbound",
           status: status as never,
           notes: notes || null,
           provider: target.provider ?? null,

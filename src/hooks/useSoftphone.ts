@@ -12,6 +12,8 @@ export type CallStatus =
   | "failed"
   | "unavailable";
 
+export type CallDirection = "inbound" | "outbound" | null;
+
 export interface SoftphoneState {
   status: CallStatus;
   provider: "sip" | "twilio" | "disabled" | null;
@@ -20,11 +22,15 @@ export interface SoftphoneState {
   currentNumber: string | null;
   durationSec: number;
   muted: boolean;
+  direction: CallDirection;
+  incoming: boolean;
+  incomingFrom: string | null;
+  registered: boolean;
 }
 
 // Minimal cross-provider softphone. Wraps sip.js (Web.SimpleUser) and the
-// Twilio Voice SDK behind a single call/hangup/mute interface. All SDK code is
-// dynamically imported so it never runs during SSR.
+// Twilio Voice SDK behind a single call/hangup/mute/accept/reject interface. All
+// SDK code is dynamically imported so it never runs during SSR.
 export function useSoftphone() {
   const configFn = useServerFn(getVoipClientConfig);
   const [state, setState] = useState<SoftphoneState>({
@@ -35,6 +41,10 @@ export function useSoftphone() {
     currentNumber: null,
     durationSec: 0,
     muted: false,
+    direction: null,
+    incoming: false,
+    incomingFrom: null,
+    registered: false,
   });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,6 +53,8 @@ export function useSoftphone() {
   const twilioDeviceRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const twilioCallRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const incomingCallRef = useRef<any>(null); // pending Twilio incoming call
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -76,6 +88,18 @@ export function useSoftphone() {
     return audioRef.current;
   }, []);
 
+  const endedThenIdle = useCallback(() => {
+    stopTimer();
+    patch({ status: "ended", currentNumber: null, incoming: false, incomingFrom: null });
+    setTimeout(
+      () =>
+        setState((s) =>
+          s.status === "ended" ? { ...s, status: "idle", durationSec: 0, direction: null, muted: false } : s,
+        ),
+      800,
+    );
+  }, [patch, stopTimer]);
+
   // Load the current VoIP config (mints a Twilio token when needed).
   const loadConfig = useCallback(async () => {
     const res = (await configFn()) as { config: Record<string, unknown> };
@@ -84,7 +108,94 @@ export function useSoftphone() {
     return res.config;
   }, [configFn, patch]);
 
-  const teardown = useCallback(async () => {
+  // Register with the provider so inbound calls can reach this browser. Safe to
+  // call repeatedly — it no-ops if already set up for the active provider.
+  const register = useCallback(async () => {
+    let config = configRef.current;
+    try {
+      config = await loadConfig();
+    } catch {
+      return;
+    }
+    if (!config || config.provider === "disabled" || !config.inbound) return;
+
+    // ---- Twilio ----
+    if (config.provider === "twilio") {
+      try {
+        const { Device } = await import("@twilio/voice-sdk");
+        ensureAudio();
+        if (!twilioDeviceRef.current) {
+          const device = new Device(String(config.token), { logLevel: "error" });
+          twilioDeviceRef.current = device;
+          device.on("incoming", (call: unknown) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const c = call as any;
+            incomingCallRef.current = c;
+            const from = c?.parameters?.From ?? null;
+            patch({ incoming: true, incomingFrom: from, direction: "inbound", status: "ringing", currentNumber: from });
+            c.on("cancel", () => {
+              incomingCallRef.current = null;
+              endedThenIdle();
+            });
+            c.on("disconnect", () => {
+              twilioCallRef.current = null;
+              endedThenIdle();
+            });
+            c.on("error", () => {
+              incomingCallRef.current = null;
+              patch({ status: "failed", incoming: false });
+            });
+          });
+          await device.register();
+        } else {
+          twilioDeviceRef.current.updateToken(String(config.token));
+        }
+        patch({ registered: true });
+      } catch {
+        /* inbound registration is best-effort */
+      }
+      return;
+    }
+
+    // ---- SIP / WebRTC ----
+    if (config.provider === "sip") {
+      try {
+        if (!sipRef.current) {
+          const { Web } = await import("sip.js");
+          const remote = ensureAudio();
+          const su = new Web.SimpleUser(String(config.wsServer), {
+            aor: String(config.uri),
+            media: { constraints: { audio: true, video: false }, remote: { audio: remote } },
+            userAgentOptions: {
+              authorizationUsername: String(config.authUser || ""),
+              authorizationPassword: String(config.password || ""),
+              displayName: String(config.displayName || ""),
+            },
+            delegate: {
+              onCallReceived: () => {
+                patch({ incoming: true, incomingFrom: null, direction: "inbound", status: "ringing" });
+              },
+              onCallAnswered: () => {
+                patch({ status: "in-call", incoming: false });
+                startTimer();
+              },
+              onCallHangup: () => {
+                endedThenIdle();
+              },
+            },
+          });
+          sipRef.current = su;
+          await su.connect();
+          await su.register();
+        }
+        patch({ registered: true });
+      } catch {
+        /* inbound registration is best-effort */
+      }
+    }
+  }, [loadConfig, ensureAudio, patch, startTimer, endedThenIdle]);
+
+  const teardownActive = useCallback(async () => {
     stopTimer();
     try {
       if (twilioCallRef.current) twilioCallRef.current.disconnect();
@@ -96,16 +207,66 @@ export function useSoftphone() {
   }, [stopTimer]);
 
   const hangup = useCallback(async () => {
-    await teardown();
-    patch({ status: "ended", currentNumber: null, muted: false });
-    setTimeout(() => setState((s) => (s.status === "ended" ? { ...s, status: "idle", durationSec: 0 } : s)), 800);
-  }, [patch, teardown]);
+    await teardownActive();
+    endedThenIdle();
+  }, [teardownActive, endedThenIdle]);
+
+  // Answer a ringing inbound call.
+  const accept = useCallback(async () => {
+    const provider = configRef.current?.provider;
+    if (provider === "twilio" && incomingCallRef.current) {
+      const c = incomingCallRef.current;
+      twilioCallRef.current = c;
+      incomingCallRef.current = null;
+      try {
+        c.accept();
+        patch({ incoming: false, status: "in-call" });
+        startTimer();
+      } catch {
+        patch({ status: "failed", incoming: false });
+      }
+      return;
+    }
+    if (provider === "sip" && sipRef.current) {
+      try {
+        await sipRef.current.answer();
+        patch({ incoming: false });
+      } catch {
+        patch({ status: "failed", incoming: false });
+      }
+    }
+  }, [patch, startTimer]);
+
+  // Decline a ringing inbound call.
+  const reject = useCallback(async () => {
+    const provider = configRef.current?.provider;
+    if (provider === "twilio" && incomingCallRef.current) {
+      try {
+        incomingCallRef.current.reject();
+      } catch { /* noop */ }
+      incomingCallRef.current = null;
+    } else if (provider === "sip" && sipRef.current) {
+      try {
+        await sipRef.current.decline();
+      } catch { /* noop */ }
+    }
+    endedThenIdle();
+  }, [endedThenIdle]);
 
   const call = useCallback(
     async (rawNumber: string) => {
       const number = rawNumber.trim();
       if (!number) return;
-      patch({ status: "initializing", error: null, currentNumber: number, durationSec: 0, muted: false });
+      patch({
+        status: "initializing",
+        error: null,
+        currentNumber: number,
+        durationSec: 0,
+        muted: false,
+        direction: "outbound",
+        incoming: false,
+        incomingFrom: null,
+      });
       let config = configRef.current;
       try {
         config = await loadConfig();
@@ -123,30 +284,31 @@ export function useSoftphone() {
         try {
           const { Web } = await import("sip.js");
           const remote = ensureAudio();
-          const su = new Web.SimpleUser(String(config.wsServer), {
-            aor: String(config.uri),
-            media: { constraints: { audio: true, video: false }, remote: { audio: remote } },
-            userAgentOptions: {
-              authorizationUsername: String(config.authUser || ""),
-              authorizationPassword: String(config.password || ""),
-              displayName: String(config.displayName || ""),
-            },
-            delegate: {
-              onCallAnswered: () => {
-                patch({ status: "in-call" });
-                startTimer();
+          let su = sipRef.current;
+          if (!su) {
+            su = new Web.SimpleUser(String(config.wsServer), {
+              aor: String(config.uri),
+              media: { constraints: { audio: true, video: false }, remote: { audio: remote } },
+              userAgentOptions: {
+                authorizationUsername: String(config.authUser || ""),
+                authorizationPassword: String(config.password || ""),
+                displayName: String(config.displayName || ""),
               },
-              onCallHangup: () => {
-                stopTimer();
-                patch({ status: "ended", currentNumber: null });
-                setTimeout(() => setState((s) => (s.status === "ended" ? { ...s, status: "idle", durationSec: 0 } : s)), 800);
+              delegate: {
+                onCallAnswered: () => {
+                  patch({ status: "in-call" });
+                  startTimer();
+                },
+                onCallHangup: () => {
+                  endedThenIdle();
+                },
               },
-            },
-          });
-          sipRef.current = su;
-          patch({ status: "connecting" });
-          await su.connect();
-          await su.register();
+            });
+            sipRef.current = su;
+            patch({ status: "connecting" });
+            await su.connect();
+            await su.register();
+          }
           const domain = String(config.domain || "");
           const target = number.startsWith("sip:") ? number : `sip:${number}@${domain}`;
           patch({ status: "ringing" });
@@ -168,28 +330,24 @@ export function useSoftphone() {
             twilioDeviceRef.current.updateToken(String(config.token));
           }
           patch({ status: "connecting" });
-          const call = await twilioDeviceRef.current.connect({
+          const twilioCall = await twilioDeviceRef.current.connect({
             params: { To: number, CallerId: String(config.callerId || "") },
           });
-          twilioCallRef.current = call;
+          twilioCallRef.current = twilioCall;
           patch({ status: "ringing" });
-          call.on("accept", () => {
+          twilioCall.on("accept", () => {
             patch({ status: "in-call" });
             startTimer();
           });
-          call.on("disconnect", () => {
-            stopTimer();
+          twilioCall.on("disconnect", () => {
             twilioCallRef.current = null;
-            patch({ status: "ended", currentNumber: null });
-            setTimeout(() => setState((s) => (s.status === "ended" ? { ...s, status: "idle", durationSec: 0 } : s)), 800);
+            endedThenIdle();
           });
-          call.on("cancel", () => {
-            stopTimer();
+          twilioCall.on("cancel", () => {
             twilioCallRef.current = null;
-            patch({ status: "ended", currentNumber: null });
-            setTimeout(() => setState((s) => (s.status === "ended" ? { ...s, status: "idle", durationSec: 0 } : s)), 800);
+            endedThenIdle();
           });
-          call.on("error", (err: { message?: string }) => {
+          twilioCall.on("error", (err: { message?: string }) => {
             stopTimer();
             patch({ status: "failed", error: err?.message ?? "Twilio call error." });
           });
@@ -199,7 +357,7 @@ export function useSoftphone() {
         return;
       }
     },
-    [ensureAudio, loadConfig, patch, startTimer, stopTimer],
+    [ensureAudio, loadConfig, patch, startTimer, stopTimer, endedThenIdle],
   );
 
   const toggleMute = useCallback(() => {
@@ -221,9 +379,11 @@ export function useSoftphone() {
       stopTimer();
       try {
         twilioCallRef.current?.disconnect();
+        incomingCallRef.current?.reject?.();
         twilioDeviceRef.current?.destroy();
       } catch { /* noop */ }
       try {
+        sipRef.current?.unregister?.();
         sipRef.current?.disconnect?.();
       } catch { /* noop */ }
       if (audioRef.current) {
@@ -233,7 +393,7 @@ export function useSoftphone() {
     };
   }, [stopTimer]);
 
-  const active = ["initializing", "connecting", "ringing", "in-call"].includes(state.status);
+  const active = ["initializing", "connecting", "ringing", "in-call"].includes(state.status) && !state.incoming;
 
-  return { ...state, active, call, hangup, toggleMute, loadConfig };
+  return { ...state, active, call, hangup, toggleMute, loadConfig, register, accept, reject };
 }
