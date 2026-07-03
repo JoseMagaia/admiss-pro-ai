@@ -50,6 +50,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 
 const ALL_TABS = [
   { id: "messages", label: "Messages", icon: MessageSquare },
+  { id: "calls", label: "Calls", icon: PhoneCall },
   { id: "bookings", label: "Bookings", icon: Calendar },
   { id: "pipeline", label: "Pipeline", icon: KanbanSquare },
   { id: "meeting_outcomes", label: "Meeting Outcomes", icon: ClipboardCheck },
