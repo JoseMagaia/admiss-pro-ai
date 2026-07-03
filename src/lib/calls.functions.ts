@@ -124,7 +124,6 @@ async function mintTwilioToken(opts: {
   const secret = new TextEncoder().encode(opts.apiKeySecret);
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({
-    scope: undefined,
     grants: {
       identity: opts.identity,
       voice: {
