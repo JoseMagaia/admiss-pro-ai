@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes } from "lucide-react";
+import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CompanySettingsForm, ProgramSettingsForm, ChatwootSettingsForm } from "./settings/SettingsForms";
 import { AiPromptEditor } from "./settings/AiPromptEditor";
@@ -10,6 +10,7 @@ import { AiProviderSettings } from "./settings/AiProviderSettings";
 import { UserManagement } from "./settings/UserManagement";
 import { ChatwootWorkspaces } from "./settings/ChatwootWorkspaces";
 import { SpacesManager } from "./settings/SpacesManager";
+import { VoipSettingsForm } from "./settings/VoipSettingsForm";
 import { canAccessSettingsSection, type AppRole } from "@/lib/roles";
 
 const SECTIONS = [
