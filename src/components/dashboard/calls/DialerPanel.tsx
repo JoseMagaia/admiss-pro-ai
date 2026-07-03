@@ -71,35 +71,36 @@ export function DialerPanel({ onCall, busy }: { onCall: (t: CallTarget) => void;
           <Input placeholder="Search contacts…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
         </div>
         <div className="max-h-80 space-y-1 overflow-y-auto">
-          {showResults && contacts.length === 0 && (
-            <p className="py-8 text-center text-sm text-muted-foreground">No contacts found.</p>
-          )}
           {!showResults && (
             <p className="py-8 text-center text-sm text-muted-foreground">Start typing to find a contact to call.</p>
           )}
-          {contacts.map((c) => (
-            <div key={c.id} className="flex items-center justify-between rounded-lg px-2 py-2 hover:bg-muted/50">
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 truncate font-medium">
-                  <User className="h-3.5 w-3.5 text-muted-foreground" />
-                  {c.lead_name ?? "Unknown"}
+          {showResults && contacts.length === 0 && (
+            <p className="py-8 text-center text-sm text-muted-foreground">No contacts found.</p>
+          )}
+          {showResults &&
+            contacts.map((c) => (
+              <div key={c.id} className="flex items-center justify-between rounded-lg px-2 py-2 hover:bg-muted/50">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 truncate font-medium">
+                    <User className="h-3.5 w-3.5 text-muted-foreground" />
+                    {c.lead_name ?? "Unknown"}
+                  </div>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {c.phone_number}
+                    {c.course_interest ? ` · ${c.course_interest}` : ""}
+                  </p>
                 </div>
-                <p className="truncate text-xs text-muted-foreground">
-                  {c.phone_number}
-                  {c.course_interest ? ` · ${c.course_interest}` : ""}
-                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 gap-1"
+                  disabled={busy}
+                  onClick={() => onCall({ phone_number: c.phone_number, lead_id: c.id, lead_name: c.lead_name })}
+                >
+                  <Phone className="h-3.5 w-3.5" /> Call
+                </Button>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 gap-1"
-                disabled={busy}
-                onClick={() => onCall({ phone_number: c.phone_number, lead_id: c.id, lead_name: c.lead_name })}
-              >
-                <Phone className="h-3.5 w-3.5" /> Call
-              </Button>
-            </div>
-          ))}
+            ))}
         </div>
       </div>
     </div>
