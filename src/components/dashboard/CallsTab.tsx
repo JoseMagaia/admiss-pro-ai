@@ -86,6 +86,29 @@ export function CallsTab() {
 
   return (
     <div className="space-y-6">
+      {/* Incoming call banner */}
+      {phone.incoming && (
+        <div className="flex items-center justify-between rounded-2xl border border-primary/40 bg-primary/5 p-4 shadow-card">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-primary">
+              <PhoneIncoming className="h-5 w-5 animate-pulse" />
+            </div>
+            <div>
+              <p className="font-medium">Incoming call</p>
+              <p className="text-xs text-muted-foreground">{phone.incomingFrom ?? "Unknown caller"}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" className="gap-2" onClick={() => phone.reject()}>
+              <PhoneOff className="h-4 w-4" /> Decline
+            </Button>
+            <Button className="gap-2 bg-success text-success-foreground hover:bg-success/90" onClick={acceptIncoming}>
+              <Phone className="h-4 w-4" /> Answer
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Live call bar */}
       {showBar && (
         <div
