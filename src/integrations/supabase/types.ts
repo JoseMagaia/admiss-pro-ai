@@ -1573,12 +1573,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      is_space_member: {
-        Args: { _space: string; _user: string }
-        Returns: boolean
-      }
-      is_super_admin: { Args: { _user: string }; Returns: boolean }
-      space_is_active: { Args: { _space: string }; Returns: boolean }
+      [_ in never]: never
     }
     Enums: {
       app_role: "super_admin" | "admin" | "agent"
