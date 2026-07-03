@@ -249,6 +249,108 @@ export type Database = {
           },
         ]
       }
+      call_callbacks: {
+        Row: {
+          agent_user_id: string | null
+          created_at: string
+          from_call_id: string | null
+          id: string
+          lead_id: string | null
+          notes: string | null
+          phone_number: string
+          reason: string | null
+          scheduled_at: string
+          space_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          agent_user_id?: string | null
+          created_at?: string
+          from_call_id?: string | null
+          id?: string
+          lead_id?: string | null
+          notes?: string | null
+          phone_number: string
+          reason?: string | null
+          scheduled_at: string
+          space_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          agent_user_id?: string | null
+          created_at?: string
+          from_call_id?: string | null
+          id?: string
+          lead_id?: string | null
+          notes?: string | null
+          phone_number?: string
+          reason?: string | null
+          scheduled_at?: string
+          space_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      calls: {
+        Row: {
+          agent_user_id: string | null
+          created_at: string
+          direction: string
+          disposition: string | null
+          duration_seconds: number
+          ended_at: string | null
+          id: string
+          lead_id: string | null
+          notes: string | null
+          phone_number: string
+          provider: string | null
+          provider_call_sid: string | null
+          space_id: string
+          started_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          agent_user_id?: string | null
+          created_at?: string
+          direction?: string
+          disposition?: string | null
+          duration_seconds?: number
+          ended_at?: string | null
+          id?: string
+          lead_id?: string | null
+          notes?: string | null
+          phone_number: string
+          provider?: string | null
+          provider_call_sid?: string | null
+          space_id: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          agent_user_id?: string | null
+          created_at?: string
+          direction?: string
+          disposition?: string | null
+          duration_seconds?: number
+          ended_at?: string | null
+          id?: string
+          lead_id?: string | null
+          notes?: string | null
+          phone_number?: string
+          provider?: string | null
+          provider_call_sid?: string | null
+          space_id?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       campaign_recipients: {
         Row: {
           attempts: number
@@ -513,6 +615,78 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      dial_campaign_members: {
+        Row: {
+          campaign_id: string
+          created_at: string
+          id: string
+          lead_id: string | null
+          phone_number: string
+          position: number
+          space_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          campaign_id: string
+          created_at?: string
+          id?: string
+          lead_id?: string | null
+          phone_number: string
+          position?: number
+          space_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          campaign_id?: string
+          created_at?: string
+          id?: string
+          lead_id?: string | null
+          phone_number?: string
+          position?: number
+          space_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      dial_campaigns: {
+        Row: {
+          active: boolean
+          created_at: string
+          created_by: string | null
+          criteria: Json
+          id: string
+          name: string
+          source_type: string
+          space_id: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          criteria?: Json
+          id?: string
+          name: string
+          source_type?: string
+          space_id: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          created_by?: string | null
+          criteria?: Json
+          id?: string
+          name?: string
+          source_type?: string
+          space_id?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       education_settings: {
         Row: {
@@ -1395,6 +1569,66 @@ export type Database = {
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
           user_id?: string
+        }
+        Relationships: []
+      }
+      voip_settings: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          id: string
+          provider: string
+          sip_display_name: string | null
+          sip_domain: string | null
+          sip_password: string | null
+          sip_uri: string | null
+          sip_username: string | null
+          sip_ws_server: string | null
+          space_id: string
+          twilio_account_sid: string | null
+          twilio_api_key_secret: string | null
+          twilio_api_key_sid: string | null
+          twilio_caller_id: string | null
+          twilio_twiml_app_sid: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          provider?: string
+          sip_display_name?: string | null
+          sip_domain?: string | null
+          sip_password?: string | null
+          sip_uri?: string | null
+          sip_username?: string | null
+          sip_ws_server?: string | null
+          space_id: string
+          twilio_account_sid?: string | null
+          twilio_api_key_secret?: string | null
+          twilio_api_key_sid?: string | null
+          twilio_caller_id?: string | null
+          twilio_twiml_app_sid?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          provider?: string
+          sip_display_name?: string | null
+          sip_domain?: string | null
+          sip_password?: string | null
+          sip_uri?: string | null
+          sip_username?: string | null
+          sip_ws_server?: string | null
+          space_id?: string
+          twilio_account_sid?: string | null
+          twilio_api_key_secret?: string | null
+          twilio_api_key_sid?: string | null
+          twilio_caller_id?: string | null
+          twilio_twiml_app_sid?: string | null
+          updated_at?: string
         }
         Relationships: []
       }
