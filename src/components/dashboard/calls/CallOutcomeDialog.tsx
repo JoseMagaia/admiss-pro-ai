@@ -30,6 +30,7 @@ export interface CallTarget {
   lead_name?: string | null;
   durationSec?: number;
   provider?: string | null;
+  direction?: "inbound" | "outbound";
 }
 
 export const CALL_STATUSES = [
