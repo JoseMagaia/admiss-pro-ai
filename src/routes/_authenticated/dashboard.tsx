@@ -206,11 +206,13 @@ function Dashboard() {
               {activeTab !== "settings" &&
                 activeTab !== "orchestration" &&
                 activeTab !== "advanced" &&
+                activeTab !== "calls" &&
                 activeTab !== "meeting_outcomes" && <DashboardStats />}
 
               <div className="mt-6">
                 {activeTab === "leads" && <LeadsTab />}
                 {activeTab === "messages" && <MessagesTab pendingConversation={pendingConversation} onPendingHandled={() => setPendingConversation(null)} />}
+                {activeTab === "calls" && <CallsTab />}
                 {activeTab === "contacts" && <ContactsTab />}
                 {activeTab === "bookings" && <BookingsTab />}
                 {activeTab === "pipeline" && <PipelineTab canAdvanced={advancedAccess} />}
