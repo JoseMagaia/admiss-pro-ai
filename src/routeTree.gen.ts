@@ -20,6 +20,7 @@ import { Route as ApiPublicProcessScheduledMessagesRouteImport } from './routes/
 import { Route as ApiPublicProcessCampaignsRouteImport } from './routes/api/public/process-campaigns'
 import { Route as ApiPublicEvolutionWebhookRouteImport } from './routes/api/public/evolution-webhook'
 import { Route as ApiPublicChatwootWebhookRouteImport } from './routes/api/public/chatwoot-webhook'
+import { Route as ApiPublicVoipTwimlRouteImport } from './routes/api/public/voip/twiml'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -80,6 +81,11 @@ const ApiPublicChatwootWebhookRoute =
     path: '/api/public/chatwoot-webhook',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicVoipTwimlRoute = ApiPublicVoipTwimlRouteImport.update({
+  id: '/api/public/voip/twiml',
+  path: '/api/public/voip/twiml',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -92,6 +98,7 @@ export interface FileRoutesByFullPath {
   '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
+  '/api/public/voip/twiml': typeof ApiPublicVoipTwimlRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -104,6 +111,7 @@ export interface FileRoutesByTo {
   '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
+  '/api/public/voip/twiml': typeof ApiPublicVoipTwimlRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -118,6 +126,7 @@ export interface FileRoutesById {
   '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
+  '/api/public/voip/twiml': typeof ApiPublicVoipTwimlRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -132,6 +141,7 @@ export interface FileRouteTypes {
     | '/api/public/process-campaigns'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
+    | '/api/public/voip/twiml'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
     | '/api/public/process-campaigns'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
+    | '/api/public/voip/twiml'
   id:
     | '__root__'
     | '/'
@@ -157,6 +168,7 @@ export interface FileRouteTypes {
     | '/api/public/process-campaigns'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
+    | '/api/public/voip/twiml'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -170,6 +182,7 @@ export interface RootRouteChildren {
   ApiPublicProcessCampaignsRoute: typeof ApiPublicProcessCampaignsRoute
   ApiPublicProcessScheduledMessagesRoute: typeof ApiPublicProcessScheduledMessagesRoute
   ApiPublicProcessWorkflowsRoute: typeof ApiPublicProcessWorkflowsRoute
+  ApiPublicVoipTwimlRoute: typeof ApiPublicVoipTwimlRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -251,6 +264,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicChatwootWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/voip/twiml': {
+      id: '/api/public/voip/twiml'
+      path: '/api/public/voip/twiml'
+      fullPath: '/api/public/voip/twiml'
+      preLoaderRoute: typeof ApiPublicVoipTwimlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -277,6 +297,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicProcessScheduledMessagesRoute:
     ApiPublicProcessScheduledMessagesRoute,
   ApiPublicProcessWorkflowsRoute: ApiPublicProcessWorkflowsRoute,
+  ApiPublicVoipTwimlRoute: ApiPublicVoipTwimlRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
