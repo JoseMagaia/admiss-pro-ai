@@ -13,6 +13,7 @@ import {
   Contact as ContactIcon,
   Settings as SettingsIcon,
   Gauge,
+  PhoneCall,
   ArrowLeft,
   LogOut,
   Loader2,
