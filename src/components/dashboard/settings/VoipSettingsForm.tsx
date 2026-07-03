@@ -167,6 +167,15 @@ export function VoipSettingsForm() {
             <p className="mt-1">Set your TwiML App's Voice Request URL (HTTP POST) to:</p>
             <code className="mt-1 block break-all rounded bg-background px-2 py-1">{twimlUrl}</code>
           </div>
+          {form.inbound_enabled && (
+            <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5 font-medium text-foreground">
+                <PhoneIncoming className="h-3.5 w-3.5" /> Inbound number Voice URL
+              </div>
+              <p className="mt-1">Set each incoming Twilio number's Voice Request URL (HTTP POST) to:</p>
+              <code className="mt-1 block break-all rounded bg-background px-2 py-1">{inboundUrl}</code>
+            </div>
+          )}
           <Field label="Account SID" value={form.twilio_account_sid} onChange={(v) => set("twilio_account_sid", v)} placeholder="ACxxxxxxxx" />
           <Field label="API Key SID" value={form.twilio_api_key_sid} onChange={(v) => set("twilio_api_key_sid", v)} placeholder="SKxxxxxxxx" />
           <Field
