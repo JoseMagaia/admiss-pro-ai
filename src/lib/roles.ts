@@ -35,7 +35,16 @@ export const SETTINGS_ACCESS: Record<string, AppRole[]> = {
   provider: ["super_admin"], // AI Provider (built-in vs own key)
   users: ["super_admin"], // User management
   spaces: ["super_admin"], // Spaces (multi-tenant sub-accounts)
+  telephony: ["super_admin"], // VoIP / SIP / Twilio connection settings
 };
+
+// Roles allowed to create/edit dial campaigns (dial lists) for the power dialer.
+export const CALL_CAMPAIGN_ROLES: AppRole[] = ["super_admin", "admin"];
+
+export function canManageCallCampaigns(role: AppRole | null | undefined): boolean {
+  if (!role) return false;
+  return CALL_CAMPAIGN_ROLES.includes(role);
+}
 
 export function canAccessTab(role: AppRole | null | undefined, tab: string): boolean {
   if (!role) return false;
