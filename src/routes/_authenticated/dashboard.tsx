@@ -99,6 +99,7 @@ function Dashboard() {
   const tabs = ALL_TABS.filter((t) => {
     if (t.id === "advanced") return advancedAccess;
     if (t.id === "orchestration" && !flagOn("orchestration")) return false;
+    if (t.id === "calls" && !flagOn("calls")) return false;
     return canAccessTab(role, t.id);
   });
   const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id ?? "leads";
