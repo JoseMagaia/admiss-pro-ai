@@ -28,6 +28,7 @@ import { PipelineTab } from "@/components/dashboard/PipelineTab";
 import { OrchestrationTab } from "@/components/dashboard/OrchestrationTab";
 import { MeetingOutcomesTab } from "@/components/dashboard/MeetingOutcomesTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
+import { CallsTab } from "@/components/dashboard/CallsTab";
 import { AdvancedTab } from "@/components/dashboard/advanced/AdvancedTab";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
