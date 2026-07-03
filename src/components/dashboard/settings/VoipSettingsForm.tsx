@@ -67,7 +67,8 @@ export function VoipSettingsForm() {
   const getFn = useServerFn(getVoipSettings);
   const saveFn = useServerFn(saveVoipSettings);
   const twimlUrl = useProjectUrl("/api/public/voip/twiml");
-  const [form, setForm] = useState<VoipForm>({ provider: "disabled", enabled: false });
+  const inboundUrl = useProjectUrl("/api/public/voip/inbound");
+  const [form, setForm] = useState<VoipForm>({ provider: "disabled", enabled: false, inbound_enabled: false });
 
   const { data } = useQuery({ queryKey: ["voip-settings"], queryFn: () => getFn() });
 
