@@ -22,6 +22,7 @@ const SECTIONS = [
   { id: "chatwoot", label: "Chatwoot", icon: Plug },
   { id: "workspaces", label: "Workspaces", icon: Network },
   { id: "actions", label: "HTTP Actions", icon: Webhook },
+  { id: "telephony", label: "Telephony", icon: Phone },
   { id: "lab", label: "Prompt Lab", icon: FlaskConical },
   { id: "users", label: "Users", icon: UserCog },
   { id: "spaces", label: "Spaces", icon: Boxes },
