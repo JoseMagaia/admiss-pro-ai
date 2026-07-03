@@ -111,6 +111,16 @@ export function VoipSettingsForm() {
           <Switch checked={form.enabled} onCheckedChange={(v) => set("enabled", v)} />
         </div>
 
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">Enable incoming calls</p>
+            <p className="text-xs text-muted-foreground">
+              Ring agents in the browser for inbound calls (Twilio) or answer inbound SIP calls.
+            </p>
+          </div>
+          <Switch checked={Boolean(form.inbound_enabled)} onCheckedChange={(v) => set("inbound_enabled", v)} />
+        </div>
+
         <div className="space-y-1.5">
           <Label>Provider</Label>
           <Select value={form.provider} onValueChange={(v) => set("provider", v as VoipForm["provider"])}>
