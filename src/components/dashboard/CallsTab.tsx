@@ -52,11 +52,23 @@ export function CallsTab() {
 
   const startCall = useCallback(
     (t: CallTarget) => {
-      targetRef.current = t;
+      targetRef.current = { ...t, direction: "outbound" };
       phone.call(t.phone_number);
     },
     [phone],
   );
+
+  // Register with the telephony provider on mount so inbound calls can ring
+  // this browser (no-ops unless incoming calling is enabled).
+  const register = phone.register;
+  useEffect(() => {
+    void register();
+  }, [register]);
+
+  const acceptIncoming = useCallback(() => {
+    targetRef.current = { phone_number: phone.incomingFrom ?? "Unknown", direction: "inbound" };
+    void phone.accept();
+  }, [phone]);
 
   // When a call finishes, open the outcome dialog pre-filled with its duration.
   useEffect(() => {
