@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Save, Loader2, Phone } from "lucide-react";
+import { Save, Loader2, Phone, PhoneIncoming } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -16,12 +16,15 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { getVoipSettings, saveVoipSettings } from "@/lib/calls.functions";
 import { SettingsCard } from "./SettingsForms";
+import { RingGroupsManager } from "./RingGroupsManager";
+import { InboundRoutesManager } from "./InboundRoutesManager";
 import { useProjectUrl } from "@/lib/useProjectUrl";
 
 type VoipForm = {
   id?: string;
   provider: "disabled" | "sip" | "twilio";
   enabled: boolean;
+  inbound_enabled?: boolean;
   sip_ws_server?: string | null;
   sip_domain?: string | null;
   sip_uri?: string | null;
