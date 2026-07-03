@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes } from "lucide-react";
+import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CompanySettingsForm, ProgramSettingsForm, ChatwootSettingsForm } from "./settings/SettingsForms";
 import { AiPromptEditor } from "./settings/AiPromptEditor";
@@ -10,6 +10,7 @@ import { AiProviderSettings } from "./settings/AiProviderSettings";
 import { UserManagement } from "./settings/UserManagement";
 import { ChatwootWorkspaces } from "./settings/ChatwootWorkspaces";
 import { SpacesManager } from "./settings/SpacesManager";
+import { VoipSettingsForm } from "./settings/VoipSettingsForm";
 import { canAccessSettingsSection, type AppRole } from "@/lib/roles";
 
 const SECTIONS = [
@@ -21,6 +22,7 @@ const SECTIONS = [
   { id: "chatwoot", label: "Chatwoot", icon: Plug },
   { id: "workspaces", label: "Workspaces", icon: Network },
   { id: "actions", label: "HTTP Actions", icon: Webhook },
+  { id: "telephony", label: "Telephony", icon: Phone },
   { id: "lab", label: "Prompt Lab", icon: FlaskConical },
   { id: "users", label: "Users", icon: UserCog },
   { id: "spaces", label: "Spaces", icon: Boxes },
@@ -67,6 +69,7 @@ export function SettingsTab({ role }: { role: AppRole | null }) {
         {activeSection === "chatwoot" && <ChatwootSettingsForm />}
         {activeSection === "workspaces" && <ChatwootWorkspaces />}
         {activeSection === "actions" && <HttpActionsManager />}
+        {activeSection === "telephony" && <VoipSettingsForm />}
         {activeSection === "lab" && <PromptTestingLab />}
         {activeSection === "users" && <UserManagement />}
         {activeSection === "spaces" && <SpacesManager />}
