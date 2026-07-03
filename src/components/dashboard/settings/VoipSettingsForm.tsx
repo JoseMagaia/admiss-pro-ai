@@ -200,6 +200,13 @@ export function VoipSettingsForm() {
         {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
         Save telephony settings
       </Button>
+
+      {form.inbound_enabled && form.provider !== "disabled" && (
+        <>
+          <RingGroupsManager />
+          <InboundRoutesManager />
+        </>
+      )}
     </div>
   );
 }
