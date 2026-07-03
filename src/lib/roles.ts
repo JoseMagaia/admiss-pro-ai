@@ -14,6 +14,7 @@ export const TAB_ACCESS: Record<string, AppRole[]> = {
   leads: ["super_admin", "admin", "agent"],
   messages: ["super_admin", "admin", "agent"],
   contacts: ["super_admin", "admin", "agent"], // directory of contacted people
+  calls: ["super_admin", "admin", "agent"], // PBX / VoIP dialer
   bookings: ["super_admin", "admin", "agent"],
   pipeline: ["super_admin", "admin", "agent"],
   meeting_outcomes: ["super_admin", "admin"], // record specialist meeting results (no agent)
