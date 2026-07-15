@@ -760,6 +760,27 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
             {/* Composer */}
             <div className="border-t p-3">
+              {pendingAttachment && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-2 py-1.5 text-xs">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {pendingAttachment.kind === "image" ? (
+                      <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                    ) : pendingAttachment.kind === "audio" ? (
+                      <Mic className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <FileText className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    <span className="truncate">{pendingAttachment.filename}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPendingAttachment(null)}
+                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
               <Textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -773,14 +794,41 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                 rows={2}
                 className="resize-none"
               />
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
+                onChange={handleFilePick}
+              />
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={uploading || recording}
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Attach file"
+                  >
+                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    variant={recording ? "destructive" : "ghost"}
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={uploading}
+                    onClick={() => (recording ? stopRecording() : startRecording())}
+                    title={recording ? "Stop recording" : "Record voice note"}
+                  >
+                    {recording ? <StopCircle className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  </Button>
                   <span className="text-[11px] text-muted-foreground">Send from</span>
                   <Select
                     value={sendWorkspace || "__default"}
                     onValueChange={(v) => setSendWorkspace(v === "__default" ? "" : v)}
                   >
-                    <SelectTrigger className="h-8 w-[190px] text-xs">
+                    <SelectTrigger className="h-8 w-[170px] text-xs">
                       <SelectValue placeholder="Lead's default inbox" />
                     </SelectTrigger>
                     <SelectContent>
@@ -803,7 +851,11 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                   >
                     <Clock className="mr-1 h-4 w-4" /> Schedule
                   </Button>
-                  <Button size="sm" onClick={handleSend} disabled={!draft.trim() || send.isPending}>
+                  <Button
+                    size="sm"
+                    onClick={handleSend}
+                    disabled={(!draft.trim() && !pendingAttachment) || send.isPending || uploading}
+                  >
                     {send.isPending ? (
                       <Loader2 className="mr-1 h-4 w-4 animate-spin" />
                     ) : (
