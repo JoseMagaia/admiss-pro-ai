@@ -21,6 +21,7 @@ import { Route as ApiPublicProcessScheduledMessagesRouteImport } from './routes/
 import { Route as ApiPublicProcessCampaignsRouteImport } from './routes/api/public/process-campaigns'
 import { Route as ApiPublicEvolutionWebhookRouteImport } from './routes/api/public/evolution-webhook'
 import { Route as ApiPublicChatwootWebhookRouteImport } from './routes/api/public/chatwoot-webhook'
+import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
 import { Route as ApiPublicVoipTwimlRouteImport } from './routes/api/public/voip/twiml'
 import { Route as ApiPublicVoipInboundRouteImport } from './routes/api/public/voip/inbound'
 
@@ -89,6 +90,11 @@ const ApiPublicChatwootWebhookRoute =
     path: '/api/public/chatwoot-webhook',
     getParentRoute: () => rootRouteImport,
   } as any)
+const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
+  id: '/.lovable/oauth/consent',
+  path: '/.lovable/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicVoipTwimlRoute = ApiPublicVoipTwimlRouteImport.update({
   id: '/api/public/voip/twiml',
   path: '/api/public/voip/twiml',
@@ -106,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/features': typeof FeaturesRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
   '/api/public/evolution-webhook': typeof ApiPublicEvolutionWebhookRoute
   '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
@@ -121,6 +128,7 @@ export interface FileRoutesByTo {
   '/features': typeof FeaturesRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
+  '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
   '/api/public/evolution-webhook': typeof ApiPublicEvolutionWebhookRoute
   '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
@@ -138,6 +146,7 @@ export interface FileRoutesById {
   '/features': typeof FeaturesRoute
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/.lovable/oauth/consent': typeof DotlovableOauthConsentRoute
   '/api/public/chatwoot-webhook': typeof ApiPublicChatwootWebhookRoute
   '/api/public/evolution-webhook': typeof ApiPublicEvolutionWebhookRoute
   '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
@@ -155,6 +164,7 @@ export interface FileRouteTypes {
     | '/features'
     | '/sitemap.xml'
     | '/dashboard'
+    | '/.lovable/oauth/consent'
     | '/api/public/chatwoot-webhook'
     | '/api/public/evolution-webhook'
     | '/api/public/process-campaigns'
@@ -170,6 +180,7 @@ export interface FileRouteTypes {
     | '/features'
     | '/sitemap.xml'
     | '/dashboard'
+    | '/.lovable/oauth/consent'
     | '/api/public/chatwoot-webhook'
     | '/api/public/evolution-webhook'
     | '/api/public/process-campaigns'
@@ -186,6 +197,7 @@ export interface FileRouteTypes {
     | '/features'
     | '/sitemap.xml'
     | '/_authenticated/dashboard'
+    | '/.lovable/oauth/consent'
     | '/api/public/chatwoot-webhook'
     | '/api/public/evolution-webhook'
     | '/api/public/process-campaigns'
@@ -202,6 +214,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   FeaturesRoute: typeof FeaturesRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  DotlovableOauthConsentRoute: typeof DotlovableOauthConsentRoute
   ApiPublicChatwootWebhookRoute: typeof ApiPublicChatwootWebhookRoute
   ApiPublicEvolutionWebhookRoute: typeof ApiPublicEvolutionWebhookRoute
   ApiPublicProcessCampaignsRoute: typeof ApiPublicProcessCampaignsRoute
@@ -298,6 +311,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicChatwootWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/.lovable/oauth/consent': {
+      id: '/.lovable/oauth/consent'
+      path: '/.lovable/oauth/consent'
+      fullPath: '/.lovable/oauth/consent'
+      preLoaderRoute: typeof DotlovableOauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/voip/twiml': {
       id: '/api/public/voip/twiml'
       path: '/api/public/voip/twiml'
@@ -332,6 +352,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   FeaturesRoute: FeaturesRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  DotlovableOauthConsentRoute: DotlovableOauthConsentRoute,
   ApiPublicChatwootWebhookRoute: ApiPublicChatwootWebhookRoute,
   ApiPublicEvolutionWebhookRoute: ApiPublicEvolutionWebhookRoute,
   ApiPublicProcessCampaignsRoute: ApiPublicProcessCampaignsRoute,
