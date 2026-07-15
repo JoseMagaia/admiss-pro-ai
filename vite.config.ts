@@ -18,6 +18,16 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    plugins: [
+      {
+        name: "twilio-events-browser-shim",
+        enforce: "pre",
+        resolveId(id) {
+          if (id === "events" || id === "node:events") return eventsPolyfillPath;
+          return null;
+        },
+      },
+    ],
     resolve: {
       alias: [
         { find: /^events$/, replacement: eventsPolyfillPath },
