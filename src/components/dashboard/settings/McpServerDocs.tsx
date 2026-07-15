@@ -49,11 +49,19 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 const TOOLS: { name: string; kind: "read" | "write"; blurb: string }[] = [
-  { name: "whoami", kind: "read", blurb: "Return the identity of the currently authenticated MCP caller." },
-  { name: "list_leads", kind: "read", blurb: "List leads visible to the signed-in user (RLS space-scoped)." },
-  { name: "get_lead", kind: "read", blurb: "Fetch a single lead by id with recent conversations." },
+  { name: "describe_app", kind: "read", blurb: "Domain model, roles, lead-status vocabulary, editable settings, and tool catalog. Call first." },
+  { name: "whoami", kind: "read", blurb: "Identity + role of the currently authenticated caller." },
+  { name: "list_leads", kind: "read", blurb: "List leads visible to the caller (RLS space-scoped)." },
+  { name: "get_lead", kind: "read", blurb: "Fetch a single lead with recent conversations." },
   { name: "list_conversations", kind: "read", blurb: "List recent conversations, optionally filtered by lead." },
   { name: "list_campaigns", kind: "read", blurb: "List drip campaigns and their delivery stats." },
+  { name: "list_pipeline_stages", kind: "read", blurb: "Pipelines and stage keys valid for set_lead_status." },
+  { name: "get_company_settings", kind: "read", blurb: "Current education_settings row (credentials stripped)." },
+  { name: "create_lead", kind: "write", blurb: "Insert a new lead in the caller's active space." },
+  { name: "update_lead", kind: "write", blurb: "Patch whitelisted lead fields." },
+  { name: "set_lead_status", kind: "write", blurb: "Change qualification_status with an optional audit note." },
+  { name: "add_lead_note", kind: "write", blurb: "Append a timestamped note to a lead." },
+  { name: "update_company_settings", kind: "write", blurb: "Patch company + branding fields (no credentials)." },
 ];
 
 export function McpServerDocs() {
