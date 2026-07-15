@@ -509,6 +509,11 @@ export type Database = {
           space_id: string | null
           updated_at: string
           use_shared_ai: boolean
+          wa_access_token: string | null
+          wa_app_secret: string | null
+          wa_business_account_id: string | null
+          wa_phone_number_id: string | null
+          wa_verify_token: string | null
         }
         Insert: {
           chatwoot_account_id?: string | null
@@ -527,6 +532,11 @@ export type Database = {
           space_id?: string | null
           updated_at?: string
           use_shared_ai?: boolean
+          wa_access_token?: string | null
+          wa_app_secret?: string | null
+          wa_business_account_id?: string | null
+          wa_phone_number_id?: string | null
+          wa_verify_token?: string | null
         }
         Update: {
           chatwoot_account_id?: string | null
@@ -545,6 +555,11 @@ export type Database = {
           space_id?: string | null
           updated_at?: string
           use_shared_ai?: boolean
+          wa_access_token?: string | null
+          wa_app_secret?: string | null
+          wa_business_account_id?: string | null
+          wa_phone_number_id?: string | null
+          wa_verify_token?: string | null
         }
         Relationships: [
           {
@@ -1737,6 +1752,9 @@ export type Database = {
       whatsapp_messages: {
         Row: {
           ai_response: string | null
+          attachment_kind: string | null
+          attachment_mime: string | null
+          attachment_url: string | null
           id: string
           message_content: string
           message_type: string
@@ -1748,6 +1766,9 @@ export type Database = {
         }
         Insert: {
           ai_response?: string | null
+          attachment_kind?: string | null
+          attachment_mime?: string | null
+          attachment_url?: string | null
           id?: string
           message_content?: string
           message_type?: string
@@ -1759,6 +1780,9 @@ export type Database = {
         }
         Update: {
           ai_response?: string | null
+          attachment_kind?: string | null
+          attachment_mime?: string | null
+          attachment_url?: string | null
           id?: string
           message_content?: string
           message_type?: string

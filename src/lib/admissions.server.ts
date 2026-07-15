@@ -48,7 +48,7 @@ export interface AiContext {
 export interface WorkspaceRow {
   id: string;
   name: string;
-  /** Connection provider: "chatwoot" (default) or "evolution" (Evolution API / WhatsApp). */
+  /** Connection provider: "chatwoot" (default), "evolution" (Evolution API / WhatsApp), or "whatsapp_cloud" (Meta official WhatsApp Business Cloud API). */
   provider_type: string;
   chatwoot_url: string | null;
   chatwoot_account_id: string | null;
@@ -57,10 +57,29 @@ export interface WorkspaceRow {
   evolution_url: string | null;
   evolution_api_key: string | null;
   evolution_instance: string | null;
+  /** WhatsApp Business Cloud API (Meta / Facebook) — phone number id from the WhatsApp Manager. */
+  wa_phone_number_id: string | null;
+  wa_business_account_id: string | null;
+  wa_access_token: string | null;
+  /** Verification token echoed to Meta during webhook setup. */
+  wa_verify_token: string | null;
+  wa_app_secret: string | null;
   enabled: boolean;
   is_default: boolean;
   use_shared_ai: boolean;
   space_id?: string | null;
+}
+
+/** Attachment payload accepted by outbound message helpers. Media is passed as
+ *  a URL (signed URL from Supabase Storage or externally hosted). Providers
+ *  fetch the URL themselves — no base64 payloads cross the wire. */
+export interface OutboundAttachment {
+  url: string;
+  mime: string;
+  /** Coarse category used to pick provider media API. */
+  kind: "image" | "audio" | "video" | "document" | "sticker";
+  filename?: string | null;
+  caption?: string | null;
 }
 
 export interface ChatwootCreds {
@@ -152,6 +171,15 @@ export async function resolveWorkspace(params: {
         String(w.evolution_instance).trim() === wanted,
     );
     if (byInstance) return byInstance;
+    // Also match WhatsApp Cloud workspaces by their phone_number_id (the
+    // stable identifier Meta sends in every webhook payload).
+    const byWaPhone = rows.find(
+      (w) =>
+        w.provider_type === "whatsapp_cloud" &&
+        w.wa_phone_number_id &&
+        String(w.wa_phone_number_id).trim() === wanted,
+    );
+    if (byWaPhone) return byWaPhone;
   }
   if (params.inboxId) {
     const byInbox = rows.find((w) => w.chatwoot_inbox_id && String(w.chatwoot_inbox_id) === String(params.inboxId));
@@ -538,23 +566,242 @@ export async function sendEvolutionReply(
   }
 }
 
-// Provider-agnostic outbound delivery. Routes to Evolution API when the
-// workspace uses that provider, otherwise falls back to Chatwoot. This is the
-// single send path used by the AI engine, responder agents, workflows, manual
-// replies and scheduled messages so behavior stays identical across providers.
+
+/* -------------------- EVOLUTION MEDIA -------------------- */
+
+// Send a media attachment through Evolution API. Evolution accepts either a
+// URL or base64 payload — we always pass a URL so nothing crosses the wire.
+export async function sendEvolutionMedia(
+  workspace: WorkspaceRow | null,
+  phone: string,
+  media: OutboundAttachment,
+): Promise<SendResult> {
+  const baseRaw = String(workspace?.evolution_url ?? "").trim();
+  const instance = String(workspace?.evolution_instance ?? "").trim();
+  const apiKey = String(workspace?.evolution_api_key ?? "").trim();
+  if (!baseRaw || !apiKey || !instance) {
+    return { ok: false, error: "Evolution API isn't fully set up for this inbox yet." };
+  }
+  const base = baseRaw.replace(/\/+$/, "");
+  const number = toEvolutionNumber(phone);
+  if (!number) return { ok: false, error: "The contact's phone number is invalid." };
+
+  const isAudio = media.kind === "audio";
+  const url = isAudio
+    ? `${base}/message/sendWhatsAppAudio/${encodeURIComponent(instance)}`
+    : `${base}/message/sendMedia/${encodeURIComponent(instance)}`;
+
+  const body = isAudio
+    ? { number, audio: media.url }
+    : {
+        number,
+        mediatype: media.kind, // image | video | document
+        mimetype: media.mime,
+        media: media.url,
+        fileName: media.filename ?? undefined,
+        caption: media.caption ?? undefined,
+      };
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: apiKey },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      return { ok: false, error: `Evolution media send failed (${res.status}). ${t.slice(0, 160)}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.error("Evolution media send failed:", e);
+    return { ok: false, error: "Couldn't reach the Evolution API server." };
+  }
+}
+
+/* -------------------- WHATSAPP CLOUD API (META) -------------------- */
+
+// Normalize the recipient into the E.164 digits Meta's Cloud API expects.
+export function toWhatsAppCloudNumber(phone: string): string {
+  return String(phone).replace(/@.*$/, "").replace(/[^0-9]/g, "");
+}
+
+async function postWhatsAppCloud(
+  workspace: WorkspaceRow,
+  body: Record<string, unknown>,
+): Promise<SendResult> {
+  const phoneId = String(workspace.wa_phone_number_id ?? "").trim();
+  const token = String(workspace.wa_access_token ?? "").trim();
+  if (!phoneId || !token) {
+    return { ok: false, error: "WhatsApp Cloud API isn't fully configured (phone id + access token)." };
+  }
+  const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(phoneId)}/messages`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      let detail = "";
+      try {
+        const parsed = JSON.parse(t) as { error?: { message?: string } };
+        detail = parsed.error?.message ?? "";
+      } catch {
+        detail = t.slice(0, 200);
+      }
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, error: "Meta rejected the access token. Regenerate it in Meta Business." };
+      }
+      return { ok: false, error: `WhatsApp Cloud API returned ${res.status}${detail ? `: ${detail}` : ""}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.error("WhatsApp Cloud send failed:", e);
+    return { ok: false, error: "Couldn't reach the WhatsApp Cloud API." };
+  }
+}
+
+// Send a plain text message via the official WhatsApp Business Cloud API.
+export async function sendWhatsAppCloudReply(
+  workspace: WorkspaceRow | null,
+  phone: string,
+  message: string,
+): Promise<SendResult> {
+  if (!workspace) return { ok: false, error: "No WhatsApp Cloud workspace resolved." };
+  const to = toWhatsAppCloudNumber(phone);
+  if (!to) return { ok: false, error: "The contact's phone number is invalid." };
+  return postWhatsAppCloud(workspace, {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "text",
+    text: { body: message, preview_url: true },
+  });
+}
+
+// Send a media message (image/video/audio/document) via WhatsApp Cloud API.
+export async function sendWhatsAppCloudMedia(
+  workspace: WorkspaceRow | null,
+  phone: string,
+  media: OutboundAttachment,
+): Promise<SendResult> {
+  if (!workspace) return { ok: false, error: "No WhatsApp Cloud workspace resolved." };
+  const to = toWhatsAppCloudNumber(phone);
+  if (!to) return { ok: false, error: "The contact's phone number is invalid." };
+  const kind = media.kind === "sticker" ? "sticker" : media.kind;
+  const mediaObj: Record<string, unknown> = { link: media.url };
+  if (media.filename && kind === "document") mediaObj.filename = media.filename;
+  if (media.caption && (kind === "image" || kind === "video" || kind === "document")) {
+    mediaObj.caption = media.caption;
+  }
+  return postWhatsAppCloud(workspace, {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: kind,
+    [kind]: mediaObj,
+  });
+}
+
+// Send an interactive reply-buttons message via WhatsApp Cloud API. Buttons
+// are quick-reply chips; each button id is echoed back in the webhook when
+// the user taps it, letting the AI/agent route the reply.
+export async function sendWhatsAppCloudButtons(
+  workspace: WorkspaceRow | null,
+  phone: string,
+  bodyText: string,
+  buttons: Array<{ id: string; title: string }>,
+): Promise<SendResult> {
+  if (!workspace) return { ok: false, error: "No WhatsApp Cloud workspace resolved." };
+  const to = toWhatsAppCloudNumber(phone);
+  if (!to) return { ok: false, error: "The contact's phone number is invalid." };
+  const capped = buttons.slice(0, 3).map((b) => ({
+    type: "reply" as const,
+    reply: { id: b.id.slice(0, 256), title: b.title.slice(0, 20) },
+  }));
+  return postWhatsAppCloud(workspace, {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: bodyText.slice(0, 1024) },
+      action: { buttons: capped },
+    },
+  });
+}
+
+/* -------------------- CHATWOOT MEDIA (fallback) -------------------- */
+
+// Chatwoot's message endpoint supports multipart uploads. For simplicity we
+// post the public/signed URL as the message text with the file link — Chatwoot
+// renders it as a link preview, which is enough for the shared timeline; the
+// WhatsApp side gets the actual media through its own provider path.
+export async function sendChatwootMedia(
+  creds: ChatwootCreds | null,
+  conversationId: string | null | undefined,
+  media: OutboundAttachment,
+): Promise<SendResult> {
+  const label = media.caption ? `${media.caption}\n${media.url}` : media.url;
+  return sendChatwootReply(creds, conversationId, label);
+}
+
+/* -------------------- ROUTER -------------------- */
+
+// Provider-agnostic outbound delivery. Routes to the workspace's provider so
+// the AI engine, responder agents, workflows, manual replies and scheduled
+// messages all share the same send path. Optional `attachment` triggers the
+// provider's media path instead of the plain text path.
 export async function sendWorkspaceMessage(params: {
   workspace: WorkspaceRow | null;
   creds: ChatwootCreds | null;
   phone: string;
   conversationId: string | null | undefined;
   message: string;
+  attachment?: OutboundAttachment | null;
 }): Promise<SendResult> {
-  const { workspace, creds, phone, conversationId, message } = params;
+  const { workspace, creds, phone, conversationId, message, attachment } = params;
   if (!workspace) {
     return { ok: false, error: "No inbox is connected to send from." };
   }
+  // Media path (skipped when there's no attachment).
+  if (attachment) {
+    if (workspace.provider_type === "whatsapp_cloud") {
+      const mediaRes = await sendWhatsAppCloudMedia(workspace, phone, {
+        ...attachment,
+        caption: attachment.caption ?? (message?.trim() || null),
+      });
+      // If a caption wasn't supported (e.g. audio) and there's extra text, send it separately.
+      if (mediaRes.ok && message?.trim() && attachment.kind === "audio") {
+        return sendWhatsAppCloudReply(workspace, phone, message);
+      }
+      return mediaRes;
+    }
+    if (workspace.provider_type === "evolution") {
+      const mediaRes = await sendEvolutionMedia(workspace, phone, {
+        ...attachment,
+        caption: attachment.caption ?? (message?.trim() || null),
+      });
+      if (mediaRes.ok && message?.trim() && attachment.kind === "audio") {
+        return sendEvolutionReply(workspace, phone, message);
+      }
+      return mediaRes;
+    }
+    return sendChatwootMedia(creds, conversationId, {
+      ...attachment,
+      caption: attachment.caption ?? (message?.trim() || null),
+    });
+  }
+  // Text-only path.
+  if (workspace.provider_type === "whatsapp_cloud") {
+    return sendWhatsAppCloudReply(workspace, phone, message);
+  }
   if (workspace.provider_type === "evolution") {
     return sendEvolutionReply(workspace, phone, message);
+
   }
   return sendChatwootReply(creds, conversationId, message);
 }
@@ -749,9 +996,12 @@ export async function deliverHumanMessage(params: {
   workspaceId?: string | null;
   /** Label of the agent acting, recorded in the internal switch note. */
   actor?: string | null;
+  /** Optional file (image, voice note, document…) to send alongside the text. */
+  attachment?: OutboundAttachment | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const db = await admin();
   const { phone, message } = params;
+  const attachment = params.attachment ?? null;
 
   let { data: lead } = await db
     .from("leads")
@@ -811,7 +1061,8 @@ export async function deliverHumanMessage(params: {
       ? await resolveWorkspace({ workspaceId: currentWorkspaceId })
       : null;
 
-    if (workspace?.provider_type === "evolution") {
+    // WhatsApp Cloud + Evolution don't use Chatwoot conversation ids.
+    if (workspace?.provider_type === "evolution" || workspace?.provider_type === "whatsapp_cloud") {
       conversationId = null;
     } else {
       conversationId = await createChatwootConversation({
@@ -853,6 +1104,7 @@ export async function deliverHumanMessage(params: {
     !switching &&
     workspace &&
     workspace.provider_type !== "evolution" &&
+    workspace.provider_type !== "whatsapp_cloud" &&
     !conversationId
   ) {
     conversationId = await createChatwootConversation({
@@ -897,6 +1149,7 @@ export async function deliverHumanMessage(params: {
     phone,
     conversationId,
     message,
+    attachment,
   });
 
   // Log the human message regardless of delivery success so the timeline is complete.
@@ -904,8 +1157,11 @@ export async function deliverHumanMessage(params: {
     phone_number: phone,
     message_content: message,
     sender: "human",
-    message_type: "text",
+    message_type: attachment ? attachment.kind : "text",
     processed: true,
+    attachment_url: attachment?.url ?? null,
+    attachment_mime: attachment?.mime ?? null,
+    attachment_kind: attachment?.kind ?? null,
   });
 
   await db

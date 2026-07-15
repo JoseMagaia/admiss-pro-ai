@@ -122,6 +122,9 @@ type MessageRow = {
   message_content: string;
   sender: string;
   received_at: string;
+  attachment_url?: string | null;
+  attachment_mime?: string | null;
+  attachment_kind?: string | null;
 };
 
 type ConversationRow = {
@@ -1046,8 +1049,21 @@ export const sendHumanMessage = createServerFn({ method: "POST" })
     z
       .object({
         phone: z.string().min(1).max(60),
-        message: z.string().min(1).max(4000),
+        message: z.string().max(4000).optional().default(""),
         workspaceId: z.string().uuid().optional(),
+        attachment: z
+          .object({
+            url: z.string().url().max(2000),
+            mime: z.string().min(1).max(200),
+            kind: z.enum(["image", "audio", "video", "document", "sticker"]),
+            filename: z.string().max(300).nullable().optional(),
+            caption: z.string().max(2000).nullable().optional(),
+          })
+          .nullable()
+          .optional(),
+      })
+      .refine((v) => v.message.trim().length > 0 || v.attachment, {
+        message: "Message text or attachment is required.",
       })
       .parse(d),
   )
@@ -1073,10 +1089,54 @@ export const sendHumanMessage = createServerFn({ method: "POST" })
         message: data.message,
         workspaceId: data.workspaceId ?? null,
         actor: me.email ?? "Agent",
+        attachment: data.attachment ?? null,
       }),
     );
     return { ok: result.ok, error: result.error ?? null };
   });
+
+// Upload a chat attachment (image, voice note, document…) to the private
+// `message-media` bucket and return a long-lived signed URL. The URL is then
+// passed to `sendHumanMessage` — providers (WhatsApp Cloud, Evolution) fetch
+// the URL themselves so raw file bytes never travel through the message body.
+export const uploadMessageAttachment = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        filename: z.string().min(1).max(300),
+        mime: z.string().min(1).max(200),
+        // Base64 (no data: prefix). Cap at ~15 MB base64 (~11 MB raw).
+        base64: z.string().min(1).max(20_000_000),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(ANY_ROLE);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message } as const;
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // Decode base64 into a Uint8Array.
+    const raw = typeof atob === "function" ? atob(data.base64) : Buffer.from(data.base64, "base64").toString("binary");
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+    const safe = data.filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
+    const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-${safe}`;
+    const { error: upErr } = await supabaseAdmin.storage
+      .from("message-media")
+      .upload(path, bytes, { contentType: data.mime, upsert: false });
+    if (upErr) return { ok: false, error: upErr.message } as const;
+    // 7-day signed URL — plenty for the recipient's WhatsApp client to fetch.
+    const { data: signed, error: signErr } = await supabaseAdmin.storage
+      .from("message-media")
+      .createSignedUrl(path, 60 * 60 * 24 * 7);
+    if (signErr || !signed?.signedUrl) {
+      return { ok: false, error: signErr?.message ?? "Failed to sign URL" } as const;
+    }
+    return { ok: true, url: signed.signedUrl, mime: data.mime, filename: safe } as const;
+  });
+
 
 /* Start a brand-new conversation with an unregistered lead. Creates the lead +
    conversation just like an inbound lead, then sends the first message through
