@@ -10,6 +10,7 @@ export class EventEmitter {
 
   on(eventName: string | symbol, listener: Listener) {
     const listeners = this.listenersByEvent.get(eventName) ?? [];
+    if (eventName !== "newListener") this.emit("newListener", eventName, listener);
     listeners.push(listener);
     this.listenersByEvent.set(eventName, listeners);
     return this;
@@ -44,6 +45,9 @@ export class EventEmitter {
     const next = listeners.filter((item) => item !== listener);
     if (next.length) this.listenersByEvent.set(eventName, next);
     else this.listenersByEvent.delete(eventName);
+    if (next.length !== listeners.length && eventName !== "removeListener") {
+      this.emit("removeListener", eventName, listener);
+    }
     return this;
   }
 

@@ -5,12 +5,11 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
-import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
-const require = createRequire(import.meta.url);
 // @twilio/voice-sdk imports named exports from node's `events` module in browser code.
-// The events package is CommonJS, so expose it through an ESM shim for Rollup.
-const eventsPolyfillPath = require.resolve("./src/lib/events-polyfill.ts");
+// Provide an ESM browser shim so Rollup never externalizes the Node builtin.
+const eventsPolyfillPath = fileURLToPath(new URL("./src/lib/events-polyfill.ts", import.meta.url));
 
 export default defineConfig({
   tanstackStart: {
