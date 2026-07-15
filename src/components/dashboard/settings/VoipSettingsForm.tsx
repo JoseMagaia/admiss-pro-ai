@@ -97,7 +97,18 @@ export function VoipSettingsForm() {
     onError: () => toast.error("Failed to save"),
   });
 
+  const testFn = useServerFn(testTwilioConnection);
+  type TwCheck = { ok: boolean; message: string };
+  type TwResult = { ok: boolean; checks: { credentials: TwCheck; twiml_app: TwCheck; outbound: TwCheck; inbound: TwCheck } };
+  const test = useMutation({
+    mutationFn: () => testFn({ data: { expected_twiml_url: twimlUrl, expected_inbound_url: inboundUrl } }) as Promise<TwResult | { ok: false; error: string }>,
+    onError: () => toast.error("Test failed"),
+  });
+  const testResult = test.data && "checks" in test.data ? (test.data as TwResult) : null;
+  const testError = test.data && !("checks" in test.data) ? (test.data as { error: string }).error : null;
+
   const set = (k: keyof VoipForm, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
+
 
   return (
     <div className="space-y-5">
