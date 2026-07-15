@@ -613,10 +613,17 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                 disabled={threadQuery.isFetchingNextPage}
                 onClick={() => threadQuery.fetchNextPage()}
               >
-                {threadQuery.isFetchingNextPage ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-                Load more chats
+                {threadQuery.isFetchingNextPage ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : null}
+                Load more chats ({threads.length} shown)
               </Button>
             </div>
+          )}
+          {!threadQuery.hasNextPage && threads.length > 0 && (
+            <p className="p-3 text-center text-[11px] text-muted-foreground">
+              End of results · {threads.length} conversation{threads.length === 1 ? "" : "s"}
+            </p>
           )}
         </div>
       </div>
