@@ -5,6 +5,9 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 export default defineConfig({
   tanstackStart: {
@@ -16,9 +19,13 @@ export default defineConfig({
     resolve: {
       alias: {
         // @twilio/voice-sdk imports node's `events` module in browser code.
-        // Provide the userland `events` polyfill so Vite doesn't externalize it.
-        events: "events",
+        // Point to the userland polyfill's actual file so Vite doesn't
+        // externalize the bare `events` specifier.
+        events: require.resolve("events/"),
       },
+    },
+    optimizeDeps: {
+      include: ["events"],
     },
   },
 });
