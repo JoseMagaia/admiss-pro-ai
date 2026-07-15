@@ -16,9 +16,13 @@ export default defineConfig({
     resolve: {
       alias: {
         // @twilio/voice-sdk imports node's `events` module in browser code.
-        // Provide the userland `events` polyfill so Vite doesn't externalize it.
-        events: "events",
+        // Point to the userland polyfill's actual file so Vite doesn't
+        // externalize the bare `events` specifier.
+        events: require.resolve("events/"),
       },
+    },
+    optimizeDeps: {
+      include: ["events"],
     },
   },
 });
