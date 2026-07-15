@@ -201,7 +201,11 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
       const loaded = pages.reduce((sum, page) => sum + (((page as { threads?: unknown[] }).threads ?? []).length), 0);
       return (lastPage as { hasMore?: boolean }).hasMore ? loaded : undefined;
     },
-    refetchInterval: 5000,
+    // Only refresh the first page in the background so paginated results
+    // stay stable while the user scrolls; a manual "Load more" fetches more.
+    refetchInterval: 15000,
+    refetchIntervalInBackground: false,
+    maxPages: 20,
   });
   const { data: schedData } = useQuery({
     queryKey: ["scheduled"],
