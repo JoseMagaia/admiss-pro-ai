@@ -245,6 +245,22 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     return sorted;
   }, [rawThreads, responderFilter, sortMode]);
 
+  // When client-side filters hide most of what the server returned, keep
+  // auto-fetching the next page so "Load more" actually surfaces additional
+  // matches instead of stalling on a mostly-hidden list.
+  useEffect(() => {
+    if (
+      threadQuery.hasNextPage &&
+      !threadQuery.isFetchingNextPage &&
+      !threadQuery.isFetching &&
+      rawThreads.length > 0 &&
+      threads.length < threadPageSize &&
+      (responderFilter !== "all" || threadSearch.length > 0)
+    ) {
+      threadQuery.fetchNextPage();
+    }
+  }, [threads.length, rawThreads.length, responderFilter, threadSearch, threadQuery]);
+
 
   const activeDigits = active ? digitsOnly(active) : null;
   const { data: activeData } = useQuery({
