@@ -723,7 +723,31 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                           </>
                         )}
                       </div>
-                      <p className="whitespace-pre-wrap">{m.message_content}</p>
+                      {m.attachment_url && (
+                        <div className="mb-1">
+                          {m.attachment_kind === "image" ? (
+                            <img
+                              src={m.attachment_url}
+                              alt="attachment"
+                              className="max-h-64 rounded-lg object-cover"
+                            />
+                          ) : m.attachment_kind === "audio" ? (
+                            <audio controls src={m.attachment_url} className="w-full" />
+                          ) : m.attachment_kind === "video" ? (
+                            <video controls src={m.attachment_url} className="max-h-64 rounded-lg" />
+                          ) : (
+                            <a
+                              href={m.attachment_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-1.5 rounded-md bg-background/40 px-2 py-1 text-xs underline"
+                            >
+                              <FileText className="h-3.5 w-3.5" /> Open file
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      {m.message_content && <p className="whitespace-pre-wrap">{m.message_content}</p>}
                       <p className="mt-1 text-right text-[10px] opacity-60">
                         {new Date(m.received_at).toLocaleString()}
                       </p>
