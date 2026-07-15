@@ -12,10 +12,33 @@
   "mcp": {
     "server": {
       "name": "admissions-pro-mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "title": "Admissions Pro MCP"
     },
     "tools": [
+      {
+        "name": "describe_app",
+        "title": "Describe app",
+        "description": "Return a machine-readable overview of Admissions Pro: entities, roles, lead-status vocabulary, editable settings, and tool catalog. Call this first so the agent understands the app before reading or mutating data.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "include_tools": {
+              "type": "boolean",
+              "default": true,
+              "description": "Include the tool catalog section."
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
       {
         "name": "whoami",
         "title": "Who am I",
@@ -134,6 +157,223 @@
               "default": 50
             }
           },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "list_pipeline_stages",
+        "title": "List pipeline stages",
+        "description": "List pipelines and their stages available to the caller. Use the stage_keys as valid values for set_lead_status.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "pipeline_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "get_company_settings",
+        "title": "Get company settings",
+        "description": "Return the caller's education_settings row (company, programs, branding). Credentials are omitted.",
+        "annotations": {
+          "readOnlyHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "properties": {}
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "create_lead",
+        "title": "Create lead",
+        "description": "Insert a new lead into the caller's active space. RLS enforces tenant scoping; the caller must belong to a space.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lead_name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Full name of the lead."
+            },
+            "phone_number": {
+              "type": "string",
+              "minLength": 3,
+              "description": "WhatsApp-formatted phone (e.g. +2348012345678)."
+            },
+            "student_or_parent": {
+              "type": "string",
+              "enum": [
+                "student",
+                "parent"
+              ]
+            },
+            "course_interest": {
+              "type": "string"
+            },
+            "country_interest": {
+              "type": "string"
+            },
+            "notes": {
+              "type": "string"
+            },
+            "space_id": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Target space. Defaults to the caller's first space."
+            }
+          },
+          "required": [
+            "lead_name",
+            "phone_number"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "update_lead",
+        "title": "Update lead",
+        "description": "Patch editable fields on a lead. Unknown keys are ignored. Only lead_name, phone_number, student_or_parent, course_interest, country_interest, passport_status, academic_status, parent_phone, financial_alignment, parent_confirmation, document_received, qualification_status, notes are accepted.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lead_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "patch": {
+              "type": "object",
+              "additionalProperties": {},
+              "description": "Object of fields to update."
+            }
+          },
+          "required": [
+            "lead_id",
+            "patch"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "set_lead_status",
+        "title": "Set lead status",
+        "description": "Change a lead's qualification_status (pipeline stage). Common values: new, contacted, engaged, qualified, unqualified, booked, enrolled, lost. Custom stages may exist — use list_pipeline_stages to discover them.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lead_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "status": {
+              "type": "string",
+              "minLength": 1,
+              "description": "New qualification_status value."
+            },
+            "note": {
+              "type": "string",
+              "description": "Optional note appended to the lead explaining the change."
+            }
+          },
+          "required": [
+            "lead_id",
+            "status"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "add_lead_note",
+        "title": "Add lead note",
+        "description": "Append a timestamped note to a lead's notes field.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "lead_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "note": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "lead_id",
+            "note"
+          ],
+          "additionalProperties": false,
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        },
+        "outputSchema": null
+      },
+      {
+        "name": "update_company_settings",
+        "title": "Update company settings",
+        "description": "Patch company + branding fields on the caller's education_settings row. Only these keys are accepted: company_name, company_phone, company_email, office_address, working_hours, active_destinations, active_programs, scholarship_information, brand_name, brand_tagline, logo_light_url, logo_dark_url, logo_scale. Credentials (AI, Chatwoot, VoIP) must be changed through the UI.",
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        },
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "patch": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          },
+          "required": [
+            "patch"
+          ],
           "additionalProperties": false,
           "$schema": "http://json-schema.org/draft-07/schema#"
         },
