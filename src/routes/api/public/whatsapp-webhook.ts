@@ -83,8 +83,10 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
               const phone = from.replace(/[^0-9]/g, "");
               if (!phone) continue;
 
-              // Extract text or a description of the media/interactive event.
+              // Extract text or a description of the media/interactive event,
+              // plus the button reply id when the user tapped a quick reply.
               let content = "";
+              let buttonId: string | null = null;
               const type = String(msg.type ?? "");
               if (type === "text") {
                 content = String((msg.text as Record<string, unknown>)?.body ?? "").trim();
@@ -93,22 +95,27 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
                 const btn = (inter.button_reply as Record<string, unknown>) ?? {};
                 const list = (inter.list_reply as Record<string, unknown>) ?? {};
                 content = String(btn.title ?? list.title ?? "").trim();
+                buttonId = String(btn.id ?? list.id ?? "").trim() || null;
               } else if (type === "image" || type === "video" || type === "audio" || type === "document") {
                 const media = (msg[type] as Record<string, unknown>) ?? {};
                 content = String(media.caption ?? `[${type} attachment]`).trim();
               } else if (type === "button") {
-                content = String((msg.button as Record<string, unknown>)?.text ?? "").trim();
+                // Template-button reply. `payload` is the developer-defined id.
+                const b = (msg.button as Record<string, unknown>) ?? {};
+                content = String(b.text ?? "").trim();
+                buttonId = String(b.payload ?? "").trim() || null;
               }
-              if (!content) continue;
+              if (!content && !buttonId) continue;
 
               try {
                 const { processInboundMessage } = await import("@/lib/admissions.server");
                 const result = await processInboundMessage({
                   phone,
-                  message: content,
+                  message: content || (buttonId ?? ""),
                   // Reuse the "instance" identifier slot to look up the WA
                   // workspace by its phone_number_id (resolveWorkspace knows both).
                   evolutionInstance: phoneNumberId,
+                  buttonId,
                 });
                 results.push(result);
               } catch (e) {

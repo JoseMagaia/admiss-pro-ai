@@ -42,6 +42,21 @@ export type RecipientStats = {
   failed: number;
 };
 
+export type CampaignMedia = {
+  url: string;
+  mime: string;
+  kind: "image" | "audio" | "video" | "document";
+  filename?: string | null;
+  caption?: string | null;
+} | null;
+
+export type CampaignButton = {
+  id?: string;
+  title: string;
+  /** Optional workflow to enroll the recipient into when they tap this button. */
+  next_workflow_id?: string | null;
+};
+
 export type CampaignRow = {
   id: string;
   name: string;
@@ -63,6 +78,8 @@ export type CampaignRow = {
   last_batch_at: string | null;
   created_at: string;
   updated_at: string;
+  media: CampaignMedia;
+  buttons: CampaignButton[];
   stats: RecipientStats;
 };
 
@@ -129,6 +146,8 @@ export const listCampaigns = createServerFn({ method: "GET" }).handler(async () 
     last_batch_at: c.last_batch_at,
     created_at: c.created_at,
     updated_at: c.updated_at,
+    media: (c.media ?? null) as CampaignMedia,
+    buttons: (Array.isArray(c.buttons) ? c.buttons : []) as CampaignButton[],
     stats: statsById.get(c.id) ?? emptyStats(),
   }));
   return { campaigns, error: null };
@@ -178,6 +197,29 @@ export const getCampaignOptions = createServerFn({ method: "GET" }).handler(asyn
 
 /* ----------------------------- Writes ----------------------------- */
 
+const mediaSchema = z
+  .object({
+    url: z.string().url().max(2000),
+    mime: z.string().max(200),
+    kind: z.enum(["image", "audio", "video", "document"]),
+    filename: z.string().max(300).nullable().optional(),
+    caption: z.string().max(2000).nullable().optional(),
+  })
+  .nullable()
+  .optional();
+
+const buttonSchema = z
+  .array(
+    z.object({
+      id: z.string().max(64).optional(),
+      // WhatsApp Cloud caps interactive button titles at 20 chars.
+      title: z.string().trim().min(1).max(20),
+      next_workflow_id: z.string().uuid().nullable().optional(),
+    }),
+  )
+  .max(3)
+  .optional();
+
 const campaignInput = z.object({
   name: z.string().trim().min(1).max(120),
   channel: z.enum(["whatsapp", "sms", "email", "other"]).default("whatsapp"),
@@ -194,6 +236,8 @@ const campaignInput = z.object({
   send_timezone: z.string().max(64).default("UTC"),
   start_at: z.string().nullable().optional(),
   end_at: z.string().nullable().optional(),
+  media: mediaSchema,
+  buttons: buttonSchema,
 });
 
 export const createCampaign = createServerFn({ method: "POST" })
@@ -225,6 +269,8 @@ export const createCampaign = createServerFn({ method: "POST" })
         send_timezone: data.send_timezone || "UTC",
         start_at: data.start_at || null,
         end_at: data.end_at || null,
+        media: data.media ?? null,
+        buttons: data.buttons ?? [],
         created_by: (me as any)?.userId ?? null,
       } as any)
       .select("id")
@@ -255,9 +301,11 @@ export const updateCampaign = createServerFn({ method: "POST" })
       "send_rate_per_min",
       "send_days",
       "send_timezone",
+      "buttons",
     ] as const) {
       if (data[k] !== undefined) patch[k] = data[k];
     }
+    if (data.media !== undefined) patch.media = data.media ?? null;
     if (data.start_at !== undefined) patch.start_at = data.start_at || null;
     if (data.end_at !== undefined) patch.end_at = data.end_at || null;
     if (data.send_window_start !== undefined) patch.send_window_start = data.send_window_start || null;

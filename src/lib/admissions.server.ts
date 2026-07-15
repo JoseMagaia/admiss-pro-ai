@@ -82,6 +82,13 @@ export interface OutboundAttachment {
   caption?: string | null;
 }
 
+/** Interactive quick-reply button. The `id` is echoed back in the inbound
+ *  webhook when the recipient taps it, which lets the engine route replies. */
+export interface InteractiveButton {
+  id: string;
+  title: string;
+}
+
 export interface ChatwootCreds {
   url: string;
   accountId: string;
@@ -762,48 +769,69 @@ export async function sendWorkspaceMessage(params: {
   conversationId: string | null | undefined;
   message: string;
   attachment?: OutboundAttachment | null;
+  buttons?: InteractiveButton[] | null;
 }): Promise<SendResult> {
   const { workspace, creds, phone, conversationId, message, attachment } = params;
+  const buttons = (params.buttons ?? []).filter((b) => b && b.id && b.title).slice(0, 3);
   if (!workspace) {
     return { ok: false, error: "No inbox is connected to send from." };
   }
+
+  // Interactive buttons are only natively supported on the WhatsApp Cloud API.
+  // For other providers we degrade gracefully to a numbered text list.
+  if (buttons.length > 0 && workspace.provider_type === "whatsapp_cloud") {
+    // Send the media first (no caption — the buttons carry the body text).
+    if (attachment) {
+      const mediaRes = await sendWhatsAppCloudMedia(workspace, phone, { ...attachment, caption: null });
+      if (!mediaRes.ok) return mediaRes;
+    }
+    const body = (message ?? "").trim() || "Please choose an option:";
+    return sendWhatsAppCloudButtons(workspace, phone, body, buttons);
+  }
+
+  // For non-cloud providers, fold the buttons into the outgoing text so the
+  // recipient can still reply by number/label.
+  const messageWithButtons =
+    buttons.length > 0
+      ? [message?.trim() ?? "", "", ...buttons.map((b, i) => `${i + 1}) ${b.title}`)].filter(Boolean).join("\n")
+      : message;
+
   // Media path (skipped when there's no attachment).
   if (attachment) {
     if (workspace.provider_type === "whatsapp_cloud") {
       const mediaRes = await sendWhatsAppCloudMedia(workspace, phone, {
         ...attachment,
-        caption: attachment.caption ?? (message?.trim() || null),
+        caption: attachment.caption ?? (messageWithButtons?.trim() || null),
       });
       // If a caption wasn't supported (e.g. audio) and there's extra text, send it separately.
-      if (mediaRes.ok && message?.trim() && attachment.kind === "audio") {
-        return sendWhatsAppCloudReply(workspace, phone, message);
+      if (mediaRes.ok && messageWithButtons?.trim() && attachment.kind === "audio") {
+        return sendWhatsAppCloudReply(workspace, phone, messageWithButtons);
       }
       return mediaRes;
     }
     if (workspace.provider_type === "evolution") {
       const mediaRes = await sendEvolutionMedia(workspace, phone, {
         ...attachment,
-        caption: attachment.caption ?? (message?.trim() || null),
+        caption: attachment.caption ?? (messageWithButtons?.trim() || null),
       });
-      if (mediaRes.ok && message?.trim() && attachment.kind === "audio") {
-        return sendEvolutionReply(workspace, phone, message);
+      if (mediaRes.ok && messageWithButtons?.trim() && attachment.kind === "audio") {
+        return sendEvolutionReply(workspace, phone, messageWithButtons);
       }
       return mediaRes;
     }
     return sendChatwootMedia(creds, conversationId, {
       ...attachment,
-      caption: attachment.caption ?? (message?.trim() || null),
+      caption: attachment.caption ?? (messageWithButtons?.trim() || null),
     });
   }
   // Text-only path.
   if (workspace.provider_type === "whatsapp_cloud") {
-    return sendWhatsAppCloudReply(workspace, phone, message);
+    return sendWhatsAppCloudReply(workspace, phone, messageWithButtons);
   }
   if (workspace.provider_type === "evolution") {
-    return sendEvolutionReply(workspace, phone, message);
-
+    return sendEvolutionReply(workspace, phone, messageWithButtons);
   }
-  return sendChatwootReply(creds, conversationId, message);
+  return sendChatwootReply(creds, conversationId, messageWithButtons);
 }
 
 
@@ -824,6 +852,8 @@ export async function processInboundMessage(params: {
   chatwootAccountId?: string | null;
   /** Evolution API instance name (when the message arrived via Evolution webhook). */
   evolutionInstance?: string | null;
+  /** Interactive button id (WhatsApp Cloud quick-reply / template button payload). */
+  buttonId?: string | null;
 }): Promise<ProcessResult> {
   const {
     phone,
@@ -833,6 +863,7 @@ export async function processInboundMessage(params: {
     chatwootInboxId,
     chatwootAccountId,
     evolutionInstance,
+    buttonId,
   } = params;
 
   // Resolve which workspace (Chatwoot inbox or Evolution instance) handles this
@@ -866,6 +897,26 @@ export async function processInboundMessage(params: {
 
 
   const lead = await getOrCreateLead(phone, chatwootConversationId, chatwootContactId, workspace?.id ?? null);
+
+  // Interactive button reply: `wf:<workflowId>` enrolls the lead into the
+  // referenced follow-up workflow (used by campaigns and workflow messages
+  // that expose conditional buttons).
+  if (buttonId && buttonId.startsWith("wf:")) {
+    const targetWorkflowId = buttonId.slice(3).trim();
+    if (targetWorkflowId) {
+      try {
+        await enrollLeadInWorkflowById({
+          workflowId: targetWorkflowId,
+          phone,
+          leadId: lead.id,
+          workspaceId: workspace?.id ?? null,
+          sendNow: true,
+        });
+      } catch (e) {
+        console.error("Button workflow enrollment failed:", e);
+      }
+    }
+  }
 
   // Track / upsert conversation.
   const { data: conv } = await db
@@ -1243,6 +1294,10 @@ export interface WorkflowStep {
   anchor: StepAnchor;
   /** For countdown anchors: how long before the target date to send, in ms. */
   offsetMs: number;
+  /** Optional media attachment sent with the message. */
+  media?: OutboundAttachment | null;
+  /** Optional quick-reply buttons. Each may link to a follow-up workflow. */
+  buttons?: Array<{ id?: string; title: string; next_workflow_id?: string | null }>;
 }
 
 interface GraphNode {
@@ -1257,6 +1312,8 @@ interface GraphNode {
     anchor?: string;
     offsetValue?: number;
     offsetUnit?: string;
+    media?: OutboundAttachment | null;
+    buttons?: Array<{ id?: string; title: string; next_workflow_id?: string | null }>;
   };
 }
 interface GraphEdge {
@@ -1362,12 +1419,16 @@ export function orderedSteps(graph: unknown): WorkflowStep[] {
       delayMs: nodeDelayMs(n.data),
       anchor: (n.data?.anchor as StepAnchor) ?? "wait",
       offsetMs: nodeOffsetMs(n.data),
+      media: (n.data?.media as OutboundAttachment | null) ?? null,
+      buttons: Array.isArray(n.data?.buttons) ? n.data!.buttons : [],
     };
   };
 
-  // A step is valid if it has content (message) or a target workflow (call_workflow).
+  // A step is valid if it has content (message), attached media, buttons, or a target workflow.
   const isValid = (s: WorkflowStep) =>
-    s.kind === "call_workflow" ? Boolean(s.targetWorkflowId) : s.content.length > 0;
+    s.kind === "call_workflow"
+      ? Boolean(s.targetWorkflowId)
+      : s.content.length > 0 || Boolean(s.media?.url) || (s.buttons?.length ?? 0) > 0;
 
   if (trigger && edges.length > 0) {
     const ordered: WorkflowStep[] = [];
@@ -1392,7 +1453,12 @@ export function orderedSteps(graph: unknown): WorkflowStep[] {
 // Send an outbound workflow message on the lead's conversation. The message
 // content may contain {{lead_name}} / {{course_interest}} / {{country_interest}}
 // / {{phone_number}} placeholders, filled from the lead record before sending.
-async function sendWorkflowMessage(phone: string, message: string, workflowWorkspaceId: string | null) {
+async function sendWorkflowMessage(
+  phone: string,
+  message: string,
+  workflowWorkspaceId: string | null,
+  extras?: { media?: OutboundAttachment | null; buttons?: InteractiveButton[] | null },
+) {
   const db = await admin();
   const { data: conv } = await db
     .from("conversations")
@@ -1407,8 +1473,6 @@ async function sendWorkflowMessage(phone: string, message: string, workflowWorks
 
   const leadRow = (lead as Record<string, unknown> | null) ?? {};
 
-  // Merge custom AI variables so workflow messages can use any {{VARIABLE}}
-  // defined in AI Settings, in addition to the built-in lead fields.
   const { data: customVars } = await db.from("ai_variables").select("variable_name, variable_value");
   const ctx: Record<string, unknown> = {};
   for (const v of (customVars as Array<{ variable_name: string; variable_value: string }> | null) ?? []) {
@@ -1438,13 +1502,15 @@ async function sendWorkflowMessage(phone: string, message: string, workflowWorks
     phone,
     conversationId: conversationId as string | null,
     message: filled,
+    attachment: extras?.media ?? null,
+    buttons: extras?.buttons ?? null,
   });
 
   await db.from("whatsapp_messages").insert({
     phone_number: phone,
     message_content: filled,
     sender: "workflow",
-    message_type: "text",
+    message_type: extras?.media ? extras.media.kind : "text",
     processed: true,
   });
   return sent;
@@ -1468,8 +1534,17 @@ async function executeWorkflowStep(
     }
     return;
   }
-  if (step.content) {
-    await sendWorkflowMessage(phone, step.content, workspaceId);
+  const hasMedia = Boolean(step.media?.url);
+  const rawButtons = (step.buttons ?? []).filter((b) => b && String(b.title ?? "").trim()).slice(0, 3);
+  const buttons: InteractiveButton[] = rawButtons.map((b, i) => ({
+    id: b.next_workflow_id ? `wf:${b.next_workflow_id}` : `btn:${String(b.id ?? i)}`.slice(0, 255),
+    title: String(b.title).slice(0, 20),
+  }));
+  if (step.content || hasMedia || buttons.length > 0) {
+    await sendWorkflowMessage(phone, step.content ?? "", workspaceId, {
+      media: hasMedia ? step.media : null,
+      buttons: buttons.length > 0 ? buttons : null,
+    });
   }
 }
 
@@ -2069,6 +2144,8 @@ export async function deliverCampaignMessage(params: {
   message: string;
   workspaceId?: string | null;
   name?: string | null;
+  attachment?: OutboundAttachment | null;
+  buttons?: InteractiveButton[] | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const db = await admin();
   const { phone, message } = params;
@@ -2130,14 +2207,22 @@ export async function deliverCampaignMessage(params: {
       .eq("phone_number", phone);
   }
 
-  const sent = await sendWorkspaceMessage({ workspace, creds, phone, conversationId, message });
+  const sent = await sendWorkspaceMessage({
+    workspace,
+    creds,
+    phone,
+    conversationId,
+    message,
+    attachment: params.attachment ?? null,
+    buttons: params.buttons ?? null,
+  });
 
   // Log the campaign message so it appears in the conversation timeline.
   await db.from("whatsapp_messages").insert({
     phone_number: phone,
     message_content: message,
     sender: "campaign",
-    message_type: "text",
+    message_type: params.attachment ? params.attachment.kind : "text",
     processed: true,
   });
 
@@ -2258,6 +2343,23 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
     const templatePool = [template, ...variations].filter((t) => String(t ?? "").trim());
     const pool = templatePool.length > 0 ? templatePool : [template];
 
+    // Optional media + interactive buttons on the campaign. Button IDs get
+    // prefixed with `wf:<workflowId>` when they link to a follow-up workflow
+    // so the inbound webhook can enroll the lead automatically.
+    const media = (c.media as OutboundAttachment | null) ?? null;
+    const rawButtons = Array.isArray(c.buttons)
+      ? (c.buttons as Array<{ id?: string; title?: string; next_workflow_id?: string | null }>)
+      : [];
+    const buttons: InteractiveButton[] = rawButtons
+      .filter((b) => b && String(b.title ?? "").trim())
+      .slice(0, 3)
+      .map((b, i) => ({
+        id: b.next_workflow_id
+          ? `wf:${b.next_workflow_id}`
+          : `btn:${String(b.id ?? i)}`.slice(0, 255),
+        title: String(b.title).slice(0, 20),
+      }));
+
     const { data: pending } = await db
       .from("campaign_recipients")
       .select("id, phone_number, name, merge_data")
@@ -2293,6 +2395,8 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
           message,
           workspaceId,
           name: (r.name as string | null) ?? null,
+          attachment: media && media.url ? media : null,
+          buttons: buttons.length > 0 ? buttons : null,
         }),
       );
 
