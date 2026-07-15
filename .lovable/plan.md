@@ -1,69 +1,40 @@
-# Messages Filters, WhatsApp Cloud API & Media/Voice
 
-## 1. Messages tab — conversation filters
+## Scope
 
-Add a filter bar above the search input in `MessagesTab.tsx`:
+1. Simplify the **Twilio** section of Settings → Telephony to the minimum required to place browser calls.
+2. Do **not** add a WhatsApp/Baileys calling provider (per your answer).
 
-- **Sort by**: "Recent activity" (default) | "Unread from lead" | "Oldest waiting reply"
-- **Responder**: All | AI active | Human takeover
-- **Direction (last message)**: Any | From lead | From AI | From agent
-- **Time window**: Any | Last hour | Today | This week
+## Twilio – what stays vs. what goes
 
-Filters are applied client-side over the existing paginated thread list using fields already returned by `listMessageThreads` (`last_sender`, `last_message_at`, `human_takeover`). For "Oldest waiting reply", sort ascending on `last_message_at` when `last_sender === "lead"`. No backend change needed.
+Browser calling with the Twilio Voice SDK cannot work without these 5 values, so all 5 stay as inputs:
 
-## 2. WhatsApp Cloud API (Meta / Facebook) as a third workspace provider
+- Account SID
+- API Key SID
+- API Key Secret
+- TwiML App SID
+- Caller ID (outbound from-number)
 
-Extend `chatwoot_workspaces` (already the multi-inbox table) with a new `provider_type = "whatsapp_cloud"` plus columns:
+Everything else in the current Twilio panel is presentational noise and gets removed or hidden:
 
-- `wa_phone_number_id` (Meta phone number ID)
-- `wa_business_account_id` (WABA id, optional)
-- `wa_access_token` (permanent system-user token, stored server-side)
-- `wa_verify_token` (per-workspace webhook verify token)
-- `wa_app_secret` (for X-Hub-Signature-256 verification, optional but recommended)
+- Remove the always-visible **TwiML App Voice URL** callout box and the **Inbound number Voice URL** callout box from the main view. Move both into a single collapsible **"Setup guide"** disclosure at the bottom of the Twilio section so the form is short by default.
+- Drop the sample-value placeholders (`ACxxxxxxxx`, `SKxxxxxxxx`, `APxxxxxxxx`, `+15551234567`) and the caller‑ID hint text.
+- Group the 5 fields into a tighter 2‑column grid on desktop (Account SID / API Key SID on row 1, API Key Secret full‑width, TwiML App SID / Caller ID on row 3).
+- Keep the "leave blank to keep current" behavior for API Key Secret but shorten the placeholder to `••••••••`.
 
-### Webhook route (new)
-`src/routes/api/public/whatsapp-webhook.ts`
-- `GET` → Meta verification handshake (`hub.mode`, `hub.verify_token`, `hub.challenge`). Matches against any workspace's `wa_verify_token`.
-- `POST` → validates signature (if `wa_app_secret` set), extracts `entry[].changes[].value.messages[]`, resolves workspace by `metadata.phone_number_id`, and calls the existing `processInboundMessage()` so AI/workflows/campaigns behave identically to Chatwoot & Evolution.
-- Supports text, image, audio (voice notes), video, document, and button/interactive replies (extracts the button title/payload as message text).
+The top‑level **Enable calling** and **Enable incoming calls** switches and the Provider select stay as‑is (they're not Twilio‑specific and are already minimal).
 
-### Outbound delivery (extend `admissions.server.ts`)
-In `deliverToWorkspace`/`deliverHumanMessage`, add a branch for `provider_type === "whatsapp_cloud"` that POSTs to `https://graph.facebook.com/v20.0/{phone_number_id}/messages`:
-- Text messages → `type: "text"`.
-- Media attachments → upload via `/media` endpoint first to get a media ID, then `type: image|audio|video|document`.
-- Interactive buttons → `type: "interactive", interactive: { type: "button", body, action: { buttons: [...] } }` (up to 3 reply buttons; AI/human can trigger via a small helper).
+No backend changes: `voip_settings` columns, `saveVoipSettings`, `getVoipClientConfig`, and the TwiML route already accept exactly these fields.
 
-### Settings UI (extend `ChatwootWorkspaces.tsx`)
-Add "WhatsApp Cloud API (Meta)" to the provider dropdown and render its fields; add "Copy webhook URL" and "Copy verify token" affordances, plus a "Test connection" call that hits `GET /{phone_number_id}?fields=display_phone_number`.
+## WhatsApp calling
 
-## 3. File uploads & voice notes in Messages
+No code changes. (Explanation for context, not part of the plan: Baileys is a Node.js library that needs a persistent WebSocket and disk state, so it can't run on this app's Cloudflare Workers backend, and even where it does run it only signals calls — it has no audio pipeline. So there's no viable in‑app implementation, and per your answer we're dropping it.)
 
-### Storage
-Create a private storage bucket `message-media` with RLS restricting reads/writes to authenticated members of the owning space. Files stored under `{space_id}/{conversation}/{uuid}.{ext}`.
+## Files touched
 
-### Composer additions in `MessagesTab.tsx`
-- Paperclip button → hidden `<input type="file" accept="image/*,audio/*,video/*,application/pdf">` (multi).
-- Mic button → uses `MediaRecorder` (webm/opus) with press-and-hold + tap-to-lock; shows waveform-less timer and Send/Delete.
-- Selected attachments render as chips above the textarea before sending.
+- `src/components/dashboard/settings/VoipSettingsForm.tsx` — restructure the Twilio card only; SIP card and top switches untouched.
 
-### New server function `sendHumanMessageWithMedia(phone, message?, attachments[])`
-- Uploads each attachment to `message-media` via signed upload, then persists a `whatsapp_messages` row per attachment and reuses provider-specific delivery:
-  - **WhatsApp Cloud**: upload to Meta `/media`, then send `type: image|audio|document`.
-  - **Chatwoot**: POST `multipart/form-data` to `/conversations/{id}/messages` with `attachments[]`.
-  - **Evolution**: POST to `/message/sendMedia/{instance}` or `/message/sendWhatsAppAudio/{instance}` for voice.
-- On failure, degrade to sending a signed URL as text so nothing is lost.
+## Out of scope
 
-### Interactive button sender (optional utility)
-A small "Send buttons" popover on the composer (WhatsApp Cloud workspace only) that lets the agent add up to 3 quick-reply buttons before sending.
-
-## 4. Inbound media rendering
-`listConversationMessages` already returns `message_content`; extend it to also return `attachment_url`, `attachment_mime` from `whatsapp_messages`. The message bubble renders `<img>`, `<audio controls>`, `<video>`, or a download link depending on MIME.
-
-## Technical
-
-- Migration: add WA columns to `chatwoot_workspaces`; add `attachment_url`, `attachment_mime`, `attachment_type` to `whatsapp_messages`; create `message-media` storage bucket + RLS policies.
-- New file: `src/routes/api/public/whatsapp-webhook.ts`.
-- Edits: `src/lib/admissions.server.ts` (outbound switch + media helpers), `src/lib/dashboard.functions.ts` (`sendHumanMessageWithMedia`, workspace CRUD accepts WA fields, `listConversationMessages` returns attachment fields), `src/components/dashboard/settings/ChatwootWorkspaces.tsx` (WA form + provider option), `src/components/dashboard/MessagesTab.tsx` (filter bar, attachment/voice composer, media bubble rendering).
-- No changes to AI engine, workflows, or campaigns — inbound path funnels through the existing `processInboundMessage`, so all downstream automations keep working.
-
-Confirm and I'll implement.
+- SIP section
+- `useSoftphone`, calls table, dialer, ring groups, inbound routes
+- Any DB migration
