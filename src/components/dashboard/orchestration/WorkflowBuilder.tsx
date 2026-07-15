@@ -638,6 +638,193 @@ export function WorkflowBuilder({
                   </div>
                 </div>
               )}
+
+              {!selectedIsWorkflow ? (
+                <>
+                  {/* Media attachment for this message step */}
+                  <div className="space-y-1.5 rounded-md border bg-muted/20 p-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="flex items-center gap-1.5 text-xs">
+                        <ImageIcon className="h-3.5 w-3.5" /> Media (optional)
+                      </Label>
+                      <div className="flex gap-1">
+                        <input
+                          ref={stepMediaInputRef}
+                          type="file"
+                          accept="image/*,audio/*,video/*,application/pdf"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 12 * 1024 * 1024) {
+                              toast.error("File too large (max 12 MB)");
+                              return;
+                            }
+                            setUploadingStepMedia(true);
+                            try {
+                              const buf = await file.arrayBuffer();
+                              const bytes = new Uint8Array(buf);
+                              let binary = "";
+                              const chunk = 0x8000;
+                              for (let i = 0; i < bytes.length; i += chunk) {
+                                binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+                              }
+                              const base64 = typeof btoa === "function" ? btoa(binary) : "";
+                              const res = (await uploadFn({
+                                data: { filename: file.name, mime: file.type || "application/octet-stream", base64 },
+                              })) as { ok: boolean; url?: string; mime?: string; filename?: string; error?: string };
+                              if (!res.ok || !res.url) {
+                                toast.error(res.error ?? "Upload failed");
+                                return;
+                              }
+                              const mime = res.mime ?? file.type;
+                              const kind: StepMedia extends infer T ? T extends { kind: infer K } ? K : never : never =
+                                (mime.startsWith("image/")
+                                  ? "image"
+                                  : mime.startsWith("audio/")
+                                    ? "audio"
+                                    : mime.startsWith("video/")
+                                      ? "video"
+                                      : "document") as "image";
+                              updateSelected({
+                                media: { url: res.url, mime, kind, filename: res.filename ?? file.name, caption: null },
+                              });
+                              toast.success("Media attached");
+                            } catch {
+                              toast.error("Upload failed");
+                            } finally {
+                              setUploadingStepMedia(false);
+                              if (stepMediaInputRef.current) stepMediaInputRef.current.value = "";
+                            }
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => stepMediaInputRef.current?.click()}
+                          disabled={uploadingStepMedia}
+                        >
+                          {uploadingStepMedia ? (
+                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                          ) : (
+                            <Paperclip className="mr-1 h-3 w-3" />
+                          )}
+                          {(selected.data as { media?: StepMedia }).media ? "Replace" : "Upload"}
+                        </Button>
+                        {(selected.data as { media?: StepMedia }).media ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => updateSelected({ media: null })}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                    {(selected.data as { media?: StepMedia }).media ? (
+                      <div className="flex items-start gap-2">
+                        {((selected.data as { media?: StepMedia }).media as NonNullable<StepMedia>).kind === "image" ? (
+                          <img
+                            src={((selected.data as { media?: StepMedia }).media as NonNullable<StepMedia>).url}
+                            alt="preview"
+                            className="h-14 w-14 rounded border object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-14 w-14 items-center justify-center rounded border bg-background text-[10px] uppercase text-muted-foreground">
+                            {((selected.data as { media?: StepMedia }).media as NonNullable<StepMedia>).kind}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs">
+                            {((selected.data as { media?: StepMedia }).media as NonNullable<StepMedia>).filename}
+                          </p>
+                          <Input
+                            className="mt-1 h-7 text-xs"
+                            value={((selected.data as { media?: StepMedia }).media as NonNullable<StepMedia>).caption ?? ""}
+                            onChange={(e) => {
+                              const cur = (selected.data as { media?: StepMedia }).media as NonNullable<StepMedia>;
+                              updateSelected({ media: { ...cur, caption: e.target.value || null } });
+                            }}
+                            placeholder="Optional caption"
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* Quick-reply buttons */}
+                  <div className="space-y-1.5 rounded-md border bg-muted/20 p-2">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs">Quick-reply buttons</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={(((selected.data as { buttons?: StepButton[] }).buttons ?? []).length) >= 3}
+                        onClick={() => {
+                          const cur = ((selected.data as { buttons?: StepButton[] }).buttons ?? []) as StepButton[];
+                          updateSelected({ buttons: [...cur, { title: "", next_workflow_id: null }] });
+                        }}
+                      >
+                        <Plus className="mr-1 h-3 w-3" /> Add
+                      </Button>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Up to 3 tappable buttons (WhatsApp Cloud only — other channels get a numbered list). Link each
+                      button to a follow-up workflow to branch the sequence when the recipient taps it.
+                    </p>
+                    {(((selected.data as { buttons?: StepButton[] }).buttons ?? []) as StepButton[]).map((b, i) => (
+                      <div key={i} className="grid gap-1.5 sm:grid-cols-[1fr_1fr_auto]">
+                        <Input
+                          className="h-8 text-xs"
+                          maxLength={20}
+                          value={b.title}
+                          onChange={(e) => {
+                            const arr = [...(((selected.data as { buttons?: StepButton[] }).buttons ?? []) as StepButton[])];
+                            arr[i] = { ...arr[i], title: e.target.value };
+                            updateSelected({ buttons: arr });
+                          }}
+                          placeholder={`Button ${i + 1}`}
+                        />
+                        <select
+                          className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                          value={b.next_workflow_id ?? ""}
+                          onChange={(e) => {
+                            const arr = [...(((selected.data as { buttons?: StepButton[] }).buttons ?? []) as StepButton[])];
+                            arr[i] = { ...arr[i], next_workflow_id: e.target.value || null };
+                            updateSelected({ buttons: arr });
+                          }}
+                        >
+                          <option value="">No workflow (just a reply)</option>
+                          {callableWorkflows.map((w) => (
+                            <option key={w.id} value={w.id}>
+                              {w.name}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => {
+                            const arr = (((selected.data as { buttons?: StepButton[] }).buttons ?? []) as StepButton[]).filter(
+                              (_, idx) => idx !== i,
+                            );
+                            updateSelected({ buttons: arr });
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3 text-destructive" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+
               <div className="space-y-1.5">
                 <Label>Scheduling</Label>
                 <select
