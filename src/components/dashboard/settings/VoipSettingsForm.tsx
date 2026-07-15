@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Save, Loader2, Phone, PhoneIncoming } from "lucide-react";
+import { Save, Loader2, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
 import {
   Select,
   SelectContent,
@@ -159,42 +161,43 @@ export function VoipSettingsForm() {
       )}
 
       {form.provider === "twilio" && (
-        <SettingsCard title="Twilio Programmable Voice" description="Uses a Twilio TwiML App + API Key to place browser calls.">
-          <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5 font-medium text-foreground">
-              <Phone className="h-3.5 w-3.5" /> TwiML App Voice URL
-            </div>
-            <p className="mt-1">Set your TwiML App's Voice Request URL (HTTP POST) to:</p>
-            <code className="mt-1 block break-all rounded bg-background px-2 py-1">{twimlUrl}</code>
+        <SettingsCard title="Twilio Programmable Voice" description="Enter your Twilio credentials to place browser calls.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Account SID" value={form.twilio_account_sid} onChange={(v) => set("twilio_account_sid", v)} />
+            <Field label="API Key SID" value={form.twilio_api_key_sid} onChange={(v) => set("twilio_api_key_sid", v)} />
           </div>
-          {form.inbound_enabled && (
-            <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
-              <div className="flex items-center gap-1.5 font-medium text-foreground">
-                <PhoneIncoming className="h-3.5 w-3.5" /> Inbound number Voice URL
-              </div>
-              <p className="mt-1">Set each incoming Twilio number's Voice Request URL (HTTP POST) to:</p>
-              <code className="mt-1 block break-all rounded bg-background px-2 py-1">{inboundUrl}</code>
-            </div>
-          )}
-          <Field label="Account SID" value={form.twilio_account_sid} onChange={(v) => set("twilio_account_sid", v)} placeholder="ACxxxxxxxx" />
-          <Field label="API Key SID" value={form.twilio_api_key_sid} onChange={(v) => set("twilio_api_key_sid", v)} placeholder="SKxxxxxxxx" />
           <Field
             label="API Key Secret"
             value={form.twilio_api_key_secret}
             onChange={(v) => set("twilio_api_key_secret", v)}
-            placeholder="••••••• (leave blank to keep current)"
+            placeholder="••••••••"
             type="password"
           />
-          <Field label="TwiML App SID" value={form.twilio_twiml_app_sid} onChange={(v) => set("twilio_twiml_app_sid", v)} placeholder="APxxxxxxxx" />
-          <Field
-            label="Caller ID (from number)"
-            value={form.twilio_caller_id}
-            onChange={(v) => set("twilio_caller_id", v)}
-            placeholder="+15551234567"
-            hint="A Twilio number verified for outbound calls."
-          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="TwiML App SID" value={form.twilio_twiml_app_sid} onChange={(v) => set("twilio_twiml_app_sid", v)} />
+            <Field label="Caller ID" value={form.twilio_caller_id} onChange={(v) => set("twilio_caller_id", v)} />
+          </div>
+
+          <Collapsible>
+            <CollapsibleTrigger className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+              <ChevronDown className="h-3.5 w-3.5" /> Setup guide
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2 space-y-2">
+              <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">TwiML App Voice URL (HTTP POST)</p>
+                <code className="mt-1 block break-all rounded bg-background px-2 py-1">{twimlUrl}</code>
+              </div>
+              {form.inbound_enabled && (
+                <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground">Inbound number Voice URL (HTTP POST)</p>
+                  <code className="mt-1 block break-all rounded bg-background px-2 py-1">{inboundUrl}</code>
+                </div>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
         </SettingsCard>
       )}
+
 
       <Button onClick={() => save.mutate(form)} disabled={save.isPending} className="gap-2">
         {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
