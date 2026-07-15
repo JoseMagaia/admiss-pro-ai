@@ -422,14 +422,18 @@ export function ChatwootWorkspaces() {
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  {w.provider_type === "evolution" ? (
+                  {w.provider_type === "evolution" || w.provider_type === "whatsapp_cloud" ? (
                     <MessageCircle className="h-4 w-4 text-primary" />
                   ) : (
                     <Plug className="h-4 w-4 text-primary" />
                   )}
                   <span className="font-semibold">{w.name}</span>
                   <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-secondary-foreground">
-                    {w.provider_type === "evolution" ? "Evolution API" : "Chatwoot"}
+                    {w.provider_type === "evolution"
+                      ? "Evolution API"
+                      : w.provider_type === "whatsapp_cloud"
+                        ? "WhatsApp Cloud"
+                        : "Chatwoot"}
                   </span>
                   {w.is_default && (
                     <span className="flex items-center gap-1 rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-semibold text-accent-foreground">
@@ -445,9 +449,11 @@ export function ChatwootWorkspaces() {
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
                   {w.provider_type === "evolution"
                     ? `${w.evolution_url || "no URL"} · instance ${w.evolution_instance || "—"}`
-                    : `${w.chatwoot_url || "no URL"} · acct ${w.chatwoot_account_id || "—"} · inbox ${
-                        w.chatwoot_inbox_id || "—"
-                      }`}{" "}
+                    : w.provider_type === "whatsapp_cloud"
+                      ? `Meta Cloud API · phone id ${w.wa_phone_number_id || "—"}`
+                      : `${w.chatwoot_url || "no URL"} · acct ${w.chatwoot_account_id || "—"} · inbox ${
+                          w.chatwoot_inbox_id || "—"
+                        }`}{" "}
                   · {w.use_shared_ai ? "shared AI" : "independent AI"}
                 </p>
               </div>
