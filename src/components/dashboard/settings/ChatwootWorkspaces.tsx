@@ -16,7 +16,7 @@ import {
   testWorkspaceConnection,
 } from "@/lib/dashboard.functions";
 
-type ProviderType = "chatwoot" | "evolution";
+type ProviderType = "chatwoot" | "evolution" | "whatsapp_cloud";
 
 interface Workspace {
   id?: string;
@@ -29,6 +29,11 @@ interface Workspace {
   evolution_url: string | null;
   evolution_api_key: string | null;
   evolution_instance: string | null;
+  wa_phone_number_id: string | null;
+  wa_business_account_id: string | null;
+  wa_access_token: string | null;
+  wa_verify_token: string | null;
+  wa_app_secret: string | null;
   enabled: boolean;
   is_default: boolean;
   use_shared_ai: boolean;
@@ -44,6 +49,11 @@ const EMPTY: Workspace = {
   evolution_url: "",
   evolution_api_key: "",
   evolution_instance: "",
+  wa_phone_number_id: "",
+  wa_business_account_id: "",
+  wa_access_token: "",
+  wa_verify_token: "",
+  wa_app_secret: "",
   enabled: true,
   is_default: false,
   use_shared_ai: true,
@@ -52,6 +62,11 @@ const EMPTY: Workspace = {
 function evolutionWebhookUrl(): string {
   if (typeof window === "undefined") return "/api/public/evolution-webhook";
   return `${window.location.origin}/api/public/evolution-webhook`;
+}
+
+function whatsappCloudWebhookUrl(): string {
+  if (typeof window === "undefined") return "/api/public/whatsapp-webhook";
+  return `${window.location.origin}/api/public/whatsapp-webhook`;
 }
 
 function WorkspaceEditor({
