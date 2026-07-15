@@ -54,6 +54,7 @@ import {
   pauseLeadWorkflow,
   listWorkspaces,
   startConversation,
+  uploadMessageAttachment,
 } from "@/lib/dashboard.functions";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
 import { cn } from "@/lib/utils";
