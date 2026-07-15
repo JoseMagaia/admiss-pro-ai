@@ -143,6 +143,8 @@ function WorkspaceEditor({
   });
 
   const isEvolution = form.provider_type === "evolution";
+  const isWhatsAppCloud = form.provider_type === "whatsapp_cloud";
+  const isChatwoot = form.provider_type === "chatwoot";
 
   return (
     <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
@@ -160,11 +162,12 @@ function WorkspaceEditor({
           >
             <option value="chatwoot">Chatwoot</option>
             <option value="evolution">Evolution API (WhatsApp)</option>
+            <option value="whatsapp_cloud">WhatsApp Cloud API (Meta)</option>
           </select>
         </div>
       </div>
 
-      {!isEvolution && (
+      {isChatwoot && (
         <>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
