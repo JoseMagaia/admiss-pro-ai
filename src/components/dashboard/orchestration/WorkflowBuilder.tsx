@@ -678,14 +678,13 @@ export function WorkflowBuilder({
                                 return;
                               }
                               const mime = res.mime ?? file.type;
-                              const kind: StepMedia extends infer T ? T extends { kind: infer K } ? K : never : never =
-                                (mime.startsWith("image/")
-                                  ? "image"
-                                  : mime.startsWith("audio/")
-                                    ? "audio"
-                                    : mime.startsWith("video/")
-                                      ? "video"
-                                      : "document") as "image";
+                              const kind: "image" | "audio" | "video" | "document" = mime.startsWith("image/")
+                                ? "image"
+                                : mime.startsWith("audio/")
+                                  ? "audio"
+                                  : mime.startsWith("video/")
+                                    ? "video"
+                                    : "document";
                               updateSelected({
                                 media: { url: res.url, mime, kind, filename: res.filename ?? file.name, caption: null },
                               });
