@@ -5,6 +5,7 @@
 //     error logger plugins, and sandbox detection (port/host/strictPort).
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { mcpPlugin } from "@lovable.dev/mcp-js/stacks/tanstack/vite";
 import { fileURLToPath } from "node:url";
 
 // @twilio/voice-sdk imports named exports from node's `events` module in browser code.
@@ -19,6 +20,7 @@ export default defineConfig({
   },
   vite: {
     plugins: [
+      mcpPlugin(),
       {
         name: "twilio-events-browser-shim",
         enforce: "pre",
