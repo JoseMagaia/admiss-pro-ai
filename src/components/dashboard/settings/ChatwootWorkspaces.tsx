@@ -16,7 +16,7 @@ import {
   testWorkspaceConnection,
 } from "@/lib/dashboard.functions";
 
-type ProviderType = "chatwoot" | "evolution";
+type ProviderType = "chatwoot" | "evolution" | "whatsapp_cloud";
 
 interface Workspace {
   id?: string;
@@ -29,6 +29,11 @@ interface Workspace {
   evolution_url: string | null;
   evolution_api_key: string | null;
   evolution_instance: string | null;
+  wa_phone_number_id: string | null;
+  wa_business_account_id: string | null;
+  wa_access_token: string | null;
+  wa_verify_token: string | null;
+  wa_app_secret: string | null;
   enabled: boolean;
   is_default: boolean;
   use_shared_ai: boolean;
@@ -44,6 +49,11 @@ const EMPTY: Workspace = {
   evolution_url: "",
   evolution_api_key: "",
   evolution_instance: "",
+  wa_phone_number_id: "",
+  wa_business_account_id: "",
+  wa_access_token: "",
+  wa_verify_token: "",
+  wa_app_secret: "",
   enabled: true,
   is_default: false,
   use_shared_ai: true,
@@ -52,6 +62,11 @@ const EMPTY: Workspace = {
 function evolutionWebhookUrl(): string {
   if (typeof window === "undefined") return "/api/public/evolution-webhook";
   return `${window.location.origin}/api/public/evolution-webhook`;
+}
+
+function whatsappCloudWebhookUrl(): string {
+  if (typeof window === "undefined") return "/api/public/whatsapp-webhook";
+  return `${window.location.origin}/api/public/whatsapp-webhook`;
 }
 
 function WorkspaceEditor({
@@ -128,6 +143,8 @@ function WorkspaceEditor({
   });
 
   const isEvolution = form.provider_type === "evolution";
+  const isWhatsAppCloud = form.provider_type === "whatsapp_cloud";
+  const isChatwoot = form.provider_type === "chatwoot";
 
   return (
     <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
@@ -145,11 +162,12 @@ function WorkspaceEditor({
           >
             <option value="chatwoot">Chatwoot</option>
             <option value="evolution">Evolution API (WhatsApp)</option>
+            <option value="whatsapp_cloud">WhatsApp Cloud API (Meta)</option>
           </select>
         </div>
       </div>
 
-      {!isEvolution && (
+      {isChatwoot && (
         <>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
@@ -249,6 +267,83 @@ function WorkspaceEditor({
         </>
       )}
 
+      {isWhatsAppCloud && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Phone Number ID</Label>
+              <Input
+                value={form.wa_phone_number_id ?? ""}
+                onChange={(e) => set("wa_phone_number_id", e.target.value)}
+                placeholder="123456789012345"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>WhatsApp Business Account ID</Label>
+              <Input
+                value={form.wa_business_account_id ?? ""}
+                onChange={(e) => set("wa_business_account_id", e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Permanent Access Token</Label>
+            <Input
+              type="password"
+              value={form.wa_access_token ?? ""}
+              onChange={(e) => set("wa_access_token", e.target.value)}
+              placeholder="Leave unchanged to keep the saved token"
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Webhook Verify Token</Label>
+              <Input
+                value={form.wa_verify_token ?? ""}
+                onChange={(e) => set("wa_verify_token", e.target.value)}
+                placeholder="Any strong random string"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>App Secret (optional, for signature verification)</Label>
+              <Input
+                type="password"
+                value={form.wa_app_secret ?? ""}
+                onChange={(e) => set("wa_app_secret", e.target.value)}
+                placeholder="Leave unchanged to keep the saved secret"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-dashed bg-background/60 p-3">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Webhook className="h-4 w-4 text-primary" /> Meta Webhook Callback URL
+            </div>
+            <p className="text-xs text-muted-foreground">
+              In Meta Business → WhatsApp → Configuration, set this Callback URL and paste the Verify Token above.
+              Subscribe to the <code>messages</code> field.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input readOnly value={whatsappCloudWebhookUrl()} className="text-xs" />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => {
+                  navigator.clipboard?.writeText(whatsappCloudWebhookUrl());
+                  toast.success("Webhook URL copied");
+                }}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+
+
+
       <div className="flex flex-wrap gap-6">
         <label className="flex items-center gap-2 text-sm">
           <Switch checked={form.enabled} onCheckedChange={(v) => set("enabled", v)} /> Enabled
@@ -327,14 +422,18 @@ export function ChatwootWorkspaces() {
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  {w.provider_type === "evolution" ? (
+                  {w.provider_type === "evolution" || w.provider_type === "whatsapp_cloud" ? (
                     <MessageCircle className="h-4 w-4 text-primary" />
                   ) : (
                     <Plug className="h-4 w-4 text-primary" />
                   )}
                   <span className="font-semibold">{w.name}</span>
                   <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold text-secondary-foreground">
-                    {w.provider_type === "evolution" ? "Evolution API" : "Chatwoot"}
+                    {w.provider_type === "evolution"
+                      ? "Evolution API"
+                      : w.provider_type === "whatsapp_cloud"
+                        ? "WhatsApp Cloud"
+                        : "Chatwoot"}
                   </span>
                   {w.is_default && (
                     <span className="flex items-center gap-1 rounded-full bg-accent/20 px-2 py-0.5 text-[10px] font-semibold text-accent-foreground">
@@ -350,9 +449,11 @@ export function ChatwootWorkspaces() {
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
                   {w.provider_type === "evolution"
                     ? `${w.evolution_url || "no URL"} · instance ${w.evolution_instance || "—"}`
-                    : `${w.chatwoot_url || "no URL"} · acct ${w.chatwoot_account_id || "—"} · inbox ${
-                        w.chatwoot_inbox_id || "—"
-                      }`}{" "}
+                    : w.provider_type === "whatsapp_cloud"
+                      ? `Meta Cloud API · phone id ${w.wa_phone_number_id || "—"}`
+                      : `${w.chatwoot_url || "no URL"} · acct ${w.chatwoot_account_id || "—"} · inbox ${
+                          w.chatwoot_inbox_id || "—"
+                        }`}{" "}
                   · {w.use_shared_ai ? "shared AI" : "independent AI"}
                 </p>
               </div>

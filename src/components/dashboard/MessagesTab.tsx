@@ -15,6 +15,11 @@ import {
   Play,
   ArrowLeft,
   Plus,
+  Paperclip,
+  Mic,
+  StopCircle,
+  Image as ImageIcon,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -49,6 +54,7 @@ import {
   pauseLeadWorkflow,
   listWorkspaces,
   startConversation,
+  uploadMessageAttachment,
 } from "@/lib/dashboard.functions";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
 import { cn } from "@/lib/utils";
@@ -88,6 +94,9 @@ interface Message {
   message_content: string;
   sender: string;
   received_at: string;
+  attachment_url?: string | null;
+  attachment_mime?: string | null;
+  attachment_kind?: string | null;
 }
 
 interface Conversation {
@@ -157,6 +166,30 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const [newWorkspace, setNewWorkspace] = useState("");
   const [newMessage, setNewMessage] = useState("");
 
+  // Filter which conversations show up in the list.
+  type ResponderFilter = "all" | "ai" | "human" | "unread_lead";
+  const [responderFilter, setResponderFilter] = useState<ResponderFilter>("all");
+  type SortMode = "recent" | "oldest";
+  const [sortMode, setSortMode] = useState<SortMode>("recent");
+
+  // Pending attachment for the next outbound message.
+  type PendingAttachment = {
+    url: string;
+    mime: string;
+    filename: string;
+    kind: "image" | "audio" | "video" | "document";
+  };
+  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadFn = useServerFn(uploadMessageAttachment);
+
+  // Voice-note recorder state.
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
+  const [recording, setRecording] = useState(false);
+
+
   const threadSearch = search.trim();
   const threadPageSize = 30;
   const threadQuery = useInfiniteQuery({
@@ -189,13 +222,29 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const scheduled = (schedData?.scheduled ?? []) as Scheduled[];
   const workspaces = (workspacesData?.workspaces ?? []) as unknown as Workspace[];
 
-  const threads = useMemo(
+  const rawThreads = useMemo(
     () =>
       (threadQuery.data?.pages ?? []).flatMap(
         (page) => ((page as { threads?: MessageThread[] }).threads ?? []) as MessageThread[],
       ),
     [threadQuery.data],
   );
+
+  const threads = useMemo(() => {
+    const filtered = rawThreads.filter((t) => {
+      if (responderFilter === "ai" && t.human_takeover) return false;
+      if (responderFilter === "human" && !t.human_takeover) return false;
+      if (responderFilter === "unread_lead" && t.last_sender !== "lead") return false;
+      return true;
+    });
+    const sorted = [...filtered].sort((a, b) => {
+      const at = new Date(a.last_message_at ?? a.conversation_updated_at ?? 0).getTime();
+      const bt = new Date(b.last_message_at ?? b.conversation_updated_at ?? 0).getTime();
+      return sortMode === "recent" ? bt - at : at - bt;
+    });
+    return sorted;
+  }, [rawThreads, responderFilter, sortMode]);
+
 
   const activeDigits = active ? digitsOnly(active) : null;
   const { data: activeData } = useQuery({
@@ -244,7 +293,21 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
   const send = useMutation({
     mutationFn: (message: string) =>
-      sendFn({ data: { phone: activePhone!, message, workspaceId: sendWorkspace || undefined } }),
+      sendFn({
+        data: {
+          phone: activePhone!,
+          message,
+          workspaceId: sendWorkspace || undefined,
+          attachment: pendingAttachment
+            ? {
+                url: pendingAttachment.url,
+                mime: pendingAttachment.mime,
+                kind: pendingAttachment.kind,
+                filename: pendingAttachment.filename,
+              }
+            : undefined,
+        },
+      }),
     onSuccess: (r) => {
       const res = r as { ok: boolean; error?: string };
       if (res.ok) {
@@ -253,6 +316,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
         toast.warning(res.error ?? "Sent but delivery may have failed");
       }
       setDraft("");
+      setPendingAttachment(null);
       qc.invalidateQueries({ queryKey: ["message-threads"] });
       qc.invalidateQueries({ queryKey: ["conversation-messages"] });
     },
@@ -342,9 +406,96 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
   function handleSend() {
     const text = draft.trim();
-    if (!text || !active) return;
+    if (!active) return;
+    if (!text && !pendingAttachment) return;
     send.mutate(text);
   }
+
+  async function blobToBase64(blob: Blob): Promise<string> {
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return typeof btoa === "function" ? btoa(binary) : Buffer.from(binary, "binary").toString("base64");
+  }
+
+  function classifyKind(mime: string): PendingAttachment["kind"] {
+    if (mime.startsWith("image/")) return "image";
+    if (mime.startsWith("audio/")) return "audio";
+    if (mime.startsWith("video/")) return "video";
+    return "document";
+  }
+
+  async function uploadBlob(blob: Blob, filename: string) {
+    if (blob.size > 12 * 1024 * 1024) {
+      toast.error("File too large (max 12 MB)");
+      return;
+    }
+    setUploading(true);
+    try {
+      const base64 = await blobToBase64(blob);
+      const res = (await uploadFn({
+        data: { filename, mime: blob.type || "application/octet-stream", base64 },
+      })) as { ok: boolean; url?: string; mime?: string; filename?: string; error?: string };
+      if (!res.ok || !res.url || !res.mime) {
+        toast.error(res.error ?? "Upload failed");
+        return;
+      }
+      setPendingAttachment({
+        url: res.url,
+        mime: res.mime,
+        filename: res.filename ?? filename,
+        kind: classifyKind(res.mime),
+      });
+      toast.success("Attachment ready");
+    } catch {
+      toast.error("Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) await uploadBlob(file, file.name);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function startRecording() {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      toast.error("Recording not supported in this browser");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      recordChunksRef.current = [];
+      rec.ondataavailable = (ev) => {
+        if (ev.data.size > 0) recordChunksRef.current.push(ev.data);
+      };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(recordChunksRef.current, { type: rec.mimeType || "audio/webm" });
+        const ext = blob.type.includes("mp4") ? "m4a" : "webm";
+        await uploadBlob(blob, `voice-${Date.now()}.${ext}`);
+      };
+      rec.start();
+      mediaRecorderRef.current = rec;
+      setRecording(true);
+    } catch {
+      toast.error("Microphone access denied");
+    }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop();
+    mediaRecorderRef.current = null;
+    setRecording(false);
+  }
+
 
   return (
     <div className="grid h-[82vh] grid-cols-1 gap-4 md:h-[80vh] md:grid-cols-[300px_1fr]">
@@ -368,7 +519,30 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
               className="pl-9"
             />
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Select value={responderFilter} onValueChange={(v) => setResponderFilter(v as ResponderFilter)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All responders</SelectItem>
+                <SelectItem value="ai">AI is replying</SelectItem>
+                <SelectItem value="human">Human took over</SelectItem>
+                <SelectItem value="unread_lead">Last from student</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recent">Newest first</SelectItem>
+                <SelectItem value="oldest">Oldest first</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
+
         <div className="flex-1 overflow-y-auto">
           {threads.map((c) => {
             const preview = c.match_message_content ?? c.last_message_content ?? "No messages yet.";
@@ -549,7 +723,31 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                           </>
                         )}
                       </div>
-                      <p className="whitespace-pre-wrap">{m.message_content}</p>
+                      {m.attachment_url && (
+                        <div className="mb-1">
+                          {m.attachment_kind === "image" ? (
+                            <img
+                              src={m.attachment_url}
+                              alt="attachment"
+                              className="max-h-64 rounded-lg object-cover"
+                            />
+                          ) : m.attachment_kind === "audio" ? (
+                            <audio controls src={m.attachment_url} className="w-full" />
+                          ) : m.attachment_kind === "video" ? (
+                            <video controls src={m.attachment_url} className="max-h-64 rounded-lg" />
+                          ) : (
+                            <a
+                              href={m.attachment_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="flex items-center gap-1.5 rounded-md bg-background/40 px-2 py-1 text-xs underline"
+                            >
+                              <FileText className="h-3.5 w-3.5" /> Open file
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      {m.message_content && <p className="whitespace-pre-wrap">{m.message_content}</p>}
                       <p className="mt-1 text-right text-[10px] opacity-60">
                         {new Date(m.received_at).toLocaleString()}
                       </p>
@@ -562,6 +760,27 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
             {/* Composer */}
             <div className="border-t p-3">
+              {pendingAttachment && (
+                <div className="mb-2 flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-2 py-1.5 text-xs">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {pendingAttachment.kind === "image" ? (
+                      <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                    ) : pendingAttachment.kind === "audio" ? (
+                      <Mic className="h-3.5 w-3.5 shrink-0" />
+                    ) : (
+                      <FileText className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    <span className="truncate">{pendingAttachment.filename}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPendingAttachment(null)}
+                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
               <Textarea
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -575,14 +794,41 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                 rows={2}
                 className="resize-none"
               />
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv"
+                onChange={handleFilePick}
+              />
               <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={uploading || recording}
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Attach file"
+                  >
+                    {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    variant={recording ? "destructive" : "ghost"}
+                    size="icon"
+                    className="h-8 w-8"
+                    disabled={uploading}
+                    onClick={() => (recording ? stopRecording() : startRecording())}
+                    title={recording ? "Stop recording" : "Record voice note"}
+                  >
+                    {recording ? <StopCircle className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                  </Button>
                   <span className="text-[11px] text-muted-foreground">Send from</span>
                   <Select
                     value={sendWorkspace || "__default"}
                     onValueChange={(v) => setSendWorkspace(v === "__default" ? "" : v)}
                   >
-                    <SelectTrigger className="h-8 w-[190px] text-xs">
+                    <SelectTrigger className="h-8 w-[170px] text-xs">
                       <SelectValue placeholder="Lead's default inbox" />
                     </SelectTrigger>
                     <SelectContent>
@@ -605,7 +851,11 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                   >
                     <Clock className="mr-1 h-4 w-4" /> Schedule
                   </Button>
-                  <Button size="sm" onClick={handleSend} disabled={!draft.trim() || send.isPending}>
+                  <Button
+                    size="sm"
+                    onClick={handleSend}
+                    disabled={(!draft.trim() && !pendingAttachment) || send.isPending || uploading}
+                  >
                     {send.isPending ? (
                       <Loader2 className="mr-1 h-4 w-4 animate-spin" />
                     ) : (

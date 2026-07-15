@@ -1,49 +1,69 @@
-# Incoming Calls, Inbound Routes & Ring Groups
+# Messages Filters, WhatsApp Cloud API & Media/Voice
 
-Extend the Calls (PBX) feature so agents can **receive** calls, not just place them. Super admins define **ring groups** (a set of agents) and **inbound routes** that map each inbound phone number (DID) to a ring group. When a call arrives at a Twilio number, every online agent in the mapped group rings at once; the first to answer takes the call. For SIP/WebRTC, agents simply answer incoming calls — ring-group fan-out stays configured on your PBX.
+## 1. Messages tab — conversation filters
 
-## Decisions (from your answers)
-- **Ring strategy:** ring all group members simultaneously.
-- **Routing:** per-number (DID → ring group).
-- **SIP:** app only answers incoming SIP calls; ring groups for SIP live on the PBX.
+Add a filter bar above the search input in `MessagesTab.tsx`:
 
-## Database (new space-scoped tables)
-1. `ring_groups` — `name`, `ring_seconds` (default 20), `active`, `created_by`.
-2. `ring_group_members` — `ring_group_id`, `user_id`, `position`.
-3. `inbound_routes` — `did` (the inbound number, E.164), `ring_group_id`, `active`, `UNIQUE(space_id, did)`; optional `no_answer_action` (`hangup`|`voicemail`, v1 = hangup).
+- **Sort by**: "Recent activity" (default) | "Unread from lead" | "Oldest waiting reply"
+- **Responder**: All | AI active | Human takeover
+- **Direction (last message)**: Any | From lead | From AI | From agent
+- **Time window**: Any | Last hour | Today | This week
 
-Each table: `CREATE TABLE` → `GRANT ALL … TO service_role` → `ENABLE ROW LEVEL SECURITY` (default-deny; access flows through server functions like the existing calls tables) → `updated_at` trigger. All three added to `TENANT_TABLES` in `space-context.server.ts`. A `voip_settings.inbound_enabled` boolean is added so super admins can turn incoming on/off per Space.
+Filters are applied client-side over the existing paginated thread list using fields already returned by `listMessageThreads` (`last_sender`, `last_message_at`, `human_takeover`). For "Oldest waiting reply", sort ascending on `last_message_at` when `last_sender === "lead"`. No backend change needed.
 
-## Stable agent identity
-Inbound TwiML must ring specific browser clients, so agent identities become deterministic and collision-free. A shared `agentIdentity(userId)` helper (full UUID, no dashes) replaces the current `agent_${userId.slice(0,8)}`, used both when minting the Twilio token and when building inbound TwiML.
+## 2. WhatsApp Cloud API (Meta / Facebook) as a third workspace provider
 
-## Server functions — `src/lib/calls.functions.ts`
-- Ring groups (super admin): `listRingGroups`, `saveRingGroup` (name, ring_seconds, active + member user_ids), `deleteRingGroup`.
-- Inbound routes (super admin): `listInboundRoutes`, `saveInboundRoute` (did → ring_group_id), `deleteInboundRoute`.
-- `listSpaceAgents` — returns the Space's users (id + display name) to populate the ring-group member picker (reusing the existing user-listing logic).
-- `getVoipClientConfig` — already sets Twilio `incoming.allow = true`; also return the agent's client `identity` and honor `inbound_enabled`.
+Extend `chatwoot_workspaces` (already the multi-inbox table) with a new `provider_type = "whatsapp_cloud"` plus columns:
 
-## Twilio inbound route — `src/routes/api/public/voip/inbound.ts`
-New public endpoint (Twilio is an external caller). On an inbound call Twilio POSTs `To` (the called DID) and `From`. The handler, using the unscoped admin client (no session on webhooks):
-1. Looks up `inbound_routes` by `did = To` → its `ring_group` and members.
-2. Returns TwiML `<Dial timeout={ring_seconds} callerId={From}><Client>{identity}</Client>…</Dial>` for each active member so all ring simultaneously.
-3. No match / empty group → polite `<Say>` + hang up. Input is validated; no PII beyond the phone numbers Twilio already holds.
+- `wa_phone_number_id` (Meta phone number ID)
+- `wa_business_account_id` (WABA id, optional)
+- `wa_access_token` (permanent system-user token, stored server-side)
+- `wa_verify_token` (per-workspace webhook verify token)
+- `wa_app_secret` (for X-Hub-Signature-256 verification, optional but recommended)
 
-Super admins point each Twilio number's **Voice webhook** at the stable `project--{id}.lovable.app/api/public/voip/inbound` URL (surfaced in the settings UI like the existing TwiML URL).
+### Webhook route (new)
+`src/routes/api/public/whatsapp-webhook.ts`
+- `GET` → Meta verification handshake (`hub.mode`, `hub.verify_token`, `hub.challenge`). Matches against any workspace's `wa_verify_token`.
+- `POST` → validates signature (if `wa_app_secret` set), extracts `entry[].changes[].value.messages[]`, resolves workspace by `metadata.phone_number_id`, and calls the existing `processInboundMessage()` so AI/workflows/campaigns behave identically to Chatwoot & Evolution.
+- Supports text, image, audio (voice notes), video, document, and button/interactive replies (extracts the button title/payload as message text).
 
-## Softphone — `src/hooks/useSoftphone.ts`
-- **Register on mount** for authenticated users when calling is enabled + `inbound_enabled`, so agents can receive calls without first dialing out.
-  - Twilio: create the `Device` up front and handle `device.on("incoming", …)`.
-  - SIP: connect + register the `SimpleUser` and handle the `onCallReceived` delegate.
-- New state: `incoming`, `incomingFrom`, plus `accept()` and `reject()`; `direction` (`inbound`/`outbound`) tracked through the call lifecycle. Existing outbound flow is unchanged.
+### Outbound delivery (extend `admissions.server.ts`)
+In `deliverToWorkspace`/`deliverHumanMessage`, add a branch for `provider_type === "whatsapp_cloud"` that POSTs to `https://graph.facebook.com/v20.0/{phone_number_id}/messages`:
+- Text messages → `type: "text"`.
+- Media attachments → upload via `/media` endpoint first to get a media ID, then `type: image|audio|video|document`.
+- Interactive buttons → `type: "interactive", interactive: { type: "button", body, action: { buttons: [...] } }` (up to 3 reply buttons; AI/human can trigger via a small helper).
 
-## Frontend
-- `CallsTab.tsx`: an **incoming-call banner/modal** (caller number, Accept / Reject). Accept transitions into the existing live-call bar; inbound calls are logged via `logCall({ direction: "inbound" })` and flow through the same outcome/notes/reschedule dialog. History already shows a `direction` column.
-- Telephony settings (super admin, under the existing `telephony` section): new `RingGroupsManager` (create groups, pick member agents, set ring seconds) and `InboundRoutesManager` (map a number to a ring group), plus an "Enable incoming calls" switch and the inbound webhook URL, added to `VoipSettingsForm`.
+### Settings UI (extend `ChatwootWorkspaces.tsx`)
+Add "WhatsApp Cloud API (Meta)" to the provider dropdown and render its fields; add "Copy webhook URL" and "Copy verify token" affordances, plus a "Test connection" call that hits `GET /{phone_number_id}?fields=display_phone_number`.
 
-## Wiring
-- `roles.ts`: ring groups & inbound routes live under the existing super-admin `telephony` settings section — no new role entries.
-- `src/integrations/supabase/types.ts` regenerates after the migration is approved; server functions and UI that reference the new tables come after.
+## 3. File uploads & voice notes in Messages
 
-## Out of scope (v1)
-Voicemail recording/boxes, IVR menus, sequential/round-robin ring, call transfer, and inbound analytics.
+### Storage
+Create a private storage bucket `message-media` with RLS restricting reads/writes to authenticated members of the owning space. Files stored under `{space_id}/{conversation}/{uuid}.{ext}`.
+
+### Composer additions in `MessagesTab.tsx`
+- Paperclip button → hidden `<input type="file" accept="image/*,audio/*,video/*,application/pdf">` (multi).
+- Mic button → uses `MediaRecorder` (webm/opus) with press-and-hold + tap-to-lock; shows waveform-less timer and Send/Delete.
+- Selected attachments render as chips above the textarea before sending.
+
+### New server function `sendHumanMessageWithMedia(phone, message?, attachments[])`
+- Uploads each attachment to `message-media` via signed upload, then persists a `whatsapp_messages` row per attachment and reuses provider-specific delivery:
+  - **WhatsApp Cloud**: upload to Meta `/media`, then send `type: image|audio|document`.
+  - **Chatwoot**: POST `multipart/form-data` to `/conversations/{id}/messages` with `attachments[]`.
+  - **Evolution**: POST to `/message/sendMedia/{instance}` or `/message/sendWhatsAppAudio/{instance}` for voice.
+- On failure, degrade to sending a signed URL as text so nothing is lost.
+
+### Interactive button sender (optional utility)
+A small "Send buttons" popover on the composer (WhatsApp Cloud workspace only) that lets the agent add up to 3 quick-reply buttons before sending.
+
+## 4. Inbound media rendering
+`listConversationMessages` already returns `message_content`; extend it to also return `attachment_url`, `attachment_mime` from `whatsapp_messages`. The message bubble renders `<img>`, `<audio controls>`, `<video>`, or a download link depending on MIME.
+
+## Technical
+
+- Migration: add WA columns to `chatwoot_workspaces`; add `attachment_url`, `attachment_mime`, `attachment_type` to `whatsapp_messages`; create `message-media` storage bucket + RLS policies.
+- New file: `src/routes/api/public/whatsapp-webhook.ts`.
+- Edits: `src/lib/admissions.server.ts` (outbound switch + media helpers), `src/lib/dashboard.functions.ts` (`sendHumanMessageWithMedia`, workspace CRUD accepts WA fields, `listConversationMessages` returns attachment fields), `src/components/dashboard/settings/ChatwootWorkspaces.tsx` (WA form + provider option), `src/components/dashboard/MessagesTab.tsx` (filter bar, attachment/voice composer, media bubble rendering).
+- No changes to AI engine, workflows, or campaigns — inbound path funnels through the existing `processInboundMessage`, so all downstream automations keep working.
+
+Confirm and I'll implement.

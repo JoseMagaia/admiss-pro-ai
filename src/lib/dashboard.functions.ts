@@ -122,6 +122,9 @@ type MessageRow = {
   message_content: string;
   sender: string;
   received_at: string;
+  attachment_url?: string | null;
+  attachment_mime?: string | null;
+  attachment_kind?: string | null;
 };
 
 type ConversationRow = {
@@ -1046,8 +1049,21 @@ export const sendHumanMessage = createServerFn({ method: "POST" })
     z
       .object({
         phone: z.string().min(1).max(60),
-        message: z.string().min(1).max(4000),
+        message: z.string().max(4000).optional().default(""),
         workspaceId: z.string().uuid().optional(),
+        attachment: z
+          .object({
+            url: z.string().url().max(2000),
+            mime: z.string().min(1).max(200),
+            kind: z.enum(["image", "audio", "video", "document", "sticker"]),
+            filename: z.string().max(300).nullable().optional(),
+            caption: z.string().max(2000).nullable().optional(),
+          })
+          .nullable()
+          .optional(),
+      })
+      .refine((v) => v.message.trim().length > 0 || v.attachment, {
+        message: "Message text or attachment is required.",
       })
       .parse(d),
   )
@@ -1073,10 +1089,54 @@ export const sendHumanMessage = createServerFn({ method: "POST" })
         message: data.message,
         workspaceId: data.workspaceId ?? null,
         actor: me.email ?? "Agent",
+        attachment: data.attachment ?? null,
       }),
     );
     return { ok: result.ok, error: result.error ?? null };
   });
+
+// Upload a chat attachment (image, voice note, document…) to the private
+// `message-media` bucket and return a long-lived signed URL. The URL is then
+// passed to `sendHumanMessage` — providers (WhatsApp Cloud, Evolution) fetch
+// the URL themselves so raw file bytes never travel through the message body.
+export const uploadMessageAttachment = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        filename: z.string().min(1).max(300),
+        mime: z.string().min(1).max(200),
+        // Base64 (no data: prefix). Cap at ~15 MB base64 (~11 MB raw).
+        base64: z.string().min(1).max(20_000_000),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(ANY_ROLE);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message } as const;
+    }
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    // Decode base64 into a Uint8Array.
+    const raw = typeof atob === "function" ? atob(data.base64) : Buffer.from(data.base64, "base64").toString("binary");
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+    const safe = data.filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
+    const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-${safe}`;
+    const { error: upErr } = await supabaseAdmin.storage
+      .from("message-media")
+      .upload(path, bytes, { contentType: data.mime, upsert: false });
+    if (upErr) return { ok: false, error: upErr.message } as const;
+    // 7-day signed URL — plenty for the recipient's WhatsApp client to fetch.
+    const { data: signed, error: signErr } = await supabaseAdmin.storage
+      .from("message-media")
+      .createSignedUrl(path, 60 * 60 * 24 * 7);
+    if (signErr || !signed?.signedUrl) {
+      return { ok: false, error: signErr?.message ?? "Failed to sign URL" } as const;
+    }
+    return { ok: true, url: signed.signedUrl, mime: data.mime, filename: safe } as const;
+  });
+
 
 /* Start a brand-new conversation with an unregistered lead. Creates the lead +
    conversation just like an inbound lead, then sends the first message through
@@ -1248,6 +1308,8 @@ export const listWorkspaces = createServerFn({ method: "GET" }).handler(async ()
     ...w,
     chatwoot_api_token: w.chatwoot_api_token ? "********" : null,
     evolution_api_key: w.evolution_api_key ? "********" : null,
+    wa_access_token: w.wa_access_token ? "********" : null,
+    wa_app_secret: w.wa_app_secret ? "********" : null,
   }));
   return { workspaces };
 });
@@ -1255,7 +1317,7 @@ export const listWorkspaces = createServerFn({ method: "GET" }).handler(async ()
 const workspaceSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(1).max(200),
-  provider_type: z.enum(["chatwoot", "evolution"]).optional(),
+  provider_type: z.enum(["chatwoot", "evolution", "whatsapp_cloud"]).optional(),
   chatwoot_url: z.string().max(500).nullable().optional(),
   chatwoot_account_id: z.string().max(100).nullable().optional(),
   chatwoot_inbox_id: z.string().max(100).nullable().optional(),
@@ -1263,6 +1325,12 @@ const workspaceSchema = z.object({
   evolution_url: z.string().max(500).nullable().optional(),
   evolution_api_key: z.string().max(500).nullable().optional(),
   evolution_instance: z.string().max(200).nullable().optional(),
+  // WhatsApp Business Cloud API (Meta / Facebook).
+  wa_phone_number_id: z.string().max(100).nullable().optional(),
+  wa_business_account_id: z.string().max(100).nullable().optional(),
+  wa_access_token: z.string().max(2000).nullable().optional(),
+  wa_verify_token: z.string().max(200).nullable().optional(),
+  wa_app_secret: z.string().max(500).nullable().optional(),
   enabled: z.boolean().optional(),
   is_default: z.boolean().optional(),
   use_shared_ai: z.boolean().optional(),
@@ -1279,18 +1347,24 @@ export const upsertWorkspace = createServerFn({ method: "POST" })
     const db = await scopedDb();
     const { id, ...rest } = data;
     // Don't overwrite a stored token/key with the masked placeholder or empty value.
-    const token = rest.chatwoot_api_token;
-    if (token === "" || token === "********" || token === undefined) {
-      delete (rest as Record<string, unknown>).chatwoot_api_token;
-    }
-    const evoKey = rest.evolution_api_key;
-    if (evoKey === "" || evoKey === "********" || evoKey === undefined) {
-      delete (rest as Record<string, unknown>).evolution_api_key;
-    } else if (typeof evoKey === "string") {
-      (rest as Record<string, unknown>).evolution_api_key = evoKey.trim();
+    const maskFields = ["chatwoot_api_token", "evolution_api_key", "wa_access_token", "wa_app_secret"] as const;
+    for (const field of maskFields) {
+      const v = (rest as Record<string, unknown>)[field];
+      if (v === "" || v === "********" || v === undefined) {
+        delete (rest as Record<string, unknown>)[field];
+      } else if (typeof v === "string") {
+        (rest as Record<string, unknown>)[field] = v.trim();
+      }
     }
     // Trim URL/instance to avoid stray whitespace producing 404 "instance not found".
-    for (const field of ["evolution_url", "evolution_instance", "chatwoot_url"] as const) {
+    for (const field of [
+      "evolution_url",
+      "evolution_instance",
+      "chatwoot_url",
+      "wa_phone_number_id",
+      "wa_business_account_id",
+      "wa_verify_token",
+    ] as const) {
       const v = (rest as Record<string, unknown>)[field];
       if (typeof v === "string") (rest as Record<string, unknown>)[field] = v.trim();
     }
@@ -1402,13 +1476,15 @@ export const testWorkspaceConnection = createServerFn({ method: "POST" })
     z
       .object({
         id: z.string().uuid().optional(),
-        provider_type: z.enum(["chatwoot", "evolution"]),
+        provider_type: z.enum(["chatwoot", "evolution", "whatsapp_cloud"]),
         chatwoot_url: z.string().max(500).nullable().optional(),
         chatwoot_account_id: z.string().max(100).nullable().optional(),
         chatwoot_api_token: z.string().max(500).nullable().optional(),
         evolution_url: z.string().max(500).nullable().optional(),
         evolution_api_key: z.string().max(500).nullable().optional(),
         evolution_instance: z.string().max(200).nullable().optional(),
+        wa_phone_number_id: z.string().max(100).nullable().optional(),
+        wa_access_token: z.string().max(2000).nullable().optional(),
       })
       .parse(d),
   )
@@ -1419,7 +1495,9 @@ export const testWorkspaceConnection = createServerFn({ method: "POST" })
       return { ok: false, error: (e as Error).message };
     }
 
-    const resolveSavedKey = async (field: "chatwoot_api_token" | "evolution_api_key") => {
+    const resolveSavedKey = async (
+      field: "chatwoot_api_token" | "evolution_api_key" | "wa_access_token",
+    ) => {
       if (!data.id) return "";
       const db = await scopedDb();
       const { data: row } = await db
@@ -1431,6 +1509,23 @@ export const testWorkspaceConnection = createServerFn({ method: "POST" })
     };
 
     try {
+      if (data.provider_type === "whatsapp_cloud") {
+        const phoneId = (data.wa_phone_number_id ?? "").trim();
+        let token = (data.wa_access_token ?? "").trim();
+        if (!token || token === "********") token = (await resolveSavedKey("wa_access_token")).trim();
+        if (!phoneId) return { ok: false, error: "Enter the WhatsApp Phone Number ID first." };
+        if (!token) return { ok: false, error: "Enter the Meta access token first." };
+        const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(phoneId)}?fields=display_phone_number,verified_name`;
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403)
+            return { ok: false, error: "Meta rejected the access token. Regenerate it in Meta Business." };
+          if (res.status === 404)
+            return { ok: false, error: "Phone Number ID not found in Meta." };
+          return { ok: false, error: `Meta returned an error (${res.status}).` };
+        }
+        return { ok: true, error: null };
+      }
       if (data.provider_type === "evolution") {
         const base = (data.evolution_url ?? "").trim().replace(/\/+$/, "");
         const instance = (data.evolution_instance ?? "").trim();
