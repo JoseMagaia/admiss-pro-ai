@@ -12,4 +12,13 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    resolve: {
+      alias: {
+        // @twilio/voice-sdk imports node's `events` module in browser code.
+        // Provide the userland `events` polyfill so Vite doesn't externalize it.
+        events: "events",
+      },
+    },
+  },
 });
