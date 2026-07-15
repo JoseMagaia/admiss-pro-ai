@@ -8,6 +8,9 @@ import { Label } from "@/components/ui/label";
 import { DEFAULT_BRAND } from "@/lib/useBranding";
 
 export const Route = createFileRoute("/auth")({
+  validateSearch: (s: Record<string, unknown>) => ({
+    next: typeof s.next === "string" && s.next.startsWith("/") && !s.next.startsWith("//") ? s.next : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Sign In — Linkmoore Education" },
@@ -20,17 +23,20 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
+  const { next } = Route.useSearch();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // If already signed in, go to the dashboard.
+  // If already signed in, honor `next` (e.g. OAuth consent) or go to the dashboard.
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/dashboard", replace: true });
+      if (!data.session) return;
+      if (next) window.location.replace(next);
+      else navigate({ to: "/dashboard", replace: true });
     });
-  }, [navigate]);
+  }, [navigate, next]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -42,7 +48,8 @@ function AuthPage() {
       setError("Invalid email or password.");
       return;
     }
-    navigate({ to: "/dashboard", replace: true });
+    if (next) window.location.replace(next);
+    else navigate({ to: "/dashboard", replace: true });
   };
 
   return (

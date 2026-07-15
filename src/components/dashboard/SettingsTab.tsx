@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes, Phone } from "lucide-react";
+import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes, Phone, Server } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CompanySettingsForm, ProgramSettingsForm, ChatwootSettingsForm } from "./settings/SettingsForms";
 import { AiPromptEditor } from "./settings/AiPromptEditor";
@@ -11,6 +11,7 @@ import { UserManagement } from "./settings/UserManagement";
 import { ChatwootWorkspaces } from "./settings/ChatwootWorkspaces";
 import { SpacesManager } from "./settings/SpacesManager";
 import { VoipSettingsForm } from "./settings/VoipSettingsForm";
+import { McpServerDocs } from "./settings/McpServerDocs";
 import { canAccessSettingsSection, type AppRole } from "@/lib/roles";
 
 const SECTIONS = [
@@ -26,6 +27,7 @@ const SECTIONS = [
   { id: "lab", label: "Prompt Lab", icon: FlaskConical },
   { id: "users", label: "Users", icon: UserCog },
   { id: "spaces", label: "Spaces", icon: Boxes },
+  { id: "mcp", label: "MCP Server", icon: Server },
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -73,6 +75,7 @@ export function SettingsTab({ role }: { role: AppRole | null }) {
         {activeSection === "lab" && <PromptTestingLab />}
         {activeSection === "users" && <UserManagement />}
         {activeSection === "spaces" && <SpacesManager />}
+        {activeSection === "mcp" && <McpServerDocs />}
       </div>
     </div>
   );
