@@ -222,13 +222,29 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const scheduled = (schedData?.scheduled ?? []) as Scheduled[];
   const workspaces = (workspacesData?.workspaces ?? []) as unknown as Workspace[];
 
-  const threads = useMemo(
+  const rawThreads = useMemo(
     () =>
       (threadQuery.data?.pages ?? []).flatMap(
         (page) => ((page as { threads?: MessageThread[] }).threads ?? []) as MessageThread[],
       ),
     [threadQuery.data],
   );
+
+  const threads = useMemo(() => {
+    const filtered = rawThreads.filter((t) => {
+      if (responderFilter === "ai" && t.human_takeover) return false;
+      if (responderFilter === "human" && !t.human_takeover) return false;
+      if (responderFilter === "unread_lead" && t.last_sender !== "lead") return false;
+      return true;
+    });
+    const sorted = [...filtered].sort((a, b) => {
+      const at = new Date(a.last_message_at ?? a.conversation_updated_at ?? 0).getTime();
+      const bt = new Date(b.last_message_at ?? b.conversation_updated_at ?? 0).getTime();
+      return sortMode === "recent" ? bt - at : at - bt;
+    });
+    return sorted;
+  }, [rawThreads, responderFilter, sortMode]);
+
 
   const activeDigits = active ? digitsOnly(active) : null;
   const { data: activeData } = useQuery({
