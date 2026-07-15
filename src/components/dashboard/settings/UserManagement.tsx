@@ -17,8 +17,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { SettingsCard } from "./SettingsForms";
-import { listUsers, createUser, updateUserRole, deleteUser, setUserPermission } from "@/lib/auth.functions";
+import { listUsers, createUser, updateUserRole, deleteUser, setUserPermission, updateUserCredentials } from "@/lib/auth.functions";
 import { ALL_ROLES, ROLE_LABELS, ADVANCED_PERMISSION, type AppRole } from "@/lib/roles";
 
 interface UserRow {
