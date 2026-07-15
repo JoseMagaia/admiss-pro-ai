@@ -15,6 +15,11 @@ import {
   Play,
   ArrowLeft,
   Plus,
+  Paperclip,
+  Mic,
+  StopCircle,
+  Image as ImageIcon,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
