@@ -12,6 +12,8 @@ import {
   Users,
   ArrowLeft,
   Loader2,
+  Paperclip,
+  Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -38,7 +40,10 @@ import {
   addRecipientsFromCsv,
   clearPendingRecipients,
   type CampaignRow,
+  type CampaignMedia,
+  type CampaignButton,
 } from "@/lib/campaigns.functions";
+import { listWorkflows, uploadMessageAttachment } from "@/lib/dashboard.functions";
 
 const CHANNELS = [
   { id: "whatsapp", label: "WhatsApp" },
@@ -300,6 +305,17 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
   const [timezone, setTimezone] = useState(
     existing?.send_timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
   );
+  const [media, setMedia] = useState<CampaignMedia>(existing?.media ?? null);
+  const [buttons, setButtons] = useState<CampaignButton[]>(existing?.buttons ?? []);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+  const uploadFn = useServerFn(uploadMessageAttachment);
+  const workflowsFn = useServerFn(listWorkflows);
+  const { data: wfData } = useQuery({ queryKey: ["campaign-workflows"], queryFn: () => workflowsFn() });
+  const workflows = ((wfData as { workflows?: Array<{ id: string; name: string }> } | undefined)?.workflows ?? []) as Array<{
+    id: string;
+    name: string;
+  }>;
 
   const locked = existing ? !["draft", "scheduled", "paused"].includes(existing.status) : false;
 
@@ -335,6 +351,11 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
         send_timezone: timezone || "UTC",
         start_at: fromLocalInput(startAt),
         end_at: fromLocalInput(endAt),
+        media,
+        buttons: buttons
+          .map((b) => ({ ...b, title: (b.title ?? "").trim() }))
+          .filter((b) => b.title.length > 0)
+          .slice(0, 3),
       };
       if (id) return updateFn({ data: { id, ...payload } });
       return createFn({ data: payload });
@@ -455,6 +476,190 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
             ))}
           </div>
         </div>
+
+        {/* --------------- Media attachment --------------- */}
+        <div className="sm:col-span-2 rounded-lg border bg-muted/20 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <Label className="flex items-center gap-1.5">
+                <ImageIcon className="h-3.5 w-3.5" /> Media attachment (optional)
+              </Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Attach one image, audio note, video, or document. Sent with every message in this campaign.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                ref={mediaInputRef}
+                type="file"
+                accept="image/*,audio/*,video/*,application/pdf"
+                className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 12 * 1024 * 1024) {
+                    toast.error("File too large (max 12 MB)");
+                    return;
+                  }
+                  setUploadingMedia(true);
+                  try {
+                    const buf = await file.arrayBuffer();
+                    const bytes = new Uint8Array(buf);
+                    let binary = "";
+                    const chunk = 0x8000;
+                    for (let i = 0; i < bytes.length; i += chunk) {
+                      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+                    }
+                    const base64 = typeof btoa === "function" ? btoa(binary) : "";
+                    const res = (await uploadFn({
+                      data: { filename: file.name, mime: file.type || "application/octet-stream", base64 },
+                    })) as { ok: boolean; url?: string; mime?: string; filename?: string; error?: string };
+                    if (!res.ok || !res.url) {
+                      toast.error(res.error ?? "Upload failed");
+                      return;
+                    }
+                    const mime = res.mime ?? file.type;
+                    const kind: "image" | "audio" | "video" | "document" = mime.startsWith("image/")
+                      ? "image"
+                      : mime.startsWith("audio/")
+                        ? "audio"
+                        : mime.startsWith("video/")
+                          ? "video"
+                          : "document";
+                    setMedia({ url: res.url, mime, kind, filename: res.filename ?? file.name, caption: null });
+                    toast.success("Media attached");
+                  } catch {
+                    toast.error("Upload failed");
+                  } finally {
+                    setUploadingMedia(false);
+                    if (mediaInputRef.current) mediaInputRef.current.value = "";
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => mediaInputRef.current?.click()}
+                disabled={uploadingMedia}
+              >
+                {uploadingMedia ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Paperclip className="mr-1 h-3.5 w-3.5" />
+                )}
+                {media ? "Replace" : "Upload"}
+              </Button>
+              {media ? (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setMedia(null)}>
+                  <X className="mr-1 h-3.5 w-3.5" /> Remove
+                </Button>
+              ) : null}
+            </div>
+          </div>
+          {media ? (
+            <div className="mt-3 flex items-start gap-3">
+              {media.kind === "image" ? (
+                <img
+                  src={media.url}
+                  alt={media.filename ?? "attachment preview"}
+                  className="h-20 w-20 rounded-lg border object-cover"
+                />
+              ) : (
+                <div className="flex h-20 w-20 items-center justify-center rounded-lg border bg-background text-xs uppercase text-muted-foreground">
+                  {media.kind}
+                </div>
+              )}
+              <div className="min-w-0 flex-1 space-y-2">
+                <p className="truncate text-sm font-medium">{media.filename ?? media.mime}</p>
+                <p className="text-xs text-muted-foreground">{media.mime}</p>
+                {media.kind !== "audio" ? (
+                  <Input
+                    value={media.caption ?? ""}
+                    onChange={(e) => setMedia((m) => (m ? { ...m, caption: e.target.value || null } : m))}
+                    placeholder="Optional caption (overrides the message text on the media)"
+                  />
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Audio has no caption — the message text is sent as a separate follow-up message.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* --------------- Interactive buttons --------------- */}
+        <div className="sm:col-span-2 rounded-lg border bg-muted/20 p-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Quick-reply buttons (WhatsApp Cloud only)</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Up to 3 tappable buttons. On WhatsApp Cloud they're sent as native interactive buttons; on other
+                providers they're folded into the message as a numbered list. Optionally link a button to a follow-up
+                workflow — when the recipient taps it, the lead is enrolled automatically.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={buttons.length >= 3}
+              onClick={() => setButtons((arr) => [...arr, { title: "", next_workflow_id: null }])}
+            >
+              <Plus className="mr-1 h-3.5 w-3.5" /> Add button
+            </Button>
+          </div>
+          <div className="mt-3 space-y-2">
+            {buttons.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No buttons — the message will be sent as plain text.</p>
+            ) : null}
+            {buttons.map((b, i) => (
+              <div key={i} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <Input
+                  value={b.title}
+                  maxLength={20}
+                  onChange={(e) =>
+                    setButtons((arr) => arr.map((x, idx) => (idx === i ? { ...x, title: e.target.value } : x)))
+                  }
+                  placeholder={`Button ${i + 1} label (max 20 chars)`}
+                />
+                <Select
+                  value={b.next_workflow_id ?? "__none__"}
+                  onValueChange={(v) =>
+                    setButtons((arr) =>
+                      arr.map((x, idx) =>
+                        idx === i ? { ...x, next_workflow_id: v === "__none__" ? null : v } : x,
+                      ),
+                    )
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="No workflow (just a reply)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No workflow (just a reply)</SelectItem>
+                    {workflows.map((w) => (
+                      <SelectItem key={w.id} value={w.id}>
+                        {w.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setButtons((arr) => arr.filter((_, idx) => idx !== i))}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+
 
         <div>
           <Label>Batch size (per minute)</Label>

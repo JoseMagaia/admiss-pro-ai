@@ -420,6 +420,7 @@ export type Database = {
         Row: {
           batch_break_seconds: number
           batch_size: number
+          buttons: Json
           channel: string
           created_at: string
           created_by: string | null
@@ -427,6 +428,7 @@ export type Database = {
           end_at: string | null
           id: string
           last_batch_at: string | null
+          media: Json | null
           message_template: string
           message_variations: string[]
           name: string
@@ -444,6 +446,7 @@ export type Database = {
         Insert: {
           batch_break_seconds?: number
           batch_size?: number
+          buttons?: Json
           channel?: string
           created_at?: string
           created_by?: string | null
@@ -451,6 +454,7 @@ export type Database = {
           end_at?: string | null
           id?: string
           last_batch_at?: string | null
+          media?: Json | null
           message_template?: string
           message_variations?: string[]
           name: string
@@ -468,6 +472,7 @@ export type Database = {
         Update: {
           batch_break_seconds?: number
           batch_size?: number
+          buttons?: Json
           channel?: string
           created_at?: string
           created_by?: string | null
@@ -475,6 +480,7 @@ export type Database = {
           end_at?: string | null
           id?: string
           last_batch_at?: string | null
+          media?: Json | null
           message_template?: string
           message_variations?: string[]
           name?: string
