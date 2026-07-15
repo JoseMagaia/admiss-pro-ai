@@ -625,10 +625,12 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
                   placeholder={`Button ${i + 1} label (max 20 chars)`}
                 />
                 <Select
-                  value={b.next_workflow_id ?? ""}
+                  value={b.next_workflow_id ?? "__none__"}
                   onValueChange={(v) =>
                     setButtons((arr) =>
-                      arr.map((x, idx) => (idx === i ? { ...x, next_workflow_id: v || null } : x)),
+                      arr.map((x, idx) =>
+                        idx === i ? { ...x, next_workflow_id: v === "__none__" ? null : v } : x,
+                      ),
                     )
                   }
                 >
@@ -636,9 +638,7 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
                     <SelectValue placeholder="No workflow (just a reply)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__" onSelect={(e) => e.preventDefault()} disabled>
-                      No workflow (just a reply)
-                    </SelectItem>
+                    <SelectItem value="__none__">No workflow (just a reply)</SelectItem>
                     {workflows.map((w) => (
                       <SelectItem key={w.id} value={w.id}>
                         {w.name}
