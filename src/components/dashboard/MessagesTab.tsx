@@ -277,7 +277,21 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
   const send = useMutation({
     mutationFn: (message: string) =>
-      sendFn({ data: { phone: activePhone!, message, workspaceId: sendWorkspace || undefined } }),
+      sendFn({
+        data: {
+          phone: activePhone!,
+          message,
+          workspaceId: sendWorkspace || undefined,
+          attachment: pendingAttachment
+            ? {
+                url: pendingAttachment.url,
+                mime: pendingAttachment.mime,
+                kind: pendingAttachment.kind,
+                filename: pendingAttachment.filename,
+              }
+            : undefined,
+        },
+      }),
     onSuccess: (r) => {
       const res = r as { ok: boolean; error?: string };
       if (res.ok) {
@@ -286,6 +300,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
         toast.warning(res.error ?? "Sent but delivery may have failed");
       }
       setDraft("");
+      setPendingAttachment(null);
       qc.invalidateQueries({ queryKey: ["message-threads"] });
       qc.invalidateQueries({ queryKey: ["conversation-messages"] });
     },
