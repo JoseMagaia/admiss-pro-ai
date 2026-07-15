@@ -121,6 +121,44 @@ export const updateUserRole = createServerFn({ method: "POST" })
     return { ok: !error, error: error?.message ?? null };
   });
 
+/** Updates a user's credentials (email, password) and/or full name. Super admin only. */
+export const updateUserCredentials = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        user_id: z.string().uuid(),
+        email: z.string().email().max(200).optional(),
+        password: z.string().min(8).max(200).optional(),
+        full_name: z.string().min(1).max(200).optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const { assertRole } = await import("@/integrations/supabase/role-guard.server");
+    try {
+      await assertRole(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await admin();
+    const authUpdate: { email?: string; password?: string; user_metadata?: Record<string, unknown> } = {};
+    if (data.email) authUpdate.email = data.email;
+    if (data.password) authUpdate.password = data.password;
+    if (data.full_name) authUpdate.user_metadata = { full_name: data.full_name };
+    if (Object.keys(authUpdate).length === 0) return { ok: false, error: "Nothing to update." };
+
+    const { error: authErr } = await db.auth.admin.updateUserById(data.user_id, authUpdate);
+    if (authErr) return { ok: false, error: authErr.message };
+
+    const profileUpdate: Record<string, string> = {};
+    if (data.email) profileUpdate.email = data.email;
+    if (data.full_name) profileUpdate.full_name = data.full_name;
+    if (Object.keys(profileUpdate).length > 0) {
+      await db.from("profiles").update(profileUpdate as never).eq("user_id", data.user_id);
+    }
+    return { ok: true, error: null };
+  });
+
 /** Deletes a user entirely. Super admin only. */
 export const deleteUser = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ user_id: z.string().uuid() }).parse(d))
