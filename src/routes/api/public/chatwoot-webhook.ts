@@ -5,6 +5,11 @@ import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/api/public/chatwoot-webhook")({
   server: {
     handlers: {
+      GET: async () =>
+        new Response("Chatwoot webhook endpoint. Send POST requests only.", {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+        }),
       POST: async ({ request }) => {
         let payload: Record<string, unknown>;
         try {

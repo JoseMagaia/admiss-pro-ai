@@ -7,6 +7,11 @@ import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/api/public/evolution-webhook")({
   server: {
     handlers: {
+      GET: async () =>
+        new Response("Evolution webhook endpoint. Send POST requests only.", {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+        }),
       POST: async ({ request }) => {
         let payload: Record<string, unknown>;
         try {

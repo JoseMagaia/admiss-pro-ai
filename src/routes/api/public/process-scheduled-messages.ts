@@ -5,6 +5,11 @@ import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/api/public/process-scheduled-messages")({
   server: {
     handlers: {
+      GET: async () =>
+        new Response("Scheduled message processor. Send POST requests only.", {
+          status: 200,
+          headers: { "Content-Type": "text/plain" },
+        }),
       POST: async ({ request }) => {
         const apiKey = request.headers.get("apikey");
         const expected = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY;
