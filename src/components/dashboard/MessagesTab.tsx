@@ -250,9 +250,27 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     return sorted;
   }, [rawThreads, responderFilter, sortMode]);
 
-  // When client-side filters hide most of what the server returned, keep
-  // auto-fetching the next page so "Load more" actually surfaces additional
-  // matches instead of stalling on a mostly-hidden list.
+  // Auto-load additional pages when the sentinel scrolls into view, or when
+  // client-side filters hide most of what the server returned.
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (
+          entries[0]?.isIntersecting &&
+          threadQuery.hasNextPage &&
+          !threadQuery.isFetchingNextPage
+        ) {
+          threadQuery.fetchNextPage();
+        }
+      },
+      { root: el.parentElement, rootMargin: "400px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [threadQuery]);
   useEffect(() => {
     if (
       threadQuery.hasNextPage &&
@@ -265,6 +283,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
       threadQuery.fetchNextPage();
     }
   }, [threads.length, rawThreads.length, responderFilter, threadSearch, threadQuery]);
+
 
 
   const activeDigits = active ? digitsOnly(active) : null;
