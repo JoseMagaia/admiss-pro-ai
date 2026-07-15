@@ -519,7 +519,30 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
               className="pl-9"
             />
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Select value={responderFilter} onValueChange={(v) => setResponderFilter(v as ResponderFilter)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All responders</SelectItem>
+                <SelectItem value="ai">AI is replying</SelectItem>
+                <SelectItem value="human">Human took over</SelectItem>
+                <SelectItem value="unread_lead">Last from student</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortMode} onValueChange={(v) => setSortMode(v as SortMode)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recent">Newest first</SelectItem>
+                <SelectItem value="oldest">Oldest first</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
+
         <div className="flex-1 overflow-y-auto">
           {threads.map((c) => {
             const preview = c.match_message_content ?? c.last_message_content ?? "No messages yet.";
