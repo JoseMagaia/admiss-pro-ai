@@ -94,6 +94,9 @@ interface Message {
   message_content: string;
   sender: string;
   received_at: string;
+  attachment_url?: string | null;
+  attachment_mime?: string | null;
+  attachment_kind?: string | null;
 }
 
 interface Conversation {
