@@ -628,20 +628,18 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
             <p className="p-6 text-center text-sm text-muted-foreground">No conversations.</p>
           )}
           {threadQuery.hasNextPage && (
-            <div className="p-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-full"
-                disabled={threadQuery.isFetchingNextPage}
-                onClick={() => threadQuery.fetchNextPage()}
-              >
-                {threadQuery.isFetchingNextPage ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : null}
-                Load more chats ({threads.length} shown)
-              </Button>
+            <div
+              ref={loadMoreRef}
+              className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground"
+            >
+              {threadQuery.isFetchingNextPage ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Loading more…
+                </>
+              ) : (
+                <span>Scroll for more</span>
+              )}
             </div>
           )}
           {!threadQuery.hasNextPage && threads.length > 0 && (
@@ -649,6 +647,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
               End of results · {threads.length} conversation{threads.length === 1 ? "" : "s"}
             </p>
           )}
+
         </div>
       </div>
 
