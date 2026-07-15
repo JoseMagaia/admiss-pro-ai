@@ -202,11 +202,12 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
       return (lastPage as { hasMore?: boolean }).hasMore ? loaded : undefined;
     },
     // Only refresh the first page in the background so paginated results
-    // stay stable while the user scrolls; a manual "Load more" fetches more.
+    // stay stable while the user scrolls; older pages accumulate as the user
+    // scrolls further so they can browse all matches without paging clicks.
     refetchInterval: 15000,
     refetchIntervalInBackground: false,
-    maxPages: 20,
   });
+
   const { data: schedData } = useQuery({
     queryKey: ["scheduled"],
     queryFn: () => schedFn(),
