@@ -267,6 +267,83 @@ function WorkspaceEditor({
         </>
       )}
 
+      {isWhatsAppCloud && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Phone Number ID</Label>
+              <Input
+                value={form.wa_phone_number_id ?? ""}
+                onChange={(e) => set("wa_phone_number_id", e.target.value)}
+                placeholder="123456789012345"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>WhatsApp Business Account ID</Label>
+              <Input
+                value={form.wa_business_account_id ?? ""}
+                onChange={(e) => set("wa_business_account_id", e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Permanent Access Token</Label>
+            <Input
+              type="password"
+              value={form.wa_access_token ?? ""}
+              onChange={(e) => set("wa_access_token", e.target.value)}
+              placeholder="Leave unchanged to keep the saved token"
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Webhook Verify Token</Label>
+              <Input
+                value={form.wa_verify_token ?? ""}
+                onChange={(e) => set("wa_verify_token", e.target.value)}
+                placeholder="Any strong random string"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>App Secret (optional, for signature verification)</Label>
+              <Input
+                type="password"
+                value={form.wa_app_secret ?? ""}
+                onChange={(e) => set("wa_app_secret", e.target.value)}
+                placeholder="Leave unchanged to keep the saved secret"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-lg border border-dashed bg-background/60 p-3">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <Webhook className="h-4 w-4 text-primary" /> Meta Webhook Callback URL
+            </div>
+            <p className="text-xs text-muted-foreground">
+              In Meta Business → WhatsApp → Configuration, set this Callback URL and paste the Verify Token above.
+              Subscribe to the <code>messages</code> field.
+            </p>
+            <div className="flex items-center gap-2">
+              <Input readOnly value={whatsappCloudWebhookUrl()} className="text-xs" />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => {
+                  navigator.clipboard?.writeText(whatsappCloudWebhookUrl());
+                  toast.success("Webhook URL copied");
+                }}
+              >
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+
+
+
       <div className="flex flex-wrap gap-6">
         <label className="flex items-center gap-2 text-sm">
           <Switch checked={form.enabled} onCheckedChange={(v) => set("enabled", v)} /> Enabled
