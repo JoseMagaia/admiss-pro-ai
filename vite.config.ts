@@ -6,8 +6,23 @@
 // You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { createRequire } from "node:module";
+import type { Plugin } from "vite";
 
 const require = createRequire(import.meta.url);
+const eventsPolyfillPath = require.resolve("events/events.js");
+
+function browserEventsPolyfill(): Plugin {
+  return {
+    name: "browser-events-polyfill",
+    enforce: "pre",
+    resolveId(source) {
+      if (source === "events" || source === "node:events") {
+        return eventsPolyfillPath;
+      }
+      return null;
+    },
+  };
+}
 
 export default defineConfig({
   tanstackStart: {
@@ -16,16 +31,18 @@ export default defineConfig({
     server: { entry: "server" },
   },
   vite: {
+    plugins: [browserEventsPolyfill()],
     resolve: {
       alias: {
         // @twilio/voice-sdk imports node's `events` module in browser code.
-        // Point to the userland polyfill's actual file so Vite doesn't
-        // externalize the bare `events` specifier.
-        events: require.resolve("events/"),
+        // Force both bare and node: specifiers to the browser-safe polyfill
+        // before Vite can replace Node built-ins with browser externals.
+        events: eventsPolyfillPath,
+        "node:events": eventsPolyfillPath,
       },
     },
     optimizeDeps: {
-      include: ["events"],
+      include: ["events", "events/events.js"],
     },
   },
 });
