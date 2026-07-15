@@ -37,7 +37,20 @@ import {
   type OutcomeWorkflowTemplate,
   type TemplateStep,
 } from "@/lib/meeting-outcomes";
-import { upsertWorkflow } from "@/lib/dashboard.functions";
+import { upsertWorkflow, uploadMessageAttachment } from "@/lib/dashboard.functions";
+
+// Media attached to a workflow message step.
+export type StepMedia = {
+  url: string;
+  mime: string;
+  kind: "image" | "audio" | "video" | "document";
+  filename?: string | null;
+  caption?: string | null;
+} | null;
+
+// Quick-reply button on a workflow message step. `next_workflow_id` links to
+// another workflow; when the recipient taps the button, the lead is enrolled.
+export type StepButton = { id?: string; title: string; next_workflow_id?: string | null };
 
 export interface WorkflowRow {
   id?: string;
