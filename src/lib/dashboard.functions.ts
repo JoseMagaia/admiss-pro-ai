@@ -1476,13 +1476,15 @@ export const testWorkspaceConnection = createServerFn({ method: "POST" })
     z
       .object({
         id: z.string().uuid().optional(),
-        provider_type: z.enum(["chatwoot", "evolution"]),
+        provider_type: z.enum(["chatwoot", "evolution", "whatsapp_cloud"]),
         chatwoot_url: z.string().max(500).nullable().optional(),
         chatwoot_account_id: z.string().max(100).nullable().optional(),
         chatwoot_api_token: z.string().max(500).nullable().optional(),
         evolution_url: z.string().max(500).nullable().optional(),
         evolution_api_key: z.string().max(500).nullable().optional(),
         evolution_instance: z.string().max(200).nullable().optional(),
+        wa_phone_number_id: z.string().max(100).nullable().optional(),
+        wa_access_token: z.string().max(2000).nullable().optional(),
       })
       .parse(d),
   )
@@ -1493,7 +1495,9 @@ export const testWorkspaceConnection = createServerFn({ method: "POST" })
       return { ok: false, error: (e as Error).message };
     }
 
-    const resolveSavedKey = async (field: "chatwoot_api_token" | "evolution_api_key") => {
+    const resolveSavedKey = async (
+      field: "chatwoot_api_token" | "evolution_api_key" | "wa_access_token",
+    ) => {
       if (!data.id) return "";
       const db = await scopedDb();
       const { data: row } = await db
@@ -1505,6 +1509,23 @@ export const testWorkspaceConnection = createServerFn({ method: "POST" })
     };
 
     try {
+      if (data.provider_type === "whatsapp_cloud") {
+        const phoneId = (data.wa_phone_number_id ?? "").trim();
+        let token = (data.wa_access_token ?? "").trim();
+        if (!token || token === "********") token = (await resolveSavedKey("wa_access_token")).trim();
+        if (!phoneId) return { ok: false, error: "Enter the WhatsApp Phone Number ID first." };
+        if (!token) return { ok: false, error: "Enter the Meta access token first." };
+        const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(phoneId)}?fields=display_phone_number,verified_name`;
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403)
+            return { ok: false, error: "Meta rejected the access token. Regenerate it in Meta Business." };
+          if (res.status === 404)
+            return { ok: false, error: "Phone Number ID not found in Meta." };
+          return { ok: false, error: `Meta returned an error (${res.status}).` };
+        }
+        return { ok: true, error: null };
+      }
       if (data.provider_type === "evolution") {
         const base = (data.evolution_url ?? "").trim().replace(/\/+$/, "");
         const instance = (data.evolution_instance ?? "").trim();
