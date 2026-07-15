@@ -226,6 +226,9 @@ export function WorkflowBuilder({
 }) {
   const qc = useQueryClient();
   const saveFn = useServerFn(upsertWorkflow);
+  const uploadFn = useServerFn(uploadMessageAttachment);
+  const stepMediaInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingStepMedia, setUploadingStepMedia] = useState(false);
 
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description ?? "");
