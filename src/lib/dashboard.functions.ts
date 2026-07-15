@@ -1308,6 +1308,8 @@ export const listWorkspaces = createServerFn({ method: "GET" }).handler(async ()
     ...w,
     chatwoot_api_token: w.chatwoot_api_token ? "********" : null,
     evolution_api_key: w.evolution_api_key ? "********" : null,
+    wa_access_token: w.wa_access_token ? "********" : null,
+    wa_app_secret: w.wa_app_secret ? "********" : null,
   }));
   return { workspaces };
 });
@@ -1315,7 +1317,7 @@ export const listWorkspaces = createServerFn({ method: "GET" }).handler(async ()
 const workspaceSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(1).max(200),
-  provider_type: z.enum(["chatwoot", "evolution"]).optional(),
+  provider_type: z.enum(["chatwoot", "evolution", "whatsapp_cloud"]).optional(),
   chatwoot_url: z.string().max(500).nullable().optional(),
   chatwoot_account_id: z.string().max(100).nullable().optional(),
   chatwoot_inbox_id: z.string().max(100).nullable().optional(),
@@ -1323,6 +1325,12 @@ const workspaceSchema = z.object({
   evolution_url: z.string().max(500).nullable().optional(),
   evolution_api_key: z.string().max(500).nullable().optional(),
   evolution_instance: z.string().max(200).nullable().optional(),
+  // WhatsApp Business Cloud API (Meta / Facebook).
+  wa_phone_number_id: z.string().max(100).nullable().optional(),
+  wa_business_account_id: z.string().max(100).nullable().optional(),
+  wa_access_token: z.string().max(2000).nullable().optional(),
+  wa_verify_token: z.string().max(200).nullable().optional(),
+  wa_app_secret: z.string().max(500).nullable().optional(),
   enabled: z.boolean().optional(),
   is_default: z.boolean().optional(),
   use_shared_ai: z.boolean().optional(),
@@ -1339,18 +1347,24 @@ export const upsertWorkspace = createServerFn({ method: "POST" })
     const db = await scopedDb();
     const { id, ...rest } = data;
     // Don't overwrite a stored token/key with the masked placeholder or empty value.
-    const token = rest.chatwoot_api_token;
-    if (token === "" || token === "********" || token === undefined) {
-      delete (rest as Record<string, unknown>).chatwoot_api_token;
-    }
-    const evoKey = rest.evolution_api_key;
-    if (evoKey === "" || evoKey === "********" || evoKey === undefined) {
-      delete (rest as Record<string, unknown>).evolution_api_key;
-    } else if (typeof evoKey === "string") {
-      (rest as Record<string, unknown>).evolution_api_key = evoKey.trim();
+    const maskFields = ["chatwoot_api_token", "evolution_api_key", "wa_access_token", "wa_app_secret"] as const;
+    for (const field of maskFields) {
+      const v = (rest as Record<string, unknown>)[field];
+      if (v === "" || v === "********" || v === undefined) {
+        delete (rest as Record<string, unknown>)[field];
+      } else if (typeof v === "string") {
+        (rest as Record<string, unknown>)[field] = v.trim();
+      }
     }
     // Trim URL/instance to avoid stray whitespace producing 404 "instance not found".
-    for (const field of ["evolution_url", "evolution_instance", "chatwoot_url"] as const) {
+    for (const field of [
+      "evolution_url",
+      "evolution_instance",
+      "chatwoot_url",
+      "wa_phone_number_id",
+      "wa_business_account_id",
+      "wa_verify_token",
+    ] as const) {
       const v = (rest as Record<string, unknown>)[field];
       if (typeof v === "string") (rest as Record<string, unknown>)[field] = v.trim();
     }
