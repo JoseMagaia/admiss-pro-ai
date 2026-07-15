@@ -187,6 +187,19 @@ export function UserManagement() {
                       </option>
                     ))}
                   </select>
+                  <EditCredentialsDialog
+                    user={u}
+                    onSave={async (payload) => {
+                      const r = (await credsFn({ data: payload })) as { ok: boolean; error: string | null };
+                      if (!r.ok) {
+                        toast.error(r.error ?? "Failed to update credentials");
+                        return false;
+                      }
+                      toast.success("Credentials updated");
+                      invalidate();
+                      return true;
+                    }}
+                  />
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive">
