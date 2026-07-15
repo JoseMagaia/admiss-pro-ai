@@ -166,6 +166,30 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const [newWorkspace, setNewWorkspace] = useState("");
   const [newMessage, setNewMessage] = useState("");
 
+  // Filter which conversations show up in the list.
+  type ResponderFilter = "all" | "ai" | "human" | "unread_lead";
+  const [responderFilter, setResponderFilter] = useState<ResponderFilter>("all");
+  type SortMode = "recent" | "oldest";
+  const [sortMode, setSortMode] = useState<SortMode>("recent");
+
+  // Pending attachment for the next outbound message.
+  type PendingAttachment = {
+    url: string;
+    mime: string;
+    filename: string;
+    kind: "image" | "audio" | "video" | "document";
+  };
+  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadFn = useServerFn(uploadMessageAttachment);
+
+  // Voice-note recorder state.
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
+  const [recording, setRecording] = useState(false);
+
+
   const threadSearch = search.trim();
   const threadPageSize = 30;
   const threadQuery = useInfiniteQuery({
