@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Save, Loader2, ChevronDown } from "lucide-react";
+import { Save, Loader2, ChevronDown, Zap, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { getVoipSettings, saveVoipSettings } from "@/lib/calls.functions";
+import { getVoipSettings, saveVoipSettings, testTwilioConnection } from "@/lib/calls.functions";
 import { SettingsCard } from "./SettingsForms";
 import { RingGroupsManager } from "./RingGroupsManager";
 import { InboundRoutesManager } from "./InboundRoutesManager";
@@ -97,7 +97,18 @@ export function VoipSettingsForm() {
     onError: () => toast.error("Failed to save"),
   });
 
+  const testFn = useServerFn(testTwilioConnection);
+  type TwCheck = { ok: boolean; message: string };
+  type TwResult = { ok: boolean; checks: { credentials: TwCheck; twiml_app: TwCheck; outbound: TwCheck; inbound: TwCheck } };
+  const test = useMutation({
+    mutationFn: () => testFn({ data: { expected_twiml_url: twimlUrl, expected_inbound_url: inboundUrl } }) as Promise<TwResult | { ok: false; error: string }>,
+    onError: () => toast.error("Test failed"),
+  });
+  const testResult = test.data && "checks" in test.data ? (test.data as TwResult) : null;
+  const testError = test.data && !("checks" in test.data) ? (test.data as { error: string }).error : null;
+
   const set = (k: keyof VoipForm, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
+
 
   return (
     <div className="space-y-5">
@@ -178,8 +189,44 @@ export function VoipSettingsForm() {
             <Field label="Caller ID" value={form.twilio_caller_id} onChange={(v) => set("twilio_caller_id", v)} />
           </div>
 
+          <div className="space-y-2 rounded-lg border p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">Test connection</p>
+                <p className="text-xs text-muted-foreground">Verify credentials, TwiML app, outbound caller ID, and inbound routing.</p>
+              </div>
+              <Button variant="outline" size="sm" className="gap-2" onClick={() => test.mutate()} disabled={test.isPending}>
+                {test.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+                Test
+              </Button>
+            </div>
+            {testError && <p className="text-xs text-destructive">{testError}</p>}
+            {testResult && (
+              <ul className="mt-1 space-y-1 text-xs">
+                {([
+                  ["Credentials", testResult.checks.credentials],
+                  ["TwiML App", testResult.checks.twiml_app],
+                  ["Outbound caller ID", testResult.checks.outbound],
+                  ["Inbound routing", testResult.checks.inbound],
+                ] as const).map(([label, c]) => (
+                  <li key={label} className="flex items-start gap-2">
+                    {c.ok ? (
+                      <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" />
+                    ) : (
+                      <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" />
+                    )}
+                    <span>
+                      <span className="font-medium">{label}:</span> <span className="text-muted-foreground">{c.message}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
           <Collapsible>
             <CollapsibleTrigger className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+
               <ChevronDown className="h-3.5 w-3.5" /> Setup guide
             </CollapsibleTrigger>
             <CollapsibleContent className="mt-2 space-y-2">

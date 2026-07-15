@@ -154,6 +154,152 @@ async function mintTwilioToken(opts: {
     .sign(secret);
 }
 
+/* ------------------------- TWILIO CONNECTION TEST ------------------------ */
+
+type TwilioCheck = { ok: boolean; message: string };
+type TwilioTestResult = {
+  ok: boolean;
+  provider: "twilio";
+  checks: {
+    credentials: TwilioCheck;
+    twiml_app: TwilioCheck;
+    outbound: TwilioCheck;
+    inbound: TwilioCheck;
+  };
+};
+
+async function twilioGet(accountSid: string, keySid: string, keySecret: string, path: string) {
+  const auth = btoa(`${keySid}:${keySecret}`);
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}${path}`;
+  const res = await fetch(url, { headers: { Authorization: `Basic ${auth}`, Accept: "application/json" } });
+  const body = await res.json().catch(() => ({}));
+  return { status: res.status, ok: res.ok, body: body as Record<string, unknown> };
+}
+
+export const testTwilioConnection = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ expected_twiml_url: z.string().url().optional(), expected_inbound_url: z.string().url().optional() }).parse(d),
+  )
+  .handler(async ({ data }): Promise<TwilioTestResult | { ok: false; error: string }> => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const db = await scopedDb();
+    const { data: row } = await db.from("voip_settings").select("*").limit(1).maybeSingle();
+    const s = row as Record<string, unknown> | null;
+    if (!s || s.provider !== "twilio") {
+      return { ok: false, error: "Twilio is not the selected provider." };
+    }
+    const accountSid = String(s.twilio_account_sid ?? "");
+    const keySid = String(s.twilio_api_key_sid ?? "");
+    const keySecret = String(s.twilio_api_key_secret ?? "");
+    const appSid = String(s.twilio_twiml_app_sid ?? "");
+    const callerId = String(s.twilio_caller_id ?? "");
+    const inboundEnabled = Boolean(s.inbound_enabled);
+
+    const result: TwilioTestResult = {
+      ok: false,
+      provider: "twilio",
+      checks: {
+        credentials: { ok: false, message: "Not checked" },
+        twiml_app: { ok: false, message: "Not checked" },
+        outbound: { ok: false, message: "Not checked" },
+        inbound: { ok: false, message: "Not checked" },
+      },
+    };
+
+    if (!accountSid || !keySid || !keySecret) {
+      result.checks.credentials = { ok: false, message: "Missing Account SID, API Key SID, or Secret." };
+      return result;
+    }
+
+    // 1) Credentials — fetch account
+    try {
+      const r = await twilioGet(accountSid, keySid, keySecret, ".json");
+      if (r.ok) {
+        result.checks.credentials = { ok: true, message: `Authenticated as "${String(r.body.friendly_name ?? accountSid)}" (${String(r.body.status ?? "active")}).` };
+      } else {
+        const msg = String(r.body.message ?? `HTTP ${r.status}`);
+        result.checks.credentials = { ok: false, message: `Auth failed: ${msg}` };
+        return result;
+      }
+    } catch (e) {
+      result.checks.credentials = { ok: false, message: `Network error: ${(e as Error).message}` };
+      return result;
+    }
+
+    // 2) TwiML App exists + voice URL matches expected
+    if (!appSid) {
+      result.checks.twiml_app = { ok: false, message: "TwiML App SID is not set." };
+    } else {
+      const r = await twilioGet(accountSid, keySid, keySecret, `/Applications/${appSid}.json`);
+      if (!r.ok) {
+        result.checks.twiml_app = { ok: false, message: `TwiML App not found: ${String(r.body.message ?? `HTTP ${r.status}`)}` };
+      } else {
+        const voiceUrl = String(r.body.voice_url ?? "");
+        if (data.expected_twiml_url && voiceUrl !== data.expected_twiml_url) {
+          result.checks.twiml_app = {
+            ok: false,
+            message: `App found but Voice URL is "${voiceUrl || "(empty)"}". Set it to ${data.expected_twiml_url}.`,
+          };
+        } else {
+          result.checks.twiml_app = { ok: true, message: `App "${String(r.body.friendly_name ?? appSid)}" is configured.` };
+        }
+      }
+    }
+
+    // 3) Outbound — caller id must be an owned incoming number or verified outbound caller id
+    if (!callerId) {
+      result.checks.outbound = { ok: false, message: "Caller ID is not set." };
+    } else {
+      const enc = encodeURIComponent(callerId);
+      const [nums, verified] = await Promise.all([
+        twilioGet(accountSid, keySid, keySecret, `/IncomingPhoneNumbers.json?PhoneNumber=${enc}`),
+        twilioGet(accountSid, keySid, keySecret, `/OutgoingCallerIds.json?PhoneNumber=${enc}`),
+      ]);
+      const ownedCount = Array.isArray(nums.body.incoming_phone_numbers) ? (nums.body.incoming_phone_numbers as unknown[]).length : 0;
+      const verifiedCount = Array.isArray(verified.body.outgoing_caller_ids) ? (verified.body.outgoing_caller_ids as unknown[]).length : 0;
+      if (ownedCount > 0) {
+        result.checks.outbound = { ok: true, message: `Caller ID ${callerId} is a Twilio number on this account.` };
+      } else if (verifiedCount > 0) {
+        result.checks.outbound = { ok: true, message: `Caller ID ${callerId} is a verified outbound caller id.` };
+      } else {
+        result.checks.outbound = { ok: false, message: `Caller ID ${callerId} is not owned by this account and not a verified caller id.` };
+      }
+    }
+
+    // 4) Inbound — needs at least one number whose Voice URL points at our inbound endpoint
+    if (!inboundEnabled) {
+      result.checks.inbound = { ok: true, message: "Inbound calling is disabled — skipped." };
+    } else if (!data.expected_inbound_url) {
+      result.checks.inbound = { ok: false, message: "Could not determine expected inbound URL." };
+    } else {
+      const r = await twilioGet(accountSid, keySid, keySecret, `/IncomingPhoneNumbers.json?PageSize=100`);
+      const list = (r.body.incoming_phone_numbers as Array<Record<string, unknown>> | undefined) ?? [];
+      const matches = list.filter((n) => String(n.voice_url ?? "") === data.expected_inbound_url);
+      if (list.length === 0) {
+        result.checks.inbound = { ok: false, message: "No incoming numbers on this account." };
+      } else if (matches.length === 0) {
+        result.checks.inbound = {
+          ok: false,
+          message: `None of your ${list.length} number(s) have Voice URL set to ${data.expected_inbound_url}.`,
+        };
+      } else {
+        result.checks.inbound = {
+          ok: true,
+          message: `${matches.length}/${list.length} number(s) route to this app.`,
+        };
+      }
+    }
+
+    result.ok = Object.values(result.checks).every((c) => c.ok);
+    return result;
+  });
+
+
+
 // Sanitized config the browser needs to place a call (any authed user).
 export const getVoipClientConfig = createServerFn({ method: "GET" }).handler(
   async (): Promise<{ config: VoipClientConfig }> => {
