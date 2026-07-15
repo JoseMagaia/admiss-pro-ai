@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { getVoipSettings, saveVoipSettings } from "@/lib/calls.functions";
+import { getVoipSettings, saveVoipSettings, testTwilioConnection } from "@/lib/calls.functions";
 import { SettingsCard } from "./SettingsForms";
 import { RingGroupsManager } from "./RingGroupsManager";
 import { InboundRoutesManager } from "./InboundRoutesManager";
