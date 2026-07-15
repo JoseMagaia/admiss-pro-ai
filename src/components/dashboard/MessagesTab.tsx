@@ -390,9 +390,96 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
   function handleSend() {
     const text = draft.trim();
-    if (!text || !active) return;
+    if (!active) return;
+    if (!text && !pendingAttachment) return;
     send.mutate(text);
   }
+
+  async function blobToBase64(blob: Blob): Promise<string> {
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return typeof btoa === "function" ? btoa(binary) : Buffer.from(binary, "binary").toString("base64");
+  }
+
+  function classifyKind(mime: string): PendingAttachment["kind"] {
+    if (mime.startsWith("image/")) return "image";
+    if (mime.startsWith("audio/")) return "audio";
+    if (mime.startsWith("video/")) return "video";
+    return "document";
+  }
+
+  async function uploadBlob(blob: Blob, filename: string) {
+    if (blob.size > 12 * 1024 * 1024) {
+      toast.error("File too large (max 12 MB)");
+      return;
+    }
+    setUploading(true);
+    try {
+      const base64 = await blobToBase64(blob);
+      const res = (await uploadFn({
+        data: { filename, mime: blob.type || "application/octet-stream", base64 },
+      })) as { ok: boolean; url?: string; mime?: string; filename?: string; error?: string };
+      if (!res.ok || !res.url || !res.mime) {
+        toast.error(res.error ?? "Upload failed");
+        return;
+      }
+      setPendingAttachment({
+        url: res.url,
+        mime: res.mime,
+        filename: res.filename ?? filename,
+        kind: classifyKind(res.mime),
+      });
+      toast.success("Attachment ready");
+    } catch {
+      toast.error("Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleFilePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) await uploadBlob(file, file.name);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function startRecording() {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      toast.error("Recording not supported in this browser");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      recordChunksRef.current = [];
+      rec.ondataavailable = (ev) => {
+        if (ev.data.size > 0) recordChunksRef.current.push(ev.data);
+      };
+      rec.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(recordChunksRef.current, { type: rec.mimeType || "audio/webm" });
+        const ext = blob.type.includes("mp4") ? "m4a" : "webm";
+        await uploadBlob(blob, `voice-${Date.now()}.${ext}`);
+      };
+      rec.start();
+      mediaRecorderRef.current = rec;
+      setRecording(true);
+    } catch {
+      toast.error("Microphone access denied");
+    }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop();
+    mediaRecorderRef.current = null;
+    setRecording(false);
+  }
+
 
   return (
     <div className="grid h-[82vh] grid-cols-1 gap-4 md:h-[80vh] md:grid-cols-[300px_1fr]">
