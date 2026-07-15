@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { UserPlus, Trash2, Loader2 } from "lucide-react";
+import { UserPlus, Trash2, Loader2, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -17,8 +17,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { SettingsCard } from "./SettingsForms";
-import { listUsers, createUser, updateUserRole, deleteUser, setUserPermission } from "@/lib/auth.functions";
+import { listUsers, createUser, updateUserRole, deleteUser, setUserPermission, updateUserCredentials } from "@/lib/auth.functions";
 import { ALL_ROLES, ROLE_LABELS, ADVANCED_PERMISSION, type AppRole } from "@/lib/roles";
 
 interface UserRow {
@@ -37,6 +38,7 @@ export function UserManagement() {
   const roleFn = useServerFn(updateUserRole);
   const deleteFn = useServerFn(deleteUser);
   const permFn = useServerFn(setUserPermission);
+  const credsFn = useServerFn(updateUserCredentials);
 
   const { data, isLoading } = useQuery({ queryKey: ["platform-users"], queryFn: () => listFn() });
   const users = (data?.users ?? []) as UserRow[];
@@ -185,6 +187,19 @@ export function UserManagement() {
                       </option>
                     ))}
                   </select>
+                  <EditCredentialsDialog
+                    user={u}
+                    onSave={async (payload) => {
+                      const r = (await credsFn({ data: payload })) as { ok: boolean; error: string | null };
+                      if (!r.ok) {
+                        toast.error(r.error ?? "Failed to update credentials");
+                        return false;
+                      }
+                      toast.success("Credentials updated");
+                      invalidate();
+                      return true;
+                    }}
+                  />
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive">
@@ -211,5 +226,92 @@ export function UserManagement() {
         )}
       </SettingsCard>
     </div>
+  );
+}
+
+interface CredsPayload {
+  user_id: string;
+  email?: string;
+  password?: string;
+  full_name?: string;
+}
+
+function EditCredentialsDialog({
+  user,
+  onSave,
+}: {
+  user: UserRow;
+  onSave: (payload: CredsPayload) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [fullName, setFullName] = useState(user.full_name ?? "");
+  const [email, setEmail] = useState(user.email ?? "");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    const payload: CredsPayload = { user_id: user.user_id };
+    if (fullName && fullName !== user.full_name) payload.full_name = fullName;
+    if (email && email !== user.email) payload.email = email;
+    if (password.length >= 8) payload.password = password;
+    if (!payload.email && !payload.password && !payload.full_name) {
+      toast.error("Change at least one field (password must be 8+ chars).");
+      setSaving(false);
+      return;
+    }
+    const ok = await onSave(payload);
+    setSaving(false);
+    if (ok) {
+      setPassword("");
+      setOpen(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" className="h-9 w-9" title="Edit credentials">
+          <KeyRound className="h-4 w-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Access Credentials</DialogTitle>
+          <DialogDescription>
+            Update {user.email}'s login email, password, or name. Leave password blank to keep it unchanged.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label>Full Name</Label>
+            <Input value={fullName} onChange={(e) => setFullName(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Email</Label>
+            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>New Password</Label>
+            <Input
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank to keep current password"
+            />
+            <p className="text-xs text-muted-foreground">Minimum 8 characters when changing.</p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
