@@ -8,10 +8,9 @@ import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-// @twilio/voice-sdk imports node's `events` module in browser code. Alias
-// both bare and node: specifiers to the browser-safe polyfill so Vite (dev
-// transform + esbuild optimizer) resolves them without hanging.
-const eventsPolyfillPath = require.resolve("events/events.js");
+// @twilio/voice-sdk imports named exports from node's `events` module in browser code.
+// The events package is CommonJS, so expose it through an ESM shim for Rollup.
+const eventsPolyfillPath = require.resolve("./src/lib/events-polyfill.ts");
 
 export default defineConfig({
   tanstackStart: {
@@ -21,10 +20,10 @@ export default defineConfig({
   },
   vite: {
     resolve: {
-      alias: {
-        events: eventsPolyfillPath,
-        "node:events": eventsPolyfillPath,
-      },
+      alias: [
+        { find: /^events$/, replacement: eventsPolyfillPath },
+        { find: /^node:events$/, replacement: eventsPolyfillPath },
+      ],
     },
   },
 });
