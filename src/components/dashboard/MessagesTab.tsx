@@ -202,11 +202,12 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
       return (lastPage as { hasMore?: boolean }).hasMore ? loaded : undefined;
     },
     // Only refresh the first page in the background so paginated results
-    // stay stable while the user scrolls; a manual "Load more" fetches more.
+    // stay stable while the user scrolls; older pages accumulate as the user
+    // scrolls further so they can browse all matches without paging clicks.
     refetchInterval: 15000,
     refetchIntervalInBackground: false,
-    maxPages: 20,
   });
+
   const { data: schedData } = useQuery({
     queryKey: ["scheduled"],
     queryFn: () => schedFn(),
@@ -249,9 +250,27 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     return sorted;
   }, [rawThreads, responderFilter, sortMode]);
 
-  // When client-side filters hide most of what the server returned, keep
-  // auto-fetching the next page so "Load more" actually surfaces additional
-  // matches instead of stalling on a mostly-hidden list.
+  // Auto-load additional pages when the sentinel scrolls into view, or when
+  // client-side filters hide most of what the server returned.
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = loadMoreRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (
+          entries[0]?.isIntersecting &&
+          threadQuery.hasNextPage &&
+          !threadQuery.isFetchingNextPage
+        ) {
+          threadQuery.fetchNextPage();
+        }
+      },
+      { root: el.parentElement, rootMargin: "400px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [threadQuery]);
   useEffect(() => {
     if (
       threadQuery.hasNextPage &&
@@ -264,6 +283,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
       threadQuery.fetchNextPage();
     }
   }, [threads.length, rawThreads.length, responderFilter, threadSearch, threadQuery]);
+
 
 
   const activeDigits = active ? digitsOnly(active) : null;
@@ -608,20 +628,18 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
             <p className="p-6 text-center text-sm text-muted-foreground">No conversations.</p>
           )}
           {threadQuery.hasNextPage && (
-            <div className="p-3">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="w-full"
-                disabled={threadQuery.isFetchingNextPage}
-                onClick={() => threadQuery.fetchNextPage()}
-              >
-                {threadQuery.isFetchingNextPage ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : null}
-                Load more chats ({threads.length} shown)
-              </Button>
+            <div
+              ref={loadMoreRef}
+              className="flex items-center justify-center gap-2 p-4 text-xs text-muted-foreground"
+            >
+              {threadQuery.isFetchingNextPage ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Loading more…
+                </>
+              ) : (
+                <span>Scroll for more</span>
+              )}
             </div>
           )}
           {!threadQuery.hasNextPage && threads.length > 0 && (
@@ -629,6 +647,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
               End of results · {threads.length} conversation{threads.length === 1 ? "" : "s"}
             </p>
           )}
+
         </div>
       </div>
 
