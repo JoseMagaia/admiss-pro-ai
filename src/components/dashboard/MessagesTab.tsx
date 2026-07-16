@@ -100,6 +100,9 @@ interface Message {
   attachment_url?: string | null;
   attachment_mime?: string | null;
   attachment_kind?: string | null;
+  delivery_status?: string | null;
+  delivered_at?: string | null;
+  read_at?: string | null;
 }
 
 interface Conversation {
