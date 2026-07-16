@@ -401,6 +401,8 @@ export async function applyDecision(lead: LeadRecord, decision: QualificationDec
 export interface SendResult {
   ok: boolean;
   error?: string;
+  /** Provider message id (WhatsApp Cloud "wamid") used to correlate delivery/read receipts. */
+  wamid?: string | null;
 }
 
 export async function sendChatwootReply(
@@ -663,7 +665,15 @@ async function postWhatsAppCloud(
       }
       return { ok: false, error: `WhatsApp Cloud API returned ${res.status}${detail ? `: ${detail}` : ""}` };
     }
-    return { ok: true };
+    // Meta returns { messages: [{ id: "wamid.XXX" }] } on success.
+    let wamid: string | null = null;
+    try {
+      const parsed = (await res.clone().json()) as { messages?: Array<{ id?: string }> };
+      wamid = parsed?.messages?.[0]?.id ?? null;
+    } catch {
+      /* ignore — non-JSON body */
+    }
+    return { ok: true, wamid };
   } catch (e) {
     console.error("WhatsApp Cloud send failed:", e);
     return { ok: false, error: "Couldn't reach the WhatsApp Cloud API." };
@@ -1002,16 +1012,6 @@ export async function processInboundMessage(params: {
 
   const updatedLead = await applyDecision(lead, decision);
 
-  // Log AI response.
-  await db.from("whatsapp_messages").insert({
-    phone_number: phone,
-    message_content: decision.reply,
-    sender: "ai",
-    message_type: "text",
-    ai_response: decision.reply,
-    processed: true,
-  });
-
   // Mark inbound message processed.
   await db
     .from("whatsapp_messages")
@@ -1021,13 +1021,25 @@ export async function processInboundMessage(params: {
     .eq("processed", false);
 
   // Send reply back through the lead's connection provider (Chatwoot or Evolution).
-  await sendWorkspaceMessage({
+  const aiSent = await sendWorkspaceMessage({
     workspace,
     creds,
     phone,
     conversationId: chatwootConversationId ?? lead.chatwoot_conversation_id,
     message: decision.reply,
   });
+
+  // Log AI response (after send, so wamid + delivery_status are captured).
+  await db.from("whatsapp_messages").insert({
+    phone_number: phone,
+    message_content: decision.reply,
+    sender: "ai",
+    message_type: "text",
+    ai_response: decision.reply,
+    processed: true,
+    wamid: aiSent.wamid ?? null,
+    delivery_status: aiSent.ok ? "sent" : "failed",
+  } as never);
 
   return {
     reply: decision.reply,
@@ -1213,7 +1225,9 @@ export async function deliverHumanMessage(params: {
     attachment_url: attachment?.url ?? null,
     attachment_mime: attachment?.mime ?? null,
     attachment_kind: attachment?.kind ?? null,
-  });
+    wamid: sent.wamid ?? null,
+    delivery_status: sent.ok ? "sent" : "failed",
+  } as never);
 
   await db
     .from("conversations")
@@ -1512,7 +1526,12 @@ async function sendWorkflowMessage(
     sender: "workflow",
     message_type: extras?.media ? extras.media.kind : "text",
     processed: true,
-  });
+    attachment_url: extras?.media?.url ?? null,
+    attachment_mime: extras?.media?.mime ?? null,
+    attachment_kind: extras?.media?.kind ?? null,
+    wamid: sent.wamid ?? null,
+    delivery_status: sent.ok ? "sent" : "failed",
+  } as never);
   return sent;
 }
 
@@ -2146,7 +2165,10 @@ export async function deliverCampaignMessage(params: {
   name?: string | null;
   attachment?: OutboundAttachment | null;
   buttons?: InteractiveButton[] | null;
-}): Promise<{ ok: boolean; error?: string }> {
+  /** Links the outbound message row to a drip campaign so delivery/read
+   *  receipts can update the recipient status for reporting. */
+  campaignId?: string | null;
+}): Promise<{ ok: boolean; error?: string; wamid?: string | null }> {
   const db = await admin();
   const { phone, message } = params;
 
@@ -2218,18 +2240,26 @@ export async function deliverCampaignMessage(params: {
   });
 
   // Log the campaign message so it appears in the conversation timeline.
+  // wamid + delivery_status let the WhatsApp Cloud webhook update this row
+  // (and the linked campaign_recipients row) when delivery/read receipts arrive.
   await db.from("whatsapp_messages").insert({
     phone_number: phone,
     message_content: message,
     sender: "campaign",
     message_type: params.attachment ? params.attachment.kind : "text",
     processed: true,
-  });
+    attachment_url: params.attachment?.url ?? null,
+    attachment_mime: params.attachment?.mime ?? null,
+    attachment_kind: params.attachment?.kind ?? null,
+    wamid: sent.wamid ?? null,
+    delivery_status: sent.ok ? "sent" : "failed",
+    campaign_id: params.campaignId ?? null,
+  } as never);
 
   if (!sent.ok) {
     return { ok: false, error: sent.error ?? "delivery failed" };
   }
-  return { ok: true };
+  return { ok: true, wamid: sent.wamid ?? null };
 }
 
 // Returns the current weekday (0-6) and minutes-since-midnight for a timezone.
@@ -2397,6 +2427,7 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
           name: (r.name as string | null) ?? null,
           attachment: media && media.url ? media : null,
           buttons: buttons.length > 0 ? buttons : null,
+          campaignId: id,
         }),
       );
 

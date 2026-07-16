@@ -20,6 +20,9 @@ import {
   StopCircle,
   Image as ImageIcon,
   FileText,
+  Check,
+  CheckCheck,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -97,6 +100,9 @@ interface Message {
   attachment_url?: string | null;
   attachment_mime?: string | null;
   attachment_kind?: string | null;
+  delivery_status?: string | null;
+  delivered_at?: string | null;
+  read_at?: string | null;
 }
 
 interface Conversation {
@@ -794,9 +800,19 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                         </div>
                       )}
                       {m.message_content && <p className="whitespace-pre-wrap">{m.message_content}</p>}
-                      <p className="mt-1 text-right text-[10px] opacity-60">
-                        {new Date(m.received_at).toLocaleString()}
-                      </p>
+                      <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-60">
+                        <span>{new Date(m.received_at).toLocaleString()}</span>
+                        {!isLead && m.sender !== "note" && (() => {
+                          // WhatsApp-style ticks: one grey ✓ = sent, two grey ✓✓ = delivered,
+                          // two blue ✓✓ = read, red ! = failed.
+                          const st = (m.delivery_status ?? "").toLowerCase();
+                          if (st === "failed") return <AlertCircle className="h-3 w-3 text-destructive" aria-label="Failed" />;
+                          if (st === "read") return <CheckCheck className="h-3 w-3 text-sky-400" aria-label="Read" />;
+                          if (st === "delivered") return <CheckCheck className="h-3 w-3" aria-label="Delivered" />;
+                          if (st === "sent" || st === "") return <Check className="h-3 w-3" aria-label="Sent" />;
+                          return null;
+                        })()}
+                      </div>
                     </div>
                   </div>
                 );

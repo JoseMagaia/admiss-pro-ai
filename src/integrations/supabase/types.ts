@@ -1761,44 +1761,66 @@ export type Database = {
           attachment_kind: string | null
           attachment_mime: string | null
           attachment_url: string | null
+          campaign_id: string | null
+          delivered_at: string | null
+          delivery_status: string | null
           id: string
           message_content: string
           message_type: string
           phone_number: string
           processed: boolean
+          read_at: string | null
           received_at: string
           sender: string
           space_id: string | null
+          wamid: string | null
         }
         Insert: {
           ai_response?: string | null
           attachment_kind?: string | null
           attachment_mime?: string | null
           attachment_url?: string | null
+          campaign_id?: string | null
+          delivered_at?: string | null
+          delivery_status?: string | null
           id?: string
           message_content?: string
           message_type?: string
           phone_number: string
           processed?: boolean
+          read_at?: string | null
           received_at?: string
           sender?: string
           space_id?: string | null
+          wamid?: string | null
         }
         Update: {
           ai_response?: string | null
           attachment_kind?: string | null
           attachment_mime?: string | null
           attachment_url?: string | null
+          campaign_id?: string | null
+          delivered_at?: string | null
+          delivery_status?: string | null
           id?: string
           message_content?: string
           message_type?: string
           phone_number?: string
           processed?: boolean
+          read_at?: string | null
           received_at?: string
           sender?: string
           space_id?: string | null
+          wamid?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "whatsapp_messages_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "whatsapp_messages_space_id_fkey"
             columns: ["space_id"]
