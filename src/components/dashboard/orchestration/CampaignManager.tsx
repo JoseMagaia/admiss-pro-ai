@@ -294,6 +294,7 @@ function RateBadge({ label, value }: { label: string; value: number }) {
       {label} {value}%
     </span>
   );
+}
 
 /* ----------------------------- Editor ----------------------------- */
 
