@@ -1526,7 +1526,12 @@ async function sendWorkflowMessage(
     sender: "workflow",
     message_type: extras?.media ? extras.media.kind : "text",
     processed: true,
-  });
+    attachment_url: extras?.media?.url ?? null,
+    attachment_mime: extras?.media?.mime ?? null,
+    attachment_kind: extras?.media?.kind ?? null,
+    wamid: sent.wamid ?? null,
+    delivery_status: sent.ok ? "sent" : "failed",
+  } as never);
   return sent;
 }
 
