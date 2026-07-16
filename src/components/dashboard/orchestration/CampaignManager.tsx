@@ -281,6 +281,20 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: str
   );
 }
 
+// Compact percentage pill for the campaign performance report.
+function RateBadge({ label, value }: { label: string; value: number }) {
+  const tone =
+    value >= 60
+      ? "bg-success/15 text-success"
+      : value >= 25
+        ? "bg-primary/15 text-primary"
+        : "bg-muted text-muted-foreground";
+  return (
+    <span className={cn("rounded-full px-2 py-0.5 font-semibold", tone)}>
+      {label} {value}%
+    </span>
+  );
+
 /* ----------------------------- Editor ----------------------------- */
 
 function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onBack: () => void }) {
