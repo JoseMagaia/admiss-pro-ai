@@ -76,6 +76,69 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
             const value = (change.value as Record<string, unknown>) ?? {};
             const metadata = (value.metadata as Record<string, unknown>) ?? {};
             const phoneNumberId = metadata.phone_number_id !== undefined ? String(metadata.phone_number_id) : null;
+
+            // ---------- Delivery / Read receipts ----------
+            // Meta emits `statuses[]` with { id (wamid), status: sent|delivered|read|failed, timestamp }.
+            // We update whatsapp_messages by wamid so the WhatsApp-style ticks in
+            // the inbox update in near real time, and update the linked
+            // campaign_recipients row so the drip campaign report reflects
+            // delivered/opened counts.
+            const statuses = Array.isArray(value.statuses) ? (value.statuses as Array<Record<string, unknown>>) : [];
+            if (statuses.length > 0) {
+              const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+              const nowIso = new Date().toISOString();
+              for (const st of statuses) {
+                const wamid = st.id !== undefined ? String(st.id) : "";
+                const status = String(st.status ?? "").toLowerCase();
+                if (!wamid || !status) continue;
+
+                // Update the message row.
+                const patch: Record<string, unknown> = { delivery_status: status };
+                if (status === "delivered") patch.delivered_at = nowIso;
+                if (status === "read") {
+                  patch.read_at = nowIso;
+                  // A read implies delivered; backfill if we somehow missed it.
+                  patch.delivered_at = nowIso;
+                }
+                const { data: updatedRows } = await supabaseAdmin
+                  .from("whatsapp_messages")
+                  .update(patch as never)
+                  .eq("wamid", wamid)
+                  .select("id, campaign_id, phone_number");
+
+                // Roll the status forward on the linked campaign recipient.
+                for (const row of (updatedRows as Array<Record<string, unknown>> | null) ?? []) {
+                  const campaignId = row.campaign_id as string | null;
+                  const phone = row.phone_number as string | null;
+                  if (!campaignId || !phone) continue;
+                  const recipientPatch: Record<string, unknown> = {};
+                  let allowedFrom: string[] = [];
+                  if (status === "delivered") {
+                    recipientPatch.status = "delivered";
+                    recipientPatch.delivered_at = nowIso;
+                    allowedFrom = ["sent", "pending"];
+                  } else if (status === "read") {
+                    recipientPatch.status = "opened";
+                    recipientPatch.opened_at = nowIso;
+                    recipientPatch.delivered_at = nowIso;
+                    allowedFrom = ["sent", "pending", "delivered"];
+                  } else if (status === "failed") {
+                    recipientPatch.status = "failed";
+                    recipientPatch.error = "Delivery failed on WhatsApp";
+                    allowedFrom = ["sent", "pending"];
+                  }
+                  if (Object.keys(recipientPatch).length === 0) continue;
+                  await supabaseAdmin
+                    .from("campaign_recipients")
+                    .update(recipientPatch as never)
+                    .eq("campaign_id", campaignId)
+                    .eq("phone_number", phone)
+                    .in("status", allowedFrom);
+                }
+              }
+            }
+
+            // ---------- Inbound messages ----------
             const messages = Array.isArray(value.messages) ? (value.messages as Array<Record<string, unknown>>) : [];
 
             for (const msg of messages) {
