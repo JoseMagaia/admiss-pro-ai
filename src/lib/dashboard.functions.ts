@@ -125,6 +125,10 @@ type MessageRow = {
   attachment_url?: string | null;
   attachment_mime?: string | null;
   attachment_kind?: string | null;
+  /** Delivery lifecycle for outbound messages ("sent" | "delivered" | "read" | "failed"). */
+  delivery_status?: string | null;
+  delivered_at?: string | null;
+  read_at?: string | null;
 };
 
 type ConversationRow = {
