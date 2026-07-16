@@ -20,6 +20,9 @@ import {
   StopCircle,
   Image as ImageIcon,
   FileText,
+  Check,
+  CheckCheck,
+  AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
