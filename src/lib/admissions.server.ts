@@ -1012,16 +1012,6 @@ export async function processInboundMessage(params: {
 
   const updatedLead = await applyDecision(lead, decision);
 
-  // Log AI response.
-  await db.from("whatsapp_messages").insert({
-    phone_number: phone,
-    message_content: decision.reply,
-    sender: "ai",
-    message_type: "text",
-    ai_response: decision.reply,
-    processed: true,
-  });
-
   // Mark inbound message processed.
   await db
     .from("whatsapp_messages")
@@ -1031,13 +1021,25 @@ export async function processInboundMessage(params: {
     .eq("processed", false);
 
   // Send reply back through the lead's connection provider (Chatwoot or Evolution).
-  await sendWorkspaceMessage({
+  const aiSent = await sendWorkspaceMessage({
     workspace,
     creds,
     phone,
     conversationId: chatwootConversationId ?? lead.chatwoot_conversation_id,
     message: decision.reply,
   });
+
+  // Log AI response (after send, so wamid + delivery_status are captured).
+  await db.from("whatsapp_messages").insert({
+    phone_number: phone,
+    message_content: decision.reply,
+    sender: "ai",
+    message_type: "text",
+    ai_response: decision.reply,
+    processed: true,
+    wamid: aiSent.wamid ?? null,
+    delivery_status: aiSent.ok ? "sent" : "failed",
+  } as never);
 
   return {
     reply: decision.reply,
