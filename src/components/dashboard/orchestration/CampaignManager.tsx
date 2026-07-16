@@ -198,6 +198,23 @@ export function CampaignManager() {
                   <Stat label="Replied" value={s.replied} tone="text-success" />
                   <Stat label="Failed" value={s.failed} tone="text-destructive" />
                 </div>
+                {(() => {
+                  // Rate report: delivered / sent (or later), opened / delivered, replied / delivered.
+                  // Falls back to sent-based denominators when Meta hasn't reported delivery yet.
+                  const attempted = s.sent + s.delivered + s.opened + s.replied + s.failed;
+                  const successfullyOut = s.sent + s.delivered + s.opened + s.replied;
+                  const reachedInbox = s.delivered + s.opened + s.replied;
+                  const opened = s.opened + s.replied; // read implies opened
+                  const pct = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0);
+                  if (attempted === 0) return null;
+                  return (
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+                      <RateBadge label="Delivery" value={pct(reachedInbox, successfullyOut || attempted)} />
+                      <RateBadge label="Open" value={pct(opened, reachedInbox || successfullyOut || attempted)} />
+                      <RateBadge label="Reply" value={pct(s.replied, reachedInbox || successfullyOut || attempted)} />
+                    </div>
+                  );
+                })()}
               </div>
 
               <div className="flex shrink-0 flex-wrap gap-1">
