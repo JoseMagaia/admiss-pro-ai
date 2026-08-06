@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { PhoneCall, Zap, History, Megaphone, Phone, PhoneOff, PhoneIncoming, Mic, MicOff, Loader2 } from "lucide-react";
+import { PhoneCall, Zap, History, Megaphone, Phone, PhoneOff, PhoneIncoming, Mic, MicOff, Loader2, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
@@ -10,8 +10,9 @@ import { PowerDialer } from "./calls/PowerDialer";
 import { CallHistory } from "./calls/CallHistory";
 import { CallCampaigns } from "./calls/CallCampaigns";
 import { CallOutcomeDialog, type CallTarget } from "./calls/CallOutcomeDialog";
+import { VideoCallsPanel } from "./calls/VideoCallsPanel";
 
-type SectionId = "dialer" | "power" | "history" | "campaigns";
+type SectionId = "dialer" | "video" | "power" | "history" | "campaigns";
 
 const STATUS_TEXT: Record<CallStatus, string> = {
   idle: "Idle",
@@ -36,6 +37,7 @@ export function CallsTab() {
 
   const SECTIONS: { id: SectionId; label: string; icon: typeof PhoneCall }[] = [
     { id: "dialer", label: "Dialer", icon: PhoneCall },
+    { id: "video", label: "Video", icon: Video },
     { id: "power", label: "Power Dialer", icon: Zap },
     { id: "history", label: "History", icon: History },
     ...(canManage ? [{ id: "campaigns" as const, label: "Campaigns", icon: Megaphone }] : []),
@@ -173,6 +175,7 @@ export function CallsTab() {
 
         <div>
           {section === "dialer" && <DialerPanel onCall={startCall} busy={phone.active} />}
+          {section === "video" && <VideoCallsPanel />}
           {section === "power" && <PowerDialer onCall={startCall} busy={phone.active} outcomeSavedAt={outcomeSavedAt} />}
           {section === "history" && <CallHistory onCall={startCall} busy={phone.active} />}
           {section === "campaigns" && canManage && <CallCampaigns />}

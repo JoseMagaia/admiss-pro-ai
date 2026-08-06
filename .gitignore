@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.pglite/
 dist
 dist-ssr
 .output
@@ -30,3 +31,9 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Self-hosted install (install.sh)
+dist-server/
+data/
+.env.production
+.admin-credentials

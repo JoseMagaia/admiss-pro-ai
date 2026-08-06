@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes, Phone } from "lucide-react";
+import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes, Phone, CalendarDays, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CompanySettingsForm, ProgramSettingsForm, ChatwootSettingsForm } from "./settings/SettingsForms";
 import { AiPromptEditor } from "./settings/AiPromptEditor";
@@ -11,6 +11,8 @@ import { UserManagement } from "./settings/UserManagement";
 import { ChatwootWorkspaces } from "./settings/ChatwootWorkspaces";
 import { SpacesManager } from "./settings/SpacesManager";
 import { VoipSettingsForm } from "./settings/VoipSettingsForm";
+import { CalendarSettingsForm } from "./settings/CalendarSettingsForm";
+import { JitsiSettingsForm } from "./settings/JitsiSettingsForm";
 import { canAccessSettingsSection, type AppRole } from "@/lib/roles";
 
 const SECTIONS = [
@@ -20,9 +22,11 @@ const SECTIONS = [
   { id: "prompt", label: "AI Prompt", icon: Bot },
   { id: "variables", label: "AI Variables", icon: Variable },
   { id: "chatwoot", label: "Chatwoot", icon: Plug },
-  { id: "workspaces", label: "Workspaces", icon: Network },
+  { id: "workspaces", label: "Connections", icon: Network },
   { id: "actions", label: "HTTP Actions", icon: Webhook },
   { id: "telephony", label: "Telephony", icon: Phone },
+  { id: "calendar", label: "Calendar", icon: CalendarDays },
+  { id: "video", label: "Video Calls", icon: Video },
   { id: "lab", label: "Prompt Lab", icon: FlaskConical },
   { id: "users", label: "Users", icon: UserCog },
   { id: "spaces", label: "Spaces", icon: Boxes },
@@ -70,6 +74,8 @@ export function SettingsTab({ role }: { role: AppRole | null }) {
         {activeSection === "workspaces" && <ChatwootWorkspaces />}
         {activeSection === "actions" && <HttpActionsManager />}
         {activeSection === "telephony" && <VoipSettingsForm />}
+        {activeSection === "calendar" && <CalendarSettingsForm />}
+        {activeSection === "video" && <JitsiSettingsForm />}
         {activeSection === "lab" && <PromptTestingLab />}
         {activeSection === "users" && <UserManagement />}
         {activeSection === "spaces" && <SpacesManager />}

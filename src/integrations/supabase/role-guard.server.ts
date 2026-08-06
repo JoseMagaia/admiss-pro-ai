@@ -1,6 +1,8 @@
-// Server-only helper to validate the requesting user's role from the bearer token.
+// Server-only helper to validate the requesting user's role from the local
+// session bearer token.
 import { getRequest } from "@tanstack/react-start/server";
 import type { AppRole } from "@/lib/roles";
+import { getUserBySession, getRoleForUser } from "@/lib/local-db/db.server";
 
 export interface RequestUser {
   userId: string;
@@ -15,22 +17,14 @@ export async function getRequestUser(): Promise<RequestUser | null> {
   const token = authHeader.slice("Bearer ".length).trim();
   if (!token) return null;
 
-  const { supabaseAdmin } = await import("./client.server");
-  const { data, error } = await supabaseAdmin.auth.getUser(token);
-  if (error || !data.user) return null;
+  const user = await getUserBySession(token);
+  if (!user) return null;
 
-  const { data: roleRow } = await supabaseAdmin
-    .from("user_roles")
-    .select("role")
-    .eq("user_id", data.user.id)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
+  const role = (await getRoleForUser(user.id)) as AppRole | null;
   return {
-    userId: data.user.id,
-    email: data.user.email ?? null,
-    role: (roleRow?.role as AppRole) ?? null,
+    userId: user.id,
+    email: user.email ?? null,
+    role,
   };
 }
 

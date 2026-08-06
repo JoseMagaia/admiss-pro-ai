@@ -438,12 +438,12 @@ export function MeetingOutcomesTab() {
               )}
             </div>
 
-            {/* Workspace (Chatwoot connection) to send through */}
+            {/* Connection to send through */}
             <div className="space-y-1.5">
-              <Label>Send Through Workspace</Label>
+              <Label>Send Through Connection</Label>
               <Select value={workspaceId} onValueChange={setWorkspaceId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Default workspace" />
+                  <SelectValue placeholder="Default connection" />
                 </SelectTrigger>
                 <SelectContent>
                   {workspaces.map((w) => (

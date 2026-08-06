@@ -585,8 +585,7 @@ export const testAiProvider = createServerFn({ method: "POST" })
     }
 
     if (data.provider_mode === "built_in") {
-      if (!process.env.LOVABLE_API_KEY) return { ok: false, error: "Built-in AI key is not configured." };
-      return { ok: true, error: null };
+      return { ok: false, error: "Built-in AI is no longer available. Configure your own provider and API key." };
     }
 
     // Use the saved key when the form leaves it blank.
@@ -797,8 +796,7 @@ export const testAiProviderPool = createServerFn({ method: "POST" })
     let apiKey = (data.api_key ?? "").trim();
 
     if (provider === "built_in") {
-      if (!process.env.LOVABLE_API_KEY) return { ok: false, error: "Built-in AI key is not configured." };
-      return { ok: true, error: null };
+      return { ok: false, error: "Built-in AI is no longer available. Configure your own provider and API key." };
     }
 
     if (!apiKey && data.id) {
@@ -1248,6 +1246,9 @@ export const listWorkspaces = createServerFn({ method: "GET" }).handler(async ()
     ...w,
     chatwoot_api_token: w.chatwoot_api_token ? "********" : null,
     evolution_api_key: w.evolution_api_key ? "********" : null,
+    waba_access_token: w.waba_access_token ? "********" : null,
+    waba_app_secret: w.waba_app_secret ? "********" : null,
+    waba_verify_token: w.waba_verify_token ? "********" : null,
   }));
   return { workspaces };
 });
@@ -1255,7 +1256,7 @@ export const listWorkspaces = createServerFn({ method: "GET" }).handler(async ()
 const workspaceSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().min(1).max(200),
-  provider_type: z.enum(["chatwoot", "evolution"]).optional(),
+  provider_type: z.enum(["chatwoot", "evolution", "waba"]).optional(),
   chatwoot_url: z.string().max(500).nullable().optional(),
   chatwoot_account_id: z.string().max(100).nullable().optional(),
   chatwoot_inbox_id: z.string().max(100).nullable().optional(),
@@ -1263,6 +1264,13 @@ const workspaceSchema = z.object({
   evolution_url: z.string().max(500).nullable().optional(),
   evolution_api_key: z.string().max(500).nullable().optional(),
   evolution_instance: z.string().max(200).nullable().optional(),
+  waba_phone_number_id: z.string().max(100).nullable().optional(),
+  waba_business_account_id: z.string().max(100).nullable().optional(),
+  waba_access_token: z.string().max(500).nullable().optional(),
+  waba_api_version: z.string().max(20).nullable().optional(),
+  waba_verify_token: z.string().max(300).nullable().optional(),
+  waba_app_secret: z.string().max(500).nullable().optional(),
+  waba_display_name: z.string().max(100).nullable().optional(),
   enabled: z.boolean().optional(),
   is_default: z.boolean().optional(),
   use_shared_ai: z.boolean().optional(),
@@ -1289,8 +1297,17 @@ export const upsertWorkspace = createServerFn({ method: "POST" })
     } else if (typeof evoKey === "string") {
       (rest as Record<string, unknown>).evolution_api_key = evoKey.trim();
     }
+    // WABA secrets: never overwrite with the masked placeholder or empty value.
+    for (const f of ["waba_access_token", "waba_app_secret", "waba_verify_token"] as const) {
+      const v = rest[f];
+      if (v === "" || v === "********" || v === undefined) {
+        delete (rest as Record<string, unknown>)[f];
+      } else if (typeof v === "string") {
+        (rest as Record<string, unknown>)[f] = v.trim();
+      }
+    }
     // Trim URL/instance to avoid stray whitespace producing 404 "instance not found".
-    for (const field of ["evolution_url", "evolution_instance", "chatwoot_url"] as const) {
+    for (const field of ["evolution_url", "evolution_instance", "chatwoot_url", "waba_api_version"] as const) {
       const v = (rest as Record<string, unknown>)[field];
       if (typeof v === "string") (rest as Record<string, unknown>)[field] = v.trim();
     }
@@ -1402,13 +1419,17 @@ export const testWorkspaceConnection = createServerFn({ method: "POST" })
     z
       .object({
         id: z.string().uuid().optional(),
-        provider_type: z.enum(["chatwoot", "evolution"]),
+        provider_type: z.enum(["chatwoot", "evolution", "waba"]),
         chatwoot_url: z.string().max(500).nullable().optional(),
         chatwoot_account_id: z.string().max(100).nullable().optional(),
         chatwoot_api_token: z.string().max(500).nullable().optional(),
         evolution_url: z.string().max(500).nullable().optional(),
         evolution_api_key: z.string().max(500).nullable().optional(),
         evolution_instance: z.string().max(200).nullable().optional(),
+        waba_phone_number_id: z.string().max(100).nullable().optional(),
+        waba_business_account_id: z.string().max(100).nullable().optional(),
+        waba_access_token: z.string().max(500).nullable().optional(),
+        waba_api_version: z.string().max(20).nullable().optional(),
       })
       .parse(d),
   )
@@ -1419,7 +1440,9 @@ export const testWorkspaceConnection = createServerFn({ method: "POST" })
       return { ok: false, error: (e as Error).message };
     }
 
-    const resolveSavedKey = async (field: "chatwoot_api_token" | "evolution_api_key") => {
+    const resolveSavedKey = async (
+      field: "chatwoot_api_token" | "evolution_api_key" | "waba_access_token",
+    ) => {
       if (!data.id) return "";
       const db = await scopedDb();
       const { data: row } = await db
@@ -1457,6 +1480,35 @@ export const testWorkspaceConnection = createServerFn({ method: "POST" })
           return { ok: false, error: `Connected, but the WhatsApp instance is "${state}" (not open).` };
         }
         return { ok: true, error: null };
+      }
+
+      if (data.provider_type === "waba") {
+        const phoneNumberId = (data.waba_phone_number_id ?? "").trim();
+        const apiVersion = (data.waba_api_version ?? "v21.0").trim() || "v21.0";
+        let token = (data.waba_access_token ?? "").trim();
+        if (!token || token === "********") token = (await resolveSavedKey("waba_access_token")).trim();
+        if (!phoneNumberId) return { ok: false, error: "Enter the WhatsApp Phone Number ID first." };
+        if (!token) return { ok: false, error: "Enter the WhatsApp access token first." };
+
+        const url =
+          `https://graph.facebook.com/${encodeURIComponent(apiVersion)}/${encodeURIComponent(phoneNumberId)}` +
+          `?fields=id,display_phone_number,verified_name,quality_rating`;
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) {
+          if (res.status === 401 || res.status === 403)
+            return { ok: false, error: "The access token was rejected. Check its permissions (whatsapp_business_messaging, whatsapp_business_management)." };
+          if (res.status === 404)
+            return { ok: false, error: "Phone number ID not found. Double-check it and the API version." };
+          return { ok: false, error: `Meta Graph API returned an error (${res.status}).` };
+        }
+        const json = (await res.json().catch(() => null)) as { display_phone_number?: string; verified_name?: string } | null;
+        const number = json?.display_phone_number ?? phoneNumberId;
+        const name = json?.verified_name ?? "";
+        return {
+          ok: true,
+          error: null,
+          detail: `Connected to WhatsApp number ${number}${name ? ` (${name})` : ""}.`,
+        };
       }
 
       // Chatwoot

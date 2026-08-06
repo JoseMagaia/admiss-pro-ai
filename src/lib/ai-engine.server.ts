@@ -7,8 +7,6 @@ import {
   type QualificationStage,
 } from "./pipeline";
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-
 const HUMAN_TAKEOVER_PATTERNS = [
   "falar com uma pessoa",
   "falar com alguem",
@@ -231,7 +229,7 @@ export interface ProviderConfig {
   custom_api_key?: string | null;
   // When set & non-empty, the engine rotates through this prioritized chain of
   // providers/models on rate limits or failures instead of using the single
-  // provider above. The built-in Lovable AI should be appended as the last entry.
+  // provider above. Only user-configured providers are allowed.
   fallbackChain?: AiFallbackTarget[] | null;
 }
 
@@ -260,32 +258,6 @@ interface ChatResult {
   error?: string;
   status?: number;
   rateLimited?: boolean;
-}
-
-// Built-in Lovable AI gateway (no user key required).
-async function callBuiltIn(model: string, temperature: number, system: string, user: string): Promise<ChatResult> {
-  const apiKey = process.env.LOVABLE_API_KEY;
-  if (!apiKey) return { ok: false, content: "", error: "Missing LOVABLE_API_KEY" };
-  const res = await fetch(GATEWAY_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-    body: JSON.stringify({
-      model: model || "google/gemini-3-flash-preview",
-      temperature,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    }),
-  });
-  if (!res.ok) {
-    let msg = `AI gateway error ${res.status}`;
-    if (res.status === 429) msg = "Rate limit reached. Please retry shortly.";
-    if (res.status === 402) msg = "AI credits exhausted. Add credits in workspace settings.";
-    return { ok: false, content: "", error: msg, status: res.status, rateLimited: res.status === 429 || res.status === 402 };
-  }
-  const data = await res.json();
-  return { ok: true, content: data?.choices?.[0]?.message?.content ?? "" };
 }
 
 // OpenAI-compatible providers (OpenAI, OpenRouter, Groq, DeepSeek, Mistral, Together, custom…).
@@ -369,8 +341,7 @@ async function callAnthropic(
 /* ===================== PROVIDER FALLBACK ROTATION =====================
    A prioritized chain of providers. Each entry can list several models to
    try in order. When a provider/model hits a rate limit (or any failure)
-   the engine rotates to the next model, then the next provider, and finally
-   to the built-in Lovable AI as the last resort. */
+   the engine rotates to the next model, then the next provider. */
 export interface AiFallbackTarget {
   provider: string; // "built_in" | "anthropic" | preset id (openai-compatible)
   baseUrl?: string | null;
@@ -387,7 +358,8 @@ async function callTarget(
 ): Promise<ChatResult> {
   const name = (target.provider ?? "").toLowerCase();
   if (name === "built_in" || name === "lovable") {
-    return callBuiltIn(model, temperature, system, user);
+    // The Lovable gateway was removed — a custom provider is required.
+    return { ok: false, content: "", error: "Built-in AI is not available. Configure a custom provider." };
   }
   const key = (target.apiKey ?? "").trim();
   const baseUrl = (target.baseUrl ?? "").trim();
@@ -486,7 +458,10 @@ export async function runQualification(args: RunQualificationArgs): Promise<RunQ
         result = await callOpenAiCompatible(baseUrl, key, customModel, temperature, promptUsed, args.userMessage);
       }
     } else {
-      result = await callBuiltIn(args.model, temperature, promptUsed, args.userMessage);
+      return fallback(
+        "No AI provider configured. Add your own provider and API key in Settings → AI Provider.",
+        "Our assistant is temporarily unavailable. An advisor will reply shortly.",
+      );
     }
   } catch (e) {
     return fallback(e instanceof Error ? e.message : "Unknown AI error", "Thanks for reaching out! An advisor will get back to you shortly.");
@@ -627,7 +602,11 @@ export async function runResponderAgent(args: RunResponderArgs): Promise<RunResp
         result = await callOpenAiCompatible(baseUrl, key, customModel, temperature, prompt, args.userMessage);
       }
     } else {
-      result = await callBuiltIn(args.model, temperature, prompt, args.userMessage);
+      return {
+        reply: "",
+        modelUsed,
+        error: "No AI provider configured. Add your own provider and API key in Settings → AI Provider.",
+      };
     }
   } catch (e) {
     return { reply: "", modelUsed, error: e instanceof Error ? e.message : "Unknown AI error" };

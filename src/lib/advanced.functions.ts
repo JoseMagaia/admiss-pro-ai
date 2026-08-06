@@ -367,9 +367,8 @@ export const getReportDashboard = createServerFn({ method: "GET" }).handler(asyn
 
 /* ========================== AI REPORT ========================== */
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-
-// Optional per-request AI provider override. Defaults to the built-in Lovable AI.
+// Optional per-request AI provider override. Defaults to the custom provider
+// configured in AI Settings.
 const modelConfigSchema = z
   .object({
     mode: z.enum(["built_in", "ai_settings", "custom"]).optional(),
@@ -382,19 +381,36 @@ const modelConfigSchema = z
 
 type ModelConfig = z.infer<typeof modelConfigSchema>;
 
-type AiTarget = { url: string; headers: Record<string, string>; model: string };
+type AiTarget = {
+  url: string;
+  headers: Record<string, string>;
+  model: string;
+  nativeAnthropic?: boolean;
+};
 
-// Resolve which AI endpoint + credentials to use:
-//  - built_in: Lovable AI gateway (default)
+// Resolve which AI endpoint + credentials to use. The old Lovable gateway was
+// removed — a user-configured provider is required:
 //  - custom: a provider/base URL/model/key supplied per conversation
-//  - ai_settings: the custom provider configured in AI Settings, else built-in
+//  - ai_settings (default): the custom provider configured in AI Settings
 async function resolveAiTarget(cfg?: ModelConfig): Promise<AiTarget | { error: string }> {
-  const mode = cfg?.mode ?? "built_in";
-  const lovableKey = process.env.LOVABLE_API_KEY;
+  const mode = cfg?.mode ?? "ai_settings";
 
   if (mode === "custom") {
     if (!cfg?.baseUrl || !cfg?.apiKey || !cfg?.model) {
       return { error: "Custom provider needs a base URL, model and API key." };
+    }
+    const providerName = String(cfg.provider ?? "").toLowerCase();
+    if (providerName === "anthropic") {
+      return {
+        url: (cfg.baseUrl.replace(/\/+$/, "") || "https://api.anthropic.com") + "/v1/messages",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": cfg.apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        model: cfg.model,
+        nativeAnthropic: true,
+      };
     }
     return {
       url: cfg.baseUrl.replace(/\/+$/, "") + "/chat/completions",
@@ -403,39 +419,40 @@ async function resolveAiTarget(cfg?: ModelConfig): Promise<AiTarget | { error: s
     };
   }
 
-  if (mode === "ai_settings") {
-    const db = await admin();
-    const { data } = await db
-      .from("ai_configuration")
-      .select("*")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const c = data as Record<string, unknown> | null;
-    if (c && c.provider_mode === "custom" && c.custom_base_url && c.custom_api_key) {
-      return {
-        url: String(c.custom_base_url).replace(/\/+$/, "") + "/chat/completions",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${String(c.custom_api_key)}`,
-        },
-        model: String(c.custom_model || c.model || "gpt-4o-mini"),
-      };
-    }
-    if (!lovableKey) return { error: "AI is not configured." };
+  // ai_settings — the provider configured in AI Settings. The legacy
+  // "built_in" value now resolves here (and reports the missing config).
+  const db = await admin();
+  const { data } = await db
+    .from("ai_configuration")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const c = data as Record<string, unknown> | null;
+  const apiKey = String(c?.custom_api_key ?? "").trim();
+  if (!c || !apiKey) {
+    return { error: "AI is not configured. Add your own provider and API key in Settings → AI Provider." };
+  }
+  const providerName = String(c.custom_provider ?? "").toLowerCase();
+  if (providerName === "anthropic") {
     return {
-      url: GATEWAY_URL,
-      headers: { "Content-Type": "application/json", "Lovable-API-Key": lovableKey },
-      model: String(c?.model || "google/gemini-3-flash-preview"),
+      url: (String(c.custom_base_url ?? "").replace(/\/+$/, "") || "https://api.anthropic.com") + "/v1/messages",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      model: String(c.custom_model || c.model || "claude-3-5-sonnet-latest"),
+      nativeAnthropic: true,
     };
   }
-
-  // built_in (default)
-  if (!lovableKey) return { error: "AI is not configured." };
+  if (!c.custom_base_url) {
+    return { error: "AI provider is missing a base URL. Fix it in Settings → AI Provider." };
+  }
   return {
-    url: GATEWAY_URL,
-    headers: { "Content-Type": "application/json", "Lovable-API-Key": lovableKey },
-    model: cfg?.model || "google/gemini-3-flash-preview",
+    url: String(c.custom_base_url).replace(/\/+$/, "") + "/chat/completions",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    model: String(c.custom_model || c.model || "gpt-4o-mini"),
   };
 }
 
@@ -454,8 +471,8 @@ export const generateReport = createServerFn({ method: "POST" })
       return { report: "", error: (e as Error).message };
     }
 
-    const apiKey = process.env.LOVABLE_API_KEY;
-    if (!apiKey) return { report: "", error: "AI is not configured." };
+    const target = await resolveAiTarget({ mode: "ai_settings" });
+    if ("error" in target) return { report: "", error: target.error };
 
     const analytics = await buildAnalytics(data.days ?? 30);
 
@@ -475,17 +492,25 @@ Analytics snapshot (last ${analytics.rangeDays} days where time-based):
 ${JSON.stringify(analytics, null, 2)}`;
 
     try {
-      const res = await fetch(GATEWAY_URL, {
+      const res = await fetch(target.url, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Lovable-API-Key": apiKey },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          temperature: 0.4,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: userMsg },
-          ],
-        }),
+        headers: target.headers,
+        body: target.nativeAnthropic
+          ? JSON.stringify({
+              model: target.model,
+              max_tokens: 2048,
+              temperature: 0.4,
+              system,
+              messages: [{ role: "user", content: userMsg }],
+            })
+          : JSON.stringify({
+              model: target.model,
+              temperature: 0.4,
+              messages: [
+                { role: "system", content: system },
+                { role: "user", content: userMsg },
+              ],
+            }),
       });
       if (!res.ok) {
         let msg = `AI error ${res.status}`;
@@ -494,7 +519,11 @@ ${JSON.stringify(analytics, null, 2)}`;
         return { report: "", error: msg };
       }
       const json = await res.json();
-      const report = json?.choices?.[0]?.message?.content ?? "";
+      const report = target.nativeAnthropic
+        ? (Array.isArray(json?.content)
+            ? (json.content as { text?: string }[]).map((c) => c?.text ?? "").join("")
+            : "")
+        : (json?.choices?.[0]?.message?.content ?? "");
       return { report, error: report ? null : "Empty response from AI." };
     } catch (e) {
       return { report: "", error: e instanceof Error ? e.message : "AI request failed" };
@@ -548,11 +577,19 @@ ${JSON.stringify(analytics)}`;
       const res = await fetch(target.url, {
         method: "POST",
         headers: target.headers,
-        body: JSON.stringify({
-          model: target.model,
-          temperature: 0.4,
-          messages: [{ role: "system", content: system }, ...data.messages],
-        }),
+        body: target.nativeAnthropic
+          ? JSON.stringify({
+              model: target.model,
+              max_tokens: 2048,
+              temperature: 0.4,
+              system,
+              messages: [{ role: "user", content: data.messages.map((m) => m.content).join("\n\n") }],
+            })
+          : JSON.stringify({
+              model: target.model,
+              temperature: 0.4,
+              messages: [{ role: "system", content: system }, ...data.messages],
+            }),
       });
       if (!res.ok) {
         let msg = `AI error ${res.status}`;
@@ -561,7 +598,11 @@ ${JSON.stringify(analytics)}`;
         return { reply: "", error: msg };
       }
       const json = await res.json();
-      const reply = json?.choices?.[0]?.message?.content ?? "";
+      const reply = target.nativeAnthropic
+        ? (Array.isArray(json?.content)
+            ? (json.content as { text?: string }[]).map((c) => c?.text ?? "").join("")
+            : "")
+        : (json?.choices?.[0]?.message?.content ?? "");
       return { reply, error: reply ? null : "Empty response from AI." };
     } catch (e) {
       return { reply: "", error: e instanceof Error ? e.message : "AI request failed" };

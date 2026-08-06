@@ -384,10 +384,10 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
         </div>
 
         <div>
-          <Label>Sending workspace</Label>
+          <Label>Sending connection</Label>
           <Select value={workspaceId ?? ""} onValueChange={(v) => setWorkspaceId(v || null)}>
             <SelectTrigger>
-              <SelectValue placeholder="Choose workspace" />
+              <SelectValue placeholder="Choose connection" />
             </SelectTrigger>
             <SelectContent>
               {opts.workspaces.map((w) => (

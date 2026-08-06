@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as ApiPublicWabaWebhookRouteImport } from './routes/api/public/waba-webhook'
 import { Route as ApiPublicProcessWorkflowsRouteImport } from './routes/api/public/process-workflows'
 import { Route as ApiPublicProcessScheduledMessagesRouteImport } from './routes/api/public/process-scheduled-messages'
 import { Route as ApiPublicProcessCampaignsRouteImport } from './routes/api/public/process-campaigns'
@@ -51,6 +52,11 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const ApiPublicWabaWebhookRoute = ApiPublicWabaWebhookRouteImport.update({
+  id: '/api/public/waba-webhook',
+  path: '/api/public/waba-webhook',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicProcessWorkflowsRoute =
   ApiPublicProcessWorkflowsRouteImport.update({
@@ -104,6 +110,7 @@ export interface FileRoutesByFullPath {
   '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
+  '/api/public/waba-webhook': typeof ApiPublicWabaWebhookRoute
   '/api/public/voip/inbound': typeof ApiPublicVoipInboundRoute
   '/api/public/voip/twiml': typeof ApiPublicVoipTwimlRoute
 }
@@ -118,6 +125,7 @@ export interface FileRoutesByTo {
   '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
+  '/api/public/waba-webhook': typeof ApiPublicWabaWebhookRoute
   '/api/public/voip/inbound': typeof ApiPublicVoipInboundRoute
   '/api/public/voip/twiml': typeof ApiPublicVoipTwimlRoute
 }
@@ -134,6 +142,7 @@ export interface FileRoutesById {
   '/api/public/process-campaigns': typeof ApiPublicProcessCampaignsRoute
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
+  '/api/public/waba-webhook': typeof ApiPublicWabaWebhookRoute
   '/api/public/voip/inbound': typeof ApiPublicVoipInboundRoute
   '/api/public/voip/twiml': typeof ApiPublicVoipTwimlRoute
 }
@@ -150,6 +159,7 @@ export interface FileRouteTypes {
     | '/api/public/process-campaigns'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
+    | '/api/public/waba-webhook'
     | '/api/public/voip/inbound'
     | '/api/public/voip/twiml'
   fileRoutesByTo: FileRoutesByTo
@@ -164,6 +174,7 @@ export interface FileRouteTypes {
     | '/api/public/process-campaigns'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
+    | '/api/public/waba-webhook'
     | '/api/public/voip/inbound'
     | '/api/public/voip/twiml'
   id:
@@ -179,6 +190,7 @@ export interface FileRouteTypes {
     | '/api/public/process-campaigns'
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
+    | '/api/public/waba-webhook'
     | '/api/public/voip/inbound'
     | '/api/public/voip/twiml'
   fileRoutesById: FileRoutesById
@@ -194,6 +206,7 @@ export interface RootRouteChildren {
   ApiPublicProcessCampaignsRoute: typeof ApiPublicProcessCampaignsRoute
   ApiPublicProcessScheduledMessagesRoute: typeof ApiPublicProcessScheduledMessagesRoute
   ApiPublicProcessWorkflowsRoute: typeof ApiPublicProcessWorkflowsRoute
+  ApiPublicWabaWebhookRoute: typeof ApiPublicWabaWebhookRoute
   ApiPublicVoipInboundRoute: typeof ApiPublicVoipInboundRoute
   ApiPublicVoipTwimlRoute: typeof ApiPublicVoipTwimlRoute
 }
@@ -241,6 +254,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/dashboard'
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/api/public/waba-webhook': {
+      id: '/api/public/waba-webhook'
+      path: '/api/public/waba-webhook'
+      fullPath: '/api/public/waba-webhook'
+      preLoaderRoute: typeof ApiPublicWabaWebhookRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/public/process-workflows': {
       id: '/api/public/process-workflows'
@@ -317,9 +337,20 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicProcessScheduledMessagesRoute:
     ApiPublicProcessScheduledMessagesRoute,
   ApiPublicProcessWorkflowsRoute: ApiPublicProcessWorkflowsRoute,
+  ApiPublicWabaWebhookRoute: ApiPublicWabaWebhookRoute,
   ApiPublicVoipInboundRoute: ApiPublicVoipInboundRoute,
   ApiPublicVoipTwimlRoute: ApiPublicVoipTwimlRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

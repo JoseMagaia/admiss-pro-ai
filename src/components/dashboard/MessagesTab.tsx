@@ -15,6 +15,7 @@ import {
   Play,
   ArrowLeft,
   Plus,
+  CalendarPlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -51,6 +52,7 @@ import {
   startConversation,
 } from "@/lib/dashboard.functions";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
+import { BookAppointmentDialog } from "./BookAppointmentDialog";
 import { cn } from "@/lib/utils";
 
 /** Compare phone numbers by their digits only, ignoring +, spaces, dashes, etc. */
@@ -147,6 +149,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const [sendWorkspace, setSendWorkspace] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
+  const [bookOpen, setBookOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const isMobile = useIsMobile();
 
@@ -227,6 +230,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const activePhone = (activeData as { phone?: string } | undefined)?.phone ?? active;
   const takeover = activeConv?.human_takeover ?? false;
   const activeScheduled = scheduled.filter((s) => digitsOnly(s.phone_number) === activeDigits && s.status === "pending");
+  const activeLeadName = threads.find((c) => digitsOnly(c.phone_number) === activeDigits)?.lead_name ?? null;
   const workflowState =
     (statesData?.states ?? []).find(
       (s: { phone_number: string }) => digitsOnly(s.phone_number) === activeDigits,
@@ -596,7 +600,15 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setBookOpen(true)}
+                    disabled={!active}
+                  >
+                    <CalendarPlus className="mr-1 h-4 w-4" /> Book
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
@@ -664,6 +676,19 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
         </DialogContent>
       </Dialog>
 
+      {/* Book appointment dialog — books straight from the chat and confirms the lead. */}
+      <BookAppointmentDialog
+        open={bookOpen}
+        onOpenChange={setBookOpen}
+        phone={activePhone!}
+        leadName={activeLeadName}
+        onBooked={() => {
+          qc.invalidateQueries({ queryKey: ["appointments"] });
+          qc.invalidateQueries({ queryKey: ["message-threads"] });
+          qc.invalidateQueries({ queryKey: ["conversation-messages"] });
+        }}
+      />
+
       {/* New conversation dialog */}
       <Dialog open={newOpen} onOpenChange={setNewOpen}>
         <DialogContent>
@@ -688,10 +713,10 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-sm font-medium">Send through workspace</label>
+              <label className="text-sm font-medium">Send through connection</label>
               <Select value={newWorkspace} onValueChange={setNewWorkspace}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Default workspace" />
+                  <SelectValue placeholder="Default connection" />
                 </SelectTrigger>
                 <SelectContent>
                   {workspaces.map((w) => (

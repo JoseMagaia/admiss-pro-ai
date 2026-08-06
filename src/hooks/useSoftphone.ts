@@ -31,6 +31,23 @@ export interface SoftphoneState {
 // Minimal cross-provider softphone. Wraps sip.js (Web.SimpleUser) and the
 // Twilio Voice SDK behind a single call/hangup/mute/accept/reject interface. All
 // SDK code is dynamically imported so it never runs during SSR.
+type TwilioDeviceConstructor = new (token: string, options?: Record<string, unknown>) => any;
+
+type TwilioBrowserModule = {
+  Device?: TwilioDeviceConstructor;
+};
+
+async function loadTwilioDevice(): Promise<TwilioDeviceConstructor> {
+  // The package ESM entry imports Node's `events`, which Vite externalizes in
+  // browser builds. Use Twilio's pre-bundled browser distribution instead.
+  // @ts-expect-error The distribution bundle has no standalone TypeScript declaration.
+  const bundle = (await import("@twilio/voice-sdk/dist/twilio.js")) as TwilioBrowserModule;
+  const globalTwilio = typeof window !== "undefined" ? (window as Window & { Twilio?: TwilioBrowserModule }).Twilio : undefined;
+  const Device = bundle.Device ?? globalTwilio?.Device;
+  if (!Device) throw new Error("Twilio Voice SDK browser bundle did not expose Device.");
+  return Device;
+}
+
 export function useSoftphone() {
   const configFn = useServerFn(getVoipClientConfig);
   const [state, setState] = useState<SoftphoneState>({
@@ -122,7 +139,7 @@ export function useSoftphone() {
     // ---- Twilio ----
     if (config.provider === "twilio") {
       try {
-        const { Device } = await import("@twilio/voice-sdk");
+        const Device = await loadTwilioDevice();
         ensureAudio();
         if (!twilioDeviceRef.current) {
           const device = new Device(String(config.token), { logLevel: "error" });
@@ -322,7 +339,7 @@ export function useSoftphone() {
       // ---- Twilio ----
       if (config.provider === "twilio") {
         try {
-          const { Device } = await import("@twilio/voice-sdk");
+          const Device = await loadTwilioDevice();
           ensureAudio();
           if (!twilioDeviceRef.current) {
             twilioDeviceRef.current = new Device(String(config.token), { logLevel: "error" });
