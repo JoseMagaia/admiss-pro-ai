@@ -77,8 +77,8 @@ function staticDistPostbuild(): Plugin {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Linkmoore Education — AI Admissions Assistant</title>
-  <meta name="description" content="WhatsApp admissions platform that qualifies leads, collects requirements, and prepares them for enrollment." />
+  <title>fliq — AI Lead Generation & Appointment Platform</title>
+  <meta name="description" content="WhatsApp-powered AI that captures and qualifies leads 24/7 and books appointments straight into your calendar." />
 ${globalCss ? `  <link rel="stylesheet" href="${globalCss}" />` : ""}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 #
-# One-click installer for Linkmoore Education — AI Admissions Assistant
+# One-click installer for fliq — AI Lead Generation & Appointment Platform
 # (admiss-pro-ai / TanStack Start + local PGlite database).
 #
 # Usage:
@@ -44,7 +44,7 @@ has()  { command -v "$1" >/dev/null 2>&1; }
 
 usage() {
   cat <<'EOF'
-One-click installer for Linkmoore Education — AI Admissions Assistant
+One-click installer for fliq — AI Lead Generation & Appointment Platform
 
 Options:
   -d, --dir DIR          Install directory (default: ./admiss-pro-ai; the
@@ -213,7 +213,7 @@ install_systemd() {
 
   cat > "$UNIT" <<EOF
 [Unit]
-Description=Linkmoore Education — AI Admissions Assistant
+Description=fliq — AI Lead Generation & Appointment Platform
 After=network.target
 
 [Service]
@@ -264,7 +264,7 @@ print_summary() {
 
 # ------------------------------------------------------------------ main
 main() {
-  log "Linkmoore Education — AI Admissions Assistant installer"
+  log "fliq — AI Lead Generation & Appointment Platform installer"
   ensure_curl_git
   if [ "$SKIP_DEPS" != "1" ]; then
     ensure_node

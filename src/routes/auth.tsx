@@ -12,8 +12,8 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
-      { title: "Sign In — Linkmoore Education" },
-      { name: "description", content: "Sign in to the Linkmoore Education admissions dashboard." },
+      { title: "Sign In — fliq" },
+      { name: "description", content: "Sign in to the fliq lead generation and appointment dashboard." },
       { name: "robots", content: "noindex" },
     ],
   }),
@@ -95,7 +95,7 @@ function AuthPage() {
           <div className="mb-6 flex items-center gap-2">
             <img src={DEFAULT_BRAND.logoLight} alt={`${DEFAULT_BRAND.name} logo`} className="h-10 w-auto max-w-[140px] object-contain" />
           </div>
-          <p className="mb-6 text-xs text-muted-foreground">Admissions Dashboard</p>
+          <p className="mb-6 text-xs text-muted-foreground">Lead & Appointment Dashboard</p>
 
           <div className="mb-6 grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
             {(["signin", "signup"] as const).map((m) => (
@@ -118,8 +118,8 @@ function AuthPage() {
           </h2>
           <p className="mb-6 text-sm text-muted-foreground">
             {mode === "signin"
-              ? "Access the admissions platform with your account."
-              : "Sign up to join your team's admissions workspace."}
+              ? "Access the lead generation and appointment platform with your account."
+              : "Sign up to join your team's lead and appointment workspace."}
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
