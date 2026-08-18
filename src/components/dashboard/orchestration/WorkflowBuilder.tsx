@@ -160,7 +160,103 @@ function WorkflowStepNode({ data, selected }: NodeProps) {
   );
 }
 
-const nodeTypes = { trigger: TriggerNode, message: MessageNode, workflow: WorkflowStepNode };
+// Typebot-style logic operators available on a condition node.
+export const CONDITION_FIELDS = [
+  { id: "qualification_status", label: "Lead status" },
+  { id: "tags", label: "Tag" },
+  { id: "last_reply", label: "Last reply text" },
+  { id: "has_replied", label: "Has replied" },
+  { id: "course_interest", label: "Course interest" },
+  { id: "country_interest", label: "Country interest" },
+  { id: "lead_name", label: "Lead name" },
+  { id: "email", label: "Email" },
+  { id: "assigned_to", label: "Assigned to" },
+];
+
+export const CONDITION_OPERATORS = [
+  { id: "equals", label: "equals" },
+  { id: "not_equals", label: "does not equal" },
+  { id: "contains", label: "contains" },
+  { id: "not_contains", label: "does not contain" },
+  { id: "is_empty", label: "is empty" },
+  { id: "is_not_empty", label: "is not empty" },
+  { id: "gt", label: "greater than" },
+  { id: "lt", label: "less than" },
+];
+
+export const ACTION_TYPES = [
+  { id: "add_tag", label: "Add tag" },
+  { id: "remove_tag", label: "Remove tag" },
+  { id: "set_status", label: "Set lead status" },
+  { id: "set_field", label: "Set lead field" },
+  { id: "enroll_workflow", label: "Assign to workflow" },
+  { id: "remove_workflow", label: "Remove from workflow" },
+  { id: "human_takeover", label: "Hand over to a human" },
+  { id: "stop_flow", label: "Stop this flow" },
+];
+
+export const SETTABLE_FIELDS = [
+  "lead_name",
+  "course_interest",
+  "country_interest",
+  "email",
+  "notes",
+  "assigned_to",
+  "qualification_status",
+];
+
+function ConditionNode({ data, selected }: NodeProps) {
+  const d = data as { conditionField?: string; conditionOperator?: string; conditionValue?: string };
+  const field = CONDITION_FIELDS.find((f) => f.id === d.conditionField)?.label ?? "Lead status";
+  const op = CONDITION_OPERATORS.find((o) => o.id === d.conditionOperator)?.label ?? "equals";
+  return (
+    <div
+      className={`w-56 rounded-xl border-2 bg-card px-4 py-2 shadow-card ${selected ? "border-primary" : "border-border"}`}
+    >
+      <Handle type="target" position={Position.Top} />
+      <div className="flex items-center gap-2 text-xs font-semibold text-accent-foreground">
+        <GitBranch className="h-3.5 w-3.5" /> Condition
+      </div>
+      <p className="mt-1 line-clamp-2 text-xs text-foreground/80">
+        {field} {op} {d.conditionValue ? `"${d.conditionValue}"` : ""}
+      </p>
+      <div className="mt-1 flex justify-between text-[10px] font-medium">
+        <span className="text-emerald-600">yes</span>
+        <span className="text-destructive">no</span>
+      </div>
+      <Handle id="true" type="source" position={Position.Bottom} style={{ left: "25%" }} />
+      <Handle id="false" type="source" position={Position.Bottom} style={{ left: "75%" }} />
+    </div>
+  );
+}
+
+function ActionNode({ data, selected }: NodeProps) {
+  const d = data as { actionType?: string; actionValue?: string; actionField?: string };
+  const label = ACTION_TYPES.find((a) => a.id === d.actionType)?.label ?? "Action";
+  return (
+    <div
+      className={`w-52 rounded-xl border-2 bg-card px-4 py-2 shadow-card ${selected ? "border-primary" : "border-border"}`}
+    >
+      <Handle type="target" position={Position.Top} />
+      <div className="flex items-center gap-2 text-xs font-semibold text-primary">
+        <Tag className="h-3.5 w-3.5" /> {label}
+      </div>
+      <p className="mt-1 line-clamp-2 text-xs text-foreground/80">
+        {d.actionField ? `${d.actionField}: ` : ""}
+        {d.actionValue || "—"}
+      </p>
+      <Handle type="source" position={Position.Bottom} />
+    </div>
+  );
+}
+
+const nodeTypes = {
+  trigger: TriggerNode,
+  message: MessageNode,
+  workflow: WorkflowStepNode,
+  condition: ConditionNode,
+  action: ActionNode,
+};
 
 function defaultGraph(): { nodes: Node[]; edges: Edge[] } {
   return {
