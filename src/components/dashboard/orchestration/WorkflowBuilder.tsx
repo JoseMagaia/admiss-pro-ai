@@ -665,6 +665,12 @@ export function WorkflowBuilder({
           <Button variant="outline" size="sm" onClick={addWorkflowStep}>
             <WorkflowIcon className="mr-1 h-4 w-4" /> Call workflow step
           </Button>
+          <Button variant="outline" size="sm" onClick={addCondition}>
+            <GitBranch className="mr-1 h-4 w-4" /> Add condition
+          </Button>
+          <Button variant="outline" size="sm" onClick={addAction}>
+            <Tag className="mr-1 h-4 w-4" /> Add action
+          </Button>
         </div>
       </div>
 
