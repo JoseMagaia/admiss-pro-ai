@@ -338,6 +338,7 @@ async function init(): Promise<PGlite> {
   await applySchema(_pg);
   await ensureAuthTables(_pg);
   await seed(_pg);
+  await ensureBootstrapAdmin(_pg);
   await ensureTenantScoping(_pg);
   return _pg;
 }
