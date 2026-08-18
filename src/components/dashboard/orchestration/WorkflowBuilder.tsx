@@ -849,7 +849,7 @@ export function WorkflowBuilder({
                     if the target list looks empty.
                   </p>
                 </div>
-              ) : (
+              ) : selectedIsMessage ? (
                 <div className="space-y-1.5">
                   <Label>Message content</Label>
                   <Textarea
@@ -872,9 +872,9 @@ export function WorkflowBuilder({
                     ))}
                   </div>
                 </div>
-              )}
+              ) : null}
 
-              {!selectedIsWorkflow ? (
+              {selectedIsMessage ? (
                 <>
                   {/* Media attachment for this message step */}
                   <div className="space-y-1.5 rounded-md border bg-muted/20 p-2">
