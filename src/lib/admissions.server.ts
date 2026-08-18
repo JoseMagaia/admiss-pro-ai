@@ -644,7 +644,7 @@ async function postWhatsAppCloud(
   if (!phoneId || !token) {
     return { ok: false, error: "WhatsApp Cloud API isn't fully configured (phone id + access token)." };
   }
-  const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(phoneId)}/messages`;
+  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneId)}/messages`;
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -2512,7 +2512,12 @@ export async function deliverCampaignMessage(params: {
     null;
 
   // Chatwoot needs an existing conversation to post into; create one on demand.
-  if (workspace && workspace.provider_type !== "evolution" && !conversationId) {
+  if (
+    workspace &&
+    workspace.provider_type !== "evolution" &&
+    workspace.provider_type !== "whatsapp_cloud" &&
+    !conversationId
+  ) {
     conversationId = await createChatwootConversation({
       creds,
       inboxId: workspace.chatwoot_inbox_id ?? null,
