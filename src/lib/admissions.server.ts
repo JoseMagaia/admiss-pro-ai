@@ -1625,23 +1625,186 @@ async function sendWorkflowMessage(
   return sent;
 }
 
+// ---------- Typebot-style conditions & actions ----------
+
+/** Fetch the fields a condition can test for a lead/phone. */
+async function conditionContext(phone: string, leadId: string | null) {
+  const db = admin();
+  const q = db.from("leads").select("*").limit(1);
+  const { data } = leadId ? await q.eq("id", leadId) : await q.eq("phone_number", phone);
+  const lead = ((data as Array<Record<string, unknown>> | null) ?? [])[0] ?? null;
+  const { data: msgs } = await db
+    .from("whatsapp_messages")
+    .select("message_content, sender, received_at")
+    .eq("phone_number", phone)
+    .order("received_at", { ascending: false })
+    .limit(20);
+  const rows = (msgs as Array<Record<string, unknown>> | null) ?? [];
+  const lastLead = rows.find((m) => m.sender === "lead");
+  return {
+    lead,
+    tags: Array.isArray(lead?.tags) ? (lead!.tags as string[]) : [],
+    lastReply: String(lastLead?.message_content ?? ""),
+    hasReplied: Boolean(lastLead),
+  };
+}
+
+/** Evaluate a condition step against the lead. Returns the branch to follow. */
+export async function evaluateCondition(step: WorkflowStep, phone: string, leadId: string | null): Promise<boolean> {
+  const ctx = await conditionContext(phone, leadId);
+  const field = step.conditionField ?? "qualification_status";
+  const op = step.conditionOperator ?? "equals";
+  const value = String(step.conditionValue ?? "").trim();
+
+  if (field === "tags") {
+    const has = ctx.tags.some((t) => t.toLowerCase() === value.toLowerCase());
+    return op === "not_has_tag" || op === "not_contains" || op === "not_equals" ? !has : has;
+  }
+  if (field === "has_replied") {
+    return op === "not_equals" ? !ctx.hasReplied : ctx.hasReplied;
+  }
+
+  const raw =
+    field === "last_reply"
+      ? ctx.lastReply
+      : String(((ctx.lead ?? {}) as Record<string, unknown>)[field] ?? "");
+  const a = raw.toLowerCase();
+  const b = value.toLowerCase();
+  switch (op) {
+    case "equals":
+      return a === b;
+    case "not_equals":
+      return a !== b;
+    case "contains":
+      return a.includes(b);
+    case "not_contains":
+      return !a.includes(b);
+    case "is_empty":
+      return a.trim().length === 0;
+    case "is_not_empty":
+      return a.trim().length > 0;
+    case "gt":
+      return Number(a) > Number(b);
+    case "lt":
+      return Number(a) < Number(b);
+    default:
+      return false;
+  }
+}
+
+/** Run an action step (tagging, field/status updates, flow assignment/removal). */
+export async function runWorkflowAction(
+  step: WorkflowStep,
+  phone: string,
+  leadId: string | null,
+  workspaceId: string | null,
+): Promise<{ stop: boolean }> {
+  const db = admin();
+  const type = step.actionType ?? "add_tag";
+  const value = String(step.actionValue ?? "").trim();
+
+  const loadLead = async () => {
+    const q = db.from("leads").select("id, tags").limit(1);
+    const { data } = leadId ? await q.eq("id", leadId) : await q.eq("phone_number", phone);
+    return ((data as Array<Record<string, unknown>> | null) ?? [])[0] ?? null;
+  };
+
+  if (type === "add_tag" || type === "remove_tag") {
+    const lead = await loadLead();
+    if (!lead || !value) return { stop: false };
+    const current = Array.isArray(lead.tags) ? (lead.tags as string[]) : [];
+    const next =
+      type === "add_tag"
+        ? Array.from(new Set([...current, value]))
+        : current.filter((t) => t.toLowerCase() !== value.toLowerCase());
+    await db.from("leads").update({ tags: next } as never).eq("id", lead.id as string);
+    return { stop: false };
+  }
+
+  if (type === "set_status") {
+    const lead = await loadLead();
+    if (lead && value) {
+      await db.from("leads").update({ qualification_status: value } as never).eq("id", lead.id as string);
+    }
+    return { stop: false };
+  }
+
+  if (type === "set_field") {
+    const lead = await loadLead();
+    const field = String(step.actionField ?? "").trim();
+    const allowed = [
+      "lead_name",
+      "course_interest",
+      "country_interest",
+      "notes",
+      "email",
+      "assigned_to",
+      "qualification_status",
+    ];
+    if (lead && field && allowed.includes(field)) {
+      await db.from("leads").update({ [field]: value } as never).eq("id", lead.id as string);
+    }
+    return { stop: false };
+  }
+
+  if (type === "enroll_workflow") {
+    if (step.actionWorkflowId) {
+      await enrollLeadInWorkflowById({ workflowId: step.actionWorkflowId, phone, leadId, workspaceId });
+    }
+    return { stop: false };
+  }
+
+  if (type === "remove_workflow") {
+    const target = step.actionWorkflowId;
+    const q = db
+      .from("workflow_enrollments")
+      .update({ status: "cancelled" } as never)
+      .eq("phone_number", phone)
+      .eq("status", "active");
+    if (target) await q.eq("workflow_id", target);
+    else await q;
+    return { stop: false };
+  }
+
+  if (type === "human_takeover") {
+    await db
+      .from("conversations")
+      .update({ human_takeover: true, status: "pending" } as never)
+      .eq("phone_number", phone);
+    return { stop: false };
+  }
+
+  if (type === "stop_flow") return { stop: true };
+
+  return { stop: false };
+}
+
 // Execute a single workflow step: send its message, or (for a "call workflow"
 // step) enroll the lead into the target workflow. Enrolling without sendNow lets
 // the cron advance the called workflow on its next tick, which also prevents
 // infinite recursion between workflows that reference each other (the dedup in
 // enrollLeadInWorkflowById stops a lead being enrolled twice in the same flow).
+// Returns the branch taken for condition steps and whether the flow should stop.
 async function executeWorkflowStep(
   step: WorkflowStep | undefined,
   phone: string,
   workspaceId: string | null,
   leadId: string | null,
-): Promise<void> {
-  if (!step) return;
+): Promise<{ branch?: "true" | "false"; stop?: boolean }> {
+  if (!step) return {};
+  if (step.kind === "condition") {
+    const result = await evaluateCondition(step, phone, leadId);
+    return { branch: result ? "true" : "false" };
+  }
+  if (step.kind === "action") {
+    const { stop } = await runWorkflowAction(step, phone, leadId, workspaceId);
+    return { stop };
+  }
   if (step.kind === "call_workflow") {
     if (step.targetWorkflowId) {
       await enrollLeadInWorkflowById({ workflowId: step.targetWorkflowId, phone, leadId, workspaceId });
     }
-    return;
+    return {};
   }
   const hasMedia = Boolean(step.media?.url);
   const rawButtons = (step.buttons ?? []).filter((b) => b && String(b.title ?? "").trim()).slice(0, 3);
@@ -1655,6 +1818,7 @@ async function executeWorkflowStep(
       buttons: buttons.length > 0 ? buttons : null,
     });
   }
+  return {};
 }
 
 
