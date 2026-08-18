@@ -1297,8 +1297,8 @@ import { DEFAULT_AGENT_ID, delayToMs, type StepAnchor } from "./orchestration";
 import { runResponderAgent } from "./ai-engine.server";
 
 export interface WorkflowStep {
-  /** Step kind: send a message, or enroll the lead into another workflow. */
-  kind: "message" | "call_workflow";
+  /** Step kind: send a message, branch on a condition, run an action, or call a workflow. */
+  kind: "message" | "call_workflow" | "condition" | "action";
   content: string;
   /** For call_workflow steps: the workflow to enroll the lead into. */
   targetWorkflowId?: string | null;
@@ -1312,6 +1312,17 @@ export interface WorkflowStep {
   media?: OutboundAttachment | null;
   /** Optional quick-reply buttons. Each may link to a follow-up workflow. */
   buttons?: Array<{ id?: string; title: string; next_workflow_id?: string | null }>;
+  /** Graph node id this step came from (used by the branching walker). */
+  nodeId?: string;
+  /** Condition step config. */
+  conditionField?: string;
+  conditionOperator?: string;
+  conditionValue?: string;
+  /** Action step config. */
+  actionType?: string;
+  actionValue?: string;
+  actionField?: string;
+  actionWorkflowId?: string | null;
 }
 
 interface GraphNode {
@@ -1328,11 +1339,20 @@ interface GraphNode {
     offsetUnit?: string;
     media?: OutboundAttachment | null;
     buttons?: Array<{ id?: string; title: string; next_workflow_id?: string | null }>;
+    conditionField?: string;
+    conditionOperator?: string;
+    conditionValue?: string;
+    actionType?: string;
+    actionValue?: string;
+    actionField?: string;
+    actionWorkflowId?: string | null;
   };
 }
 interface GraphEdge {
   source: string;
   target: string;
+  /** "true" / "false" on condition nodes, null on plain sequential edges. */
+  sourceHandle?: string | null;
 }
 interface WorkflowGraph {
   nodes?: GraphNode[];
