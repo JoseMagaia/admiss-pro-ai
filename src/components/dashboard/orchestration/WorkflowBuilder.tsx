@@ -388,26 +388,31 @@ export function WorkflowBuilder({
   // Workflows selectable in a "call workflow" step (excludes the current one).
   const callableWorkflows = (workflows ?? []).filter((w) => w.id !== initial.id);
 
-  const addStepNode = (type: "message" | "workflow") => {
-    const id = `${type === "workflow" ? "w" : "m"}${Date.now()}`;
+  const addStepNode = (type: "message" | "workflow" | "condition" | "action") => {
+    const prefix = { message: "m", workflow: "w", condition: "c", action: "a" }[type];
+    const id = `${prefix}${Date.now()}`;
     const sources = new Set(edges.map((e) => e.source));
     const tail = nodes.find((n) => !sources.has(n.id)) ?? nodes[nodes.length - 1];
     const y = (tail?.position.y ?? 20) + 120;
+    const instant = type === "condition" || type === "action";
     const baseData = {
       anchor: "wait",
-      delayValue: messageCount === 0 && type === "message" ? 0 : 1,
-      delayUnit: messageCount === 0 && type === "message" ? "minutes" : "days",
+      delayValue: instant || (messageCount === 0 && type === "message") ? 0 : 1,
+      delayUnit: instant || (messageCount === 0 && type === "message") ? "minutes" : "days",
       offsetValue: 1,
       offsetUnit: "days",
+    };
+    const dataByType: Record<string, Record<string, unknown>> = {
+      workflow: { targetWorkflowId: "", targetWorkflowName: "" },
+      condition: { conditionField: "qualification_status", conditionOperator: "equals", conditionValue: "" },
+      action: { actionType: "add_tag", actionValue: "", actionField: "", actionWorkflowId: null },
+      message: { content: "", index: messageCount },
     };
     const newNode: Node = {
       id,
       type,
       position: { x: 80, y },
-      data:
-        type === "workflow"
-          ? { ...baseData, targetWorkflowId: "", targetWorkflowName: "" }
-          : { ...baseData, content: "", index: messageCount },
+      data: { ...baseData, ...dataByType[type] },
     };
     setNodes((nds) => [...nds, newNode]);
     if (tail) setEdges((eds) => addEdge({ source: tail.id, target: id, sourceHandle: null, targetHandle: null }, eds));
@@ -416,11 +421,18 @@ export function WorkflowBuilder({
 
   const addMessage = () => addStepNode("message");
   const addWorkflowStep = () => addStepNode("workflow");
+  const addCondition = () => addStepNode("condition");
+  const addAction = () => addStepNode("action");
 
   const selected = nodes.find(
-    (n) => n.id === selectedId && (n.type === "message" || n.type === "workflow"),
+    (n) =>
+      n.id === selectedId &&
+      (n.type === "message" || n.type === "workflow" || n.type === "condition" || n.type === "action"),
   );
   const selectedIsWorkflow = selected?.type === "workflow";
+  const selectedIsCondition = selected?.type === "condition";
+  const selectedIsAction = selected?.type === "action";
+  const selectedIsMessage = selected?.type === "message" || selected?.type === undefined;
 
   const updateSelected = (patch: Record<string, unknown>) => {
     setNodes((nds) =>
