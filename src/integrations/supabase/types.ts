@@ -420,6 +420,7 @@ export type Database = {
         Row: {
           batch_break_seconds: number
           batch_size: number
+          buttons: Json
           channel: string
           created_at: string
           created_by: string | null
@@ -427,6 +428,7 @@ export type Database = {
           end_at: string | null
           id: string
           last_batch_at: string | null
+          media: Json | null
           message_template: string
           message_variations: string[]
           name: string
@@ -444,6 +446,7 @@ export type Database = {
         Insert: {
           batch_break_seconds?: number
           batch_size?: number
+          buttons?: Json
           channel?: string
           created_at?: string
           created_by?: string | null
@@ -451,6 +454,7 @@ export type Database = {
           end_at?: string | null
           id?: string
           last_batch_at?: string | null
+          media?: Json | null
           message_template?: string
           message_variations?: string[]
           name: string
@@ -468,6 +472,7 @@ export type Database = {
         Update: {
           batch_break_seconds?: number
           batch_size?: number
+          buttons?: Json
           channel?: string
           created_at?: string
           created_by?: string | null
@@ -475,6 +480,7 @@ export type Database = {
           end_at?: string | null
           id?: string
           last_batch_at?: string | null
+          media?: Json | null
           message_template?: string
           message_variations?: string[]
           name?: string
@@ -509,6 +515,11 @@ export type Database = {
           space_id: string | null
           updated_at: string
           use_shared_ai: boolean
+          wa_access_token: string | null
+          wa_app_secret: string | null
+          wa_business_account_id: string | null
+          wa_phone_number_id: string | null
+          wa_verify_token: string | null
         }
         Insert: {
           chatwoot_account_id?: string | null
@@ -527,6 +538,11 @@ export type Database = {
           space_id?: string | null
           updated_at?: string
           use_shared_ai?: boolean
+          wa_access_token?: string | null
+          wa_app_secret?: string | null
+          wa_business_account_id?: string | null
+          wa_phone_number_id?: string | null
+          wa_verify_token?: string | null
         }
         Update: {
           chatwoot_account_id?: string | null
@@ -545,6 +561,11 @@ export type Database = {
           space_id?: string | null
           updated_at?: string
           use_shared_ai?: boolean
+          wa_access_token?: string | null
+          wa_app_secret?: string | null
+          wa_business_account_id?: string | null
+          wa_phone_number_id?: string | null
+          wa_verify_token?: string | null
         }
         Relationships: [
           {
@@ -918,6 +939,7 @@ export type Database = {
           qualification_status: string
           space_id: string | null
           student_or_parent: string | null
+          tags: string[]
           updated_at: string
           workspace_id: string | null
         }
@@ -940,6 +962,7 @@ export type Database = {
           qualification_status?: string
           space_id?: string | null
           student_or_parent?: string | null
+          tags?: string[]
           updated_at?: string
           workspace_id?: string | null
         }
@@ -962,6 +985,7 @@ export type Database = {
           qualification_status?: string
           space_id?: string | null
           student_or_parent?: string | null
+          tags?: string[]
           updated_at?: string
           workspace_id?: string | null
         }
@@ -1737,38 +1761,69 @@ export type Database = {
       whatsapp_messages: {
         Row: {
           ai_response: string | null
+          attachment_kind: string | null
+          attachment_mime: string | null
+          attachment_url: string | null
+          campaign_id: string | null
+          delivered_at: string | null
+          delivery_status: string | null
           id: string
           message_content: string
           message_type: string
           phone_number: string
           processed: boolean
+          read_at: string | null
           received_at: string
           sender: string
           space_id: string | null
+          wamid: string | null
         }
         Insert: {
           ai_response?: string | null
+          attachment_kind?: string | null
+          attachment_mime?: string | null
+          attachment_url?: string | null
+          campaign_id?: string | null
+          delivered_at?: string | null
+          delivery_status?: string | null
           id?: string
           message_content?: string
           message_type?: string
           phone_number: string
           processed?: boolean
+          read_at?: string | null
           received_at?: string
           sender?: string
           space_id?: string | null
+          wamid?: string | null
         }
         Update: {
           ai_response?: string | null
+          attachment_kind?: string | null
+          attachment_mime?: string | null
+          attachment_url?: string | null
+          campaign_id?: string | null
+          delivered_at?: string | null
+          delivery_status?: string | null
           id?: string
           message_content?: string
           message_type?: string
           phone_number?: string
           processed?: boolean
+          read_at?: string | null
           received_at?: string
           sender?: string
           space_id?: string | null
+          wamid?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "whatsapp_messages_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "whatsapp_messages_space_id_fkey"
             columns: ["space_id"]
@@ -1781,6 +1836,7 @@ export type Database = {
       workflow_enrollments: {
         Row: {
           created_at: string
+          current_node_id: string | null
           current_step: number
           goal_at: string | null
           id: string
@@ -1796,6 +1852,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          current_node_id?: string | null
           current_step?: number
           goal_at?: string | null
           id?: string
@@ -1811,6 +1868,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          current_node_id?: string | null
           current_step?: number
           goal_at?: string | null
           id?: string
