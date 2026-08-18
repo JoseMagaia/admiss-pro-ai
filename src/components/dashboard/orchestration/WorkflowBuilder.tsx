@@ -697,12 +697,133 @@ export function WorkflowBuilder({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold">
-                  {selectedIsWorkflow ? "Edit call workflow" : "Edit message"}
+                  {selectedIsWorkflow
+                    ? "Edit call workflow"
+                    : selectedIsCondition
+                      ? "Edit condition"
+                      : selectedIsAction
+                        ? "Edit action"
+                        : "Edit message"}
                 </span>
                 <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setSelectedId(null)}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
+
+              {selectedIsCondition ? (
+                <div className="space-y-2">
+                  <div className="space-y-1.5">
+                    <Label>Test field</Label>
+                    <select
+                      value={String((selected.data as { conditionField?: string }).conditionField ?? "qualification_status")}
+                      onChange={(e) => updateSelected({ conditionField: e.target.value })}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {CONDITION_FIELDS.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Operator</Label>
+                    <select
+                      value={String((selected.data as { conditionOperator?: string }).conditionOperator ?? "equals")}
+                      onChange={(e) => updateSelected({ conditionOperator: e.target.value })}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {CONDITION_OPERATORS.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Value</Label>
+                    <Input
+                      value={String((selected.data as { conditionValue?: string }).conditionValue ?? "")}
+                      onChange={(e) => updateSelected({ conditionValue: e.target.value })}
+                      placeholder="e.g. hot, interested, yes"
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Wire the left handle (yes) and the right handle (no) to different steps to branch the flow.
+                  </p>
+                </div>
+              ) : null}
+
+              {selectedIsAction ? (
+                <div className="space-y-2">
+                  <div className="space-y-1.5">
+                    <Label>Action</Label>
+                    <select
+                      value={String((selected.data as { actionType?: string }).actionType ?? "add_tag")}
+                      onChange={(e) => updateSelected({ actionType: e.target.value })}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {ACTION_TYPES.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {["enroll_workflow", "remove_workflow"].includes(
+                    String((selected.data as { actionType?: string }).actionType ?? "add_tag"),
+                  ) ? (
+                    <div className="space-y-1.5">
+                      <Label>Workflow</Label>
+                      <select
+                        value={String((selected.data as { actionWorkflowId?: string | null }).actionWorkflowId ?? "")}
+                        onChange={(e) => updateSelected({ actionWorkflowId: e.target.value || null })}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="">
+                          {String((selected.data as { actionType?: string }).actionType) === "remove_workflow"
+                            ? "All active workflows"
+                            : "Select a workflow…"}
+                        </option>
+                        {callableWorkflows.map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  {String((selected.data as { actionType?: string }).actionType ?? "add_tag") === "set_field" ? (
+                    <div className="space-y-1.5">
+                      <Label>Field</Label>
+                      <select
+                        value={String((selected.data as { actionField?: string }).actionField ?? "")}
+                        onChange={(e) => updateSelected({ actionField: e.target.value })}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="">Select a field…</option>
+                        {SETTABLE_FIELDS.map((f) => (
+                          <option key={f} value={f}>
+                            {f}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  {!["human_takeover", "stop_flow", "enroll_workflow", "remove_workflow"].includes(
+                    String((selected.data as { actionType?: string }).actionType ?? "add_tag"),
+                  ) ? (
+                    <div className="space-y-1.5">
+                      <Label>Value</Label>
+                      <Input
+                        value={String((selected.data as { actionValue?: string }).actionValue ?? "")}
+                        onChange={(e) => updateSelected({ actionValue: e.target.value })}
+                        placeholder="e.g. vip"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               {selectedIsWorkflow ? (
                 <div className="space-y-1.5">
