@@ -16,7 +16,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Save, Plus, MessageSquare, Zap, Trash2, X, Workflow as WorkflowIcon, Paperclip, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Save, Plus, MessageSquare, Zap, Trash2, X, Workflow as WorkflowIcon, Paperclip, Image as ImageIcon, Loader2, GitBranch, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
