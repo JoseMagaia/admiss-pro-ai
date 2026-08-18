@@ -2106,8 +2106,14 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
         return 0;
       }
       const steps = orderedSteps(wf.graph);
-      const step = Number(enr.current_step ?? 0);
-      if (step >= steps.length) {
+      const stepIndex = Number(enr.current_step ?? 0);
+      // Branching walker: prefer the stored node id, falling back to the legacy
+      // linear index for enrollments created before branching existed.
+      let nodeId =
+        (enr.current_node_id as string | null) ??
+        steps[stepIndex]?.nodeId ??
+        (stepIndex === 0 ? firstStepNodeId(wf.graph) : null);
+      if (!nodeId) {
         await db
           .from("workflow_enrollments")
           .update({ status: "completed", next_run_at: null } as never)
@@ -2115,37 +2121,81 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
         return 0;
       }
 
-      await executeWorkflowStep(
-        steps[step],
-        String(enr.phone_number),
-        (wf.workspace_id as string) ?? null,
-        (enr.lead_id as string | null) ?? null,
-      );
+      const phone = String(enr.phone_number);
+      const goalAt = (enr.goal_at as string | null) ?? null;
+      let executed = 0;
+      let done = false;
+      let scheduled = false;
+      let nextNodeId: string | null = null;
+      let nextStepObj: WorkflowStep | null = null;
 
-      const nextStep = step + 1;
-      if (nextStep >= steps.length) {
-        await db
-          .from("workflow_enrollments")
-          .update({ current_step: nextStep, status: "completed", next_run_at: null, last_step_at: new Date().toISOString() } as never)
-          .eq("id", enr.id as string);
-      } else {
-        const nextStepObj = steps[nextStep];
-        const goalAt = (enr.goal_at as string | null) ?? null;
-        const apptAt =
-          nextStepObj?.anchor === "before_appointment"
-            ? await getLeadAppointmentAt(String(enr.phone_number))
-            : null;
-        const runAt = stepNextRunAt(nextStepObj, goalAt, apptAt);
+      // Run the due node; chain through instant condition/action nodes so a
+      // branch resolves within the same tick.
+      for (let hops = 0; hops < 25; hops += 1) {
+        const step = stepAtNode(wf.graph, nodeId);
+        if (!step) {
+          done = true;
+          break;
+        }
+        const result = await executeWorkflowStep(
+          step,
+          phone,
+          (wf.workspace_id as string) ?? null,
+          (enr.lead_id as string | null) ?? null,
+        );
+        executed = 1;
+        if (result.stop) {
+          done = true;
+          break;
+        }
+        const candidate = nextStepNodeId(wf.graph, nodeId!, result.branch);
+        if (!candidate) {
+          done = true;
+          break;
+        }
+        const candidateStep = stepAtNode(wf.graph, candidate);
+        const instant =
+          candidateStep !== null &&
+          (candidateStep.kind === "condition" || candidateStep.kind === "action") &&
+          candidateStep.anchor === "wait" &&
+          candidateStep.delayMs <= 0;
+        if (instant) {
+          nodeId = candidate;
+          continue;
+        }
+        nextNodeId = candidate;
+        nextStepObj = candidateStep;
+        scheduled = true;
+        break;
+      }
+
+      if (done || !scheduled || !nextNodeId) {
         await db
           .from("workflow_enrollments")
           .update({
-            current_step: nextStep,
-            next_run_at: runAt.toISOString(),
+            current_step: stepIndex + 1,
+            current_node_id: null,
+            status: "completed",
+            next_run_at: null,
             last_step_at: new Date().toISOString(),
           } as never)
           .eq("id", enr.id as string);
+        return executed;
       }
-      return 1;
+
+      const apptAt =
+        nextStepObj?.anchor === "before_appointment" ? await getLeadAppointmentAt(phone) : null;
+      const runAt = stepNextRunAt(nextStepObj ?? undefined, goalAt, apptAt);
+      await db
+        .from("workflow_enrollments")
+        .update({
+          current_step: stepIndex + 1,
+          current_node_id: nextNodeId,
+          next_run_at: runAt.toISOString(),
+          last_step_at: new Date().toISOString(),
+        } as never)
+        .eq("id", enr.id as string);
+      return executed;
     });
   }
 
