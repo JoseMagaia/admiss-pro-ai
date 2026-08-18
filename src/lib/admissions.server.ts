@@ -1423,64 +1423,134 @@ async function getLeadAppointmentAt(phone: string): Promise<string | null> {
   return (past as Array<{ appointment_date: string }> | null)?.[0]?.appointment_date ?? null;
 }
 
+// Convert a graph node into an executable workflow step.
+function nodeToStep(n: GraphNode): WorkflowStep {
+  const common = {
+    delayMs: nodeDelayMs(n.data),
+    anchor: (n.data?.anchor as StepAnchor) ?? "wait",
+    offsetMs: nodeOffsetMs(n.data),
+    nodeId: n.id,
+  };
+  if (n.type === "workflow") {
+    return {
+      kind: "call_workflow",
+      content: "",
+      targetWorkflowId: (n.data?.targetWorkflowId as string | null) ?? null,
+      ...common,
+    };
+  }
+  if (n.type === "condition") {
+    return {
+      kind: "condition",
+      content: "",
+      conditionField: String(n.data?.conditionField ?? "qualification_status"),
+      conditionOperator: String(n.data?.conditionOperator ?? "equals"),
+      conditionValue: String(n.data?.conditionValue ?? ""),
+      ...common,
+    };
+  }
+  if (n.type === "action") {
+    return {
+      kind: "action",
+      content: "",
+      actionType: String(n.data?.actionType ?? "add_tag"),
+      actionValue: String(n.data?.actionValue ?? ""),
+      actionField: String(n.data?.actionField ?? ""),
+      actionWorkflowId: (n.data?.actionWorkflowId as string | null) ?? null,
+      ...common,
+    };
+  }
+  return {
+    kind: "message",
+    content: String(n.data?.content ?? "").trim(),
+    targetWorkflowId: null,
+    media: (n.data?.media as OutboundAttachment | null) ?? null,
+    buttons: Array.isArray(n.data?.buttons) ? n.data!.buttons : [],
+    ...common,
+  };
+}
+
+// A step is executable if it carries a payload (message body/media/buttons),
+// a target workflow, or is a condition/action node.
+function isExecutableStep(s: WorkflowStep): boolean {
+  if (s.kind === "call_workflow") return Boolean(s.targetWorkflowId);
+  if (s.kind === "condition" || s.kind === "action") return true;
+  return s.content.length > 0 || Boolean(s.media?.url) || (s.buttons?.length ?? 0) > 0;
+}
+
+function isStepNode(n: GraphNode): boolean {
+  return n.type !== "trigger";
+}
+
+/** First executable node id in the graph (the node wired under the trigger). */
+export function firstStepNodeId(graph: unknown): string | null {
+  const g = (graph ?? {}) as WorkflowGraph;
+  const nodes = g.nodes ?? [];
+  const edges = g.edges ?? [];
+  const trigger = nodes.find((n) => n.type === "trigger");
+  if (trigger) {
+    const edge = edges.find((e) => e.source === trigger.id);
+    if (edge) return edge.target;
+  }
+  const first = nodes.find((n) => isStepNode(n));
+  return first?.id ?? null;
+}
+
+/** Look up a single executable step by node id. */
+export function stepAtNode(graph: unknown, nodeId: string | null): WorkflowStep | null {
+  if (!nodeId) return null;
+  const g = (graph ?? {}) as WorkflowGraph;
+  const node = (g.nodes ?? []).find((n) => n.id === nodeId && isStepNode(n));
+  if (!node) return null;
+  const step = nodeToStep(node);
+  return isExecutableStep(step) ? step : { ...step, kind: step.kind };
+}
+
+/** Follow the outgoing edge from a node. `branch` picks the true/false path. */
+export function nextStepNodeId(graph: unknown, nodeId: string, branch?: "true" | "false"): string | null {
+  const g = (graph ?? {}) as WorkflowGraph;
+  const edges = (g.edges ?? []).filter((e) => e.source === nodeId);
+  if (edges.length === 0) return null;
+  if (branch) {
+    const match = edges.find((e) => (e.sourceHandle ?? "") === branch);
+    if (match) return match.target;
+    // Fall back to the only unlabeled edge so half-wired branches still flow.
+    const plain = edges.find((e) => !e.sourceHandle);
+    return plain?.target ?? null;
+  }
+  const plain = edges.find((e) => !e.sourceHandle) ?? edges[0];
+  return plain?.target ?? null;
+}
+
 // Resolve the ordered steps from a saved visual graph. Walks the edges starting
-// from the trigger node; falls back to node array order. Includes message steps
-// and "call workflow" steps (which enroll the lead into another workflow).
+// from the trigger node; falls back to node array order. Used for linear
+// scheduling/preview; branching execution uses the node walker above.
 export function orderedSteps(graph: unknown): WorkflowStep[] {
   const g = (graph ?? {}) as WorkflowGraph;
   const nodes = g.nodes ?? [];
   const edges = g.edges ?? [];
-  const isStepNode = (n: GraphNode) => n.type === "message" || n.type === "workflow" || n.type === undefined;
   const stepNodes = nodes.filter(isStepNode);
   if (stepNodes.length === 0) return [];
 
   const trigger = nodes.find((n) => n.type === "trigger");
-  const toStep = (n: GraphNode): WorkflowStep => {
-    if (n.type === "workflow") {
-      return {
-        kind: "call_workflow",
-        content: "",
-        targetWorkflowId: (n.data?.targetWorkflowId as string | null) ?? null,
-        delayMs: nodeDelayMs(n.data),
-        anchor: (n.data?.anchor as StepAnchor) ?? "wait",
-        offsetMs: nodeOffsetMs(n.data),
-      };
-    }
-    return {
-      kind: "message",
-      content: String(n.data?.content ?? "").trim(),
-      targetWorkflowId: null,
-      delayMs: nodeDelayMs(n.data),
-      anchor: (n.data?.anchor as StepAnchor) ?? "wait",
-      offsetMs: nodeOffsetMs(n.data),
-      media: (n.data?.media as OutboundAttachment | null) ?? null,
-      buttons: Array.isArray(n.data?.buttons) ? n.data!.buttons : [],
-    };
-  };
-
-  // A step is valid if it has content (message), attached media, buttons, or a target workflow.
-  const isValid = (s: WorkflowStep) =>
-    s.kind === "call_workflow"
-      ? Boolean(s.targetWorkflowId)
-      : s.content.length > 0 || Boolean(s.media?.url) || (s.buttons?.length ?? 0) > 0;
 
   if (trigger && edges.length > 0) {
     const ordered: WorkflowStep[] = [];
     const seen = new Set<string>();
     let currentId: string | undefined = trigger.id;
     while (currentId) {
-      const edge = edges.find((e) => e.source === currentId);
+      const edge = edges.find((e) => e.source === currentId && !e.sourceHandle) ?? edges.find((e) => e.source === currentId);
       if (!edge || seen.has(edge.target)) break;
       seen.add(edge.target);
       const node = nodes.find((n) => n.id === edge.target);
-      if (node && isStepNode(node)) ordered.push(toStep(node));
+      if (node && isStepNode(node)) ordered.push(nodeToStep(node));
       currentId = edge.target;
     }
-    const filtered = ordered.filter(isValid);
+    const filtered = ordered.filter(isExecutableStep);
     if (filtered.length > 0) return filtered;
   }
 
-  return stepNodes.map(toStep).filter(isValid);
+  return stepNodes.map(nodeToStep).filter(isExecutableStep);
 }
 
 
