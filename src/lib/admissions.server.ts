@@ -1629,7 +1629,7 @@ async function sendWorkflowMessage(
 
 /** Fetch the fields a condition can test for a lead/phone. */
 async function conditionContext(phone: string, leadId: string | null) {
-  const db = admin();
+  const db = await admin();
   const q = db.from("leads").select("*").limit(1);
   const { data } = leadId ? await q.eq("id", leadId) : await q.eq("phone_number", phone);
   const lead = ((data as Array<Record<string, unknown>> | null) ?? [])[0] ?? null;
@@ -1699,7 +1699,7 @@ export async function runWorkflowAction(
   leadId: string | null,
   workspaceId: string | null,
 ): Promise<{ stop: boolean }> {
-  const db = admin();
+  const db = await admin();
   const type = step.actionType ?? "add_tag";
   const value = String(step.actionValue ?? "").trim();
 
