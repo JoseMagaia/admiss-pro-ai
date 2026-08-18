@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { DEFAULT_BRAND } from "@/lib/useBranding";
 
 export const Route = createFileRoute("/auth")({
-  validateSearch: (s: Record<string, unknown>) => ({
+  validateSearch: (s: Record<string, unknown>): { next?: string | undefined } => ({
     next: typeof s.next === "string" && s.next.startsWith("/") && !s.next.startsWith("//") ? s.next : undefined,
   }),
   head: () => ({
