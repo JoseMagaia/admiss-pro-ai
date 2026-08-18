@@ -273,6 +273,22 @@ function WorkspaceEditor({
 
       {isWhatsAppCloud && (
         <>
+          <WhatsAppEmbeddedSignup
+            onConnected={(r) =>
+              setForm((f) => ({
+                ...f,
+                provider_type: "whatsapp_cloud",
+                wa_phone_number_id: r.phone_number_id || f.wa_phone_number_id,
+                wa_business_account_id: r.waba_id || f.wa_business_account_id,
+                wa_access_token: r.access_token,
+                wa_verify_token:
+                  f.wa_verify_token && f.wa_verify_token.length > 0
+                    ? f.wa_verify_token
+                    : crypto.randomUUID().replace(/-/g, ""),
+                name: f.name || `WhatsApp ${r.phone_number_id || ""}`.trim(),
+              }))
+            }
+          />
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Phone Number ID</Label>
