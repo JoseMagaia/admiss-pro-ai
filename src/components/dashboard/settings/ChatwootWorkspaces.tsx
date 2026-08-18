@@ -113,6 +113,10 @@ function WorkspaceEditor({
           evolution_url: form.evolution_url,
           evolution_api_key: form.evolution_api_key,
           evolution_instance: form.evolution_instance,
+          // WhatsApp Cloud credentials must be sent too, otherwise the server
+          // always reports "Enter the WhatsApp Phone Number ID first".
+          wa_phone_number_id: form.wa_phone_number_id,
+          wa_access_token: form.wa_access_token,
         } as never,
       }),
     onSuccess: (r) => {
