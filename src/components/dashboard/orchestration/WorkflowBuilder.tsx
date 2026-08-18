@@ -16,7 +16,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Save, Plus, MessageSquare, Zap, Trash2, X, Workflow as WorkflowIcon, Paperclip, Image as ImageIcon, Loader2 } from "lucide-react";
+import { Save, Plus, MessageSquare, Zap, Trash2, X, Workflow as WorkflowIcon, Paperclip, Image as ImageIcon, Loader2, GitBranch, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -160,7 +160,103 @@ function WorkflowStepNode({ data, selected }: NodeProps) {
   );
 }
 
-const nodeTypes = { trigger: TriggerNode, message: MessageNode, workflow: WorkflowStepNode };
+// Typebot-style logic operators available on a condition node.
+export const CONDITION_FIELDS = [
+  { id: "qualification_status", label: "Lead status" },
+  { id: "tags", label: "Tag" },
+  { id: "last_reply", label: "Last reply text" },
+  { id: "has_replied", label: "Has replied" },
+  { id: "course_interest", label: "Course interest" },
+  { id: "country_interest", label: "Country interest" },
+  { id: "lead_name", label: "Lead name" },
+  { id: "email", label: "Email" },
+  { id: "assigned_to", label: "Assigned to" },
+];
+
+export const CONDITION_OPERATORS = [
+  { id: "equals", label: "equals" },
+  { id: "not_equals", label: "does not equal" },
+  { id: "contains", label: "contains" },
+  { id: "not_contains", label: "does not contain" },
+  { id: "is_empty", label: "is empty" },
+  { id: "is_not_empty", label: "is not empty" },
+  { id: "gt", label: "greater than" },
+  { id: "lt", label: "less than" },
+];
+
+export const ACTION_TYPES = [
+  { id: "add_tag", label: "Add tag" },
+  { id: "remove_tag", label: "Remove tag" },
+  { id: "set_status", label: "Set lead status" },
+  { id: "set_field", label: "Set lead field" },
+  { id: "enroll_workflow", label: "Assign to workflow" },
+  { id: "remove_workflow", label: "Remove from workflow" },
+  { id: "human_takeover", label: "Hand over to a human" },
+  { id: "stop_flow", label: "Stop this flow" },
+];
+
+export const SETTABLE_FIELDS = [
+  "lead_name",
+  "course_interest",
+  "country_interest",
+  "email",
+  "notes",
+  "assigned_to",
+  "qualification_status",
+];
+
+function ConditionNode({ data, selected }: NodeProps) {
+  const d = data as { conditionField?: string; conditionOperator?: string; conditionValue?: string };
+  const field = CONDITION_FIELDS.find((f) => f.id === d.conditionField)?.label ?? "Lead status";
+  const op = CONDITION_OPERATORS.find((o) => o.id === d.conditionOperator)?.label ?? "equals";
+  return (
+    <div
+      className={`w-56 rounded-xl border-2 bg-card px-4 py-2 shadow-card ${selected ? "border-primary" : "border-border"}`}
+    >
+      <Handle type="target" position={Position.Top} />
+      <div className="flex items-center gap-2 text-xs font-semibold text-accent-foreground">
+        <GitBranch className="h-3.5 w-3.5" /> Condition
+      </div>
+      <p className="mt-1 line-clamp-2 text-xs text-foreground/80">
+        {field} {op} {d.conditionValue ? `"${d.conditionValue}"` : ""}
+      </p>
+      <div className="mt-1 flex justify-between text-[10px] font-medium">
+        <span className="text-emerald-600">yes</span>
+        <span className="text-destructive">no</span>
+      </div>
+      <Handle id="true" type="source" position={Position.Bottom} style={{ left: "25%" }} />
+      <Handle id="false" type="source" position={Position.Bottom} style={{ left: "75%" }} />
+    </div>
+  );
+}
+
+function ActionNode({ data, selected }: NodeProps) {
+  const d = data as { actionType?: string; actionValue?: string; actionField?: string };
+  const label = ACTION_TYPES.find((a) => a.id === d.actionType)?.label ?? "Action";
+  return (
+    <div
+      className={`w-52 rounded-xl border-2 bg-card px-4 py-2 shadow-card ${selected ? "border-primary" : "border-border"}`}
+    >
+      <Handle type="target" position={Position.Top} />
+      <div className="flex items-center gap-2 text-xs font-semibold text-primary">
+        <Tag className="h-3.5 w-3.5" /> {label}
+      </div>
+      <p className="mt-1 line-clamp-2 text-xs text-foreground/80">
+        {d.actionField ? `${d.actionField}: ` : ""}
+        {d.actionValue || "—"}
+      </p>
+      <Handle type="source" position={Position.Bottom} />
+    </div>
+  );
+}
+
+const nodeTypes = {
+  trigger: TriggerNode,
+  message: MessageNode,
+  workflow: WorkflowStepNode,
+  condition: ConditionNode,
+  action: ActionNode,
+};
 
 function defaultGraph(): { nodes: Node[]; edges: Edge[] } {
   return {
@@ -292,26 +388,31 @@ export function WorkflowBuilder({
   // Workflows selectable in a "call workflow" step (excludes the current one).
   const callableWorkflows = (workflows ?? []).filter((w) => w.id !== initial.id);
 
-  const addStepNode = (type: "message" | "workflow") => {
-    const id = `${type === "workflow" ? "w" : "m"}${Date.now()}`;
+  const addStepNode = (type: "message" | "workflow" | "condition" | "action") => {
+    const prefix = { message: "m", workflow: "w", condition: "c", action: "a" }[type];
+    const id = `${prefix}${Date.now()}`;
     const sources = new Set(edges.map((e) => e.source));
     const tail = nodes.find((n) => !sources.has(n.id)) ?? nodes[nodes.length - 1];
     const y = (tail?.position.y ?? 20) + 120;
+    const instant = type === "condition" || type === "action";
     const baseData = {
       anchor: "wait",
-      delayValue: messageCount === 0 && type === "message" ? 0 : 1,
-      delayUnit: messageCount === 0 && type === "message" ? "minutes" : "days",
+      delayValue: instant || (messageCount === 0 && type === "message") ? 0 : 1,
+      delayUnit: instant || (messageCount === 0 && type === "message") ? "minutes" : "days",
       offsetValue: 1,
       offsetUnit: "days",
+    };
+    const dataByType: Record<string, Record<string, unknown>> = {
+      workflow: { targetWorkflowId: "", targetWorkflowName: "" },
+      condition: { conditionField: "qualification_status", conditionOperator: "equals", conditionValue: "" },
+      action: { actionType: "add_tag", actionValue: "", actionField: "", actionWorkflowId: null },
+      message: { content: "", index: messageCount },
     };
     const newNode: Node = {
       id,
       type,
       position: { x: 80, y },
-      data:
-        type === "workflow"
-          ? { ...baseData, targetWorkflowId: "", targetWorkflowName: "" }
-          : { ...baseData, content: "", index: messageCount },
+      data: { ...baseData, ...dataByType[type] },
     };
     setNodes((nds) => [...nds, newNode]);
     if (tail) setEdges((eds) => addEdge({ source: tail.id, target: id, sourceHandle: null, targetHandle: null }, eds));
@@ -320,11 +421,18 @@ export function WorkflowBuilder({
 
   const addMessage = () => addStepNode("message");
   const addWorkflowStep = () => addStepNode("workflow");
+  const addCondition = () => addStepNode("condition");
+  const addAction = () => addStepNode("action");
 
   const selected = nodes.find(
-    (n) => n.id === selectedId && (n.type === "message" || n.type === "workflow"),
+    (n) =>
+      n.id === selectedId &&
+      (n.type === "message" || n.type === "workflow" || n.type === "condition" || n.type === "action"),
   );
   const selectedIsWorkflow = selected?.type === "workflow";
+  const selectedIsCondition = selected?.type === "condition";
+  const selectedIsAction = selected?.type === "action";
+  const selectedIsMessage = selected?.type === "message" || selected?.type === undefined;
 
   const updateSelected = (patch: Record<string, unknown>) => {
     setNodes((nds) =>
@@ -557,6 +665,12 @@ export function WorkflowBuilder({
           <Button variant="outline" size="sm" onClick={addWorkflowStep}>
             <WorkflowIcon className="mr-1 h-4 w-4" /> Call workflow step
           </Button>
+          <Button variant="outline" size="sm" onClick={addCondition}>
+            <GitBranch className="mr-1 h-4 w-4" /> Add condition
+          </Button>
+          <Button variant="outline" size="sm" onClick={addAction}>
+            <Tag className="mr-1 h-4 w-4" /> Add action
+          </Button>
         </div>
       </div>
 
@@ -583,12 +697,133 @@ export function WorkflowBuilder({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold">
-                  {selectedIsWorkflow ? "Edit call workflow" : "Edit message"}
+                  {selectedIsWorkflow
+                    ? "Edit call workflow"
+                    : selectedIsCondition
+                      ? "Edit condition"
+                      : selectedIsAction
+                        ? "Edit action"
+                        : "Edit message"}
                 </span>
                 <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setSelectedId(null)}>
                   <X className="h-4 w-4" />
                 </Button>
               </div>
+
+              {selectedIsCondition ? (
+                <div className="space-y-2">
+                  <div className="space-y-1.5">
+                    <Label>Test field</Label>
+                    <select
+                      value={String((selected.data as { conditionField?: string }).conditionField ?? "qualification_status")}
+                      onChange={(e) => updateSelected({ conditionField: e.target.value })}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {CONDITION_FIELDS.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Operator</Label>
+                    <select
+                      value={String((selected.data as { conditionOperator?: string }).conditionOperator ?? "equals")}
+                      onChange={(e) => updateSelected({ conditionOperator: e.target.value })}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {CONDITION_OPERATORS.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Value</Label>
+                    <Input
+                      value={String((selected.data as { conditionValue?: string }).conditionValue ?? "")}
+                      onChange={(e) => updateSelected({ conditionValue: e.target.value })}
+                      placeholder="e.g. hot, interested, yes"
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    Wire the left handle (yes) and the right handle (no) to different steps to branch the flow.
+                  </p>
+                </div>
+              ) : null}
+
+              {selectedIsAction ? (
+                <div className="space-y-2">
+                  <div className="space-y-1.5">
+                    <Label>Action</Label>
+                    <select
+                      value={String((selected.data as { actionType?: string }).actionType ?? "add_tag")}
+                      onChange={(e) => updateSelected({ actionType: e.target.value })}
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      {ACTION_TYPES.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {["enroll_workflow", "remove_workflow"].includes(
+                    String((selected.data as { actionType?: string }).actionType ?? "add_tag"),
+                  ) ? (
+                    <div className="space-y-1.5">
+                      <Label>Workflow</Label>
+                      <select
+                        value={String((selected.data as { actionWorkflowId?: string | null }).actionWorkflowId ?? "")}
+                        onChange={(e) => updateSelected({ actionWorkflowId: e.target.value || null })}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="">
+                          {String((selected.data as { actionType?: string }).actionType) === "remove_workflow"
+                            ? "All active workflows"
+                            : "Select a workflow…"}
+                        </option>
+                        {callableWorkflows.map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  {String((selected.data as { actionType?: string }).actionType ?? "add_tag") === "set_field" ? (
+                    <div className="space-y-1.5">
+                      <Label>Field</Label>
+                      <select
+                        value={String((selected.data as { actionField?: string }).actionField ?? "")}
+                        onChange={(e) => updateSelected({ actionField: e.target.value })}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="">Select a field…</option>
+                        {SETTABLE_FIELDS.map((f) => (
+                          <option key={f} value={f}>
+                            {f}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                  {!["human_takeover", "stop_flow", "enroll_workflow", "remove_workflow"].includes(
+                    String((selected.data as { actionType?: string }).actionType ?? "add_tag"),
+                  ) ? (
+                    <div className="space-y-1.5">
+                      <Label>Value</Label>
+                      <Input
+                        value={String((selected.data as { actionValue?: string }).actionValue ?? "")}
+                        onChange={(e) => updateSelected({ actionValue: e.target.value })}
+                        placeholder="e.g. vip"
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
 
               {selectedIsWorkflow ? (
                 <div className="space-y-1.5">
@@ -614,7 +849,7 @@ export function WorkflowBuilder({
                     if the target list looks empty.
                   </p>
                 </div>
-              ) : (
+              ) : selectedIsMessage ? (
                 <div className="space-y-1.5">
                   <Label>Message content</Label>
                   <Textarea
@@ -637,9 +872,9 @@ export function WorkflowBuilder({
                     ))}
                   </div>
                 </div>
-              )}
+              ) : null}
 
-              {!selectedIsWorkflow ? (
+              {selectedIsMessage ? (
                 <>
                   {/* Media attachment for this message step */}
                   <div className="space-y-1.5 rounded-md border bg-muted/20 p-2">

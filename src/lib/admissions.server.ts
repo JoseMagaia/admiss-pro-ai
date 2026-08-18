@@ -644,7 +644,7 @@ async function postWhatsAppCloud(
   if (!phoneId || !token) {
     return { ok: false, error: "WhatsApp Cloud API isn't fully configured (phone id + access token)." };
   }
-  const url = `https://graph.facebook.com/v20.0/${encodeURIComponent(phoneId)}/messages`;
+  const url = `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneId)}/messages`;
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -1297,8 +1297,8 @@ import { DEFAULT_AGENT_ID, delayToMs, type StepAnchor } from "./orchestration";
 import { runResponderAgent } from "./ai-engine.server";
 
 export interface WorkflowStep {
-  /** Step kind: send a message, or enroll the lead into another workflow. */
-  kind: "message" | "call_workflow";
+  /** Step kind: send a message, branch on a condition, run an action, or call a workflow. */
+  kind: "message" | "call_workflow" | "condition" | "action";
   content: string;
   /** For call_workflow steps: the workflow to enroll the lead into. */
   targetWorkflowId?: string | null;
@@ -1312,6 +1312,17 @@ export interface WorkflowStep {
   media?: OutboundAttachment | null;
   /** Optional quick-reply buttons. Each may link to a follow-up workflow. */
   buttons?: Array<{ id?: string; title: string; next_workflow_id?: string | null }>;
+  /** Graph node id this step came from (used by the branching walker). */
+  nodeId?: string;
+  /** Condition step config. */
+  conditionField?: string;
+  conditionOperator?: string;
+  conditionValue?: string;
+  /** Action step config. */
+  actionType?: string;
+  actionValue?: string;
+  actionField?: string;
+  actionWorkflowId?: string | null;
 }
 
 interface GraphNode {
@@ -1328,11 +1339,20 @@ interface GraphNode {
     offsetUnit?: string;
     media?: OutboundAttachment | null;
     buttons?: Array<{ id?: string; title: string; next_workflow_id?: string | null }>;
+    conditionField?: string;
+    conditionOperator?: string;
+    conditionValue?: string;
+    actionType?: string;
+    actionValue?: string;
+    actionField?: string;
+    actionWorkflowId?: string | null;
   };
 }
 interface GraphEdge {
   source: string;
   target: string;
+  /** "true" / "false" on condition nodes, null on plain sequential edges. */
+  sourceHandle?: string | null;
 }
 interface WorkflowGraph {
   nodes?: GraphNode[];
@@ -1403,64 +1423,134 @@ async function getLeadAppointmentAt(phone: string): Promise<string | null> {
   return (past as Array<{ appointment_date: string }> | null)?.[0]?.appointment_date ?? null;
 }
 
+// Convert a graph node into an executable workflow step.
+function nodeToStep(n: GraphNode): WorkflowStep {
+  const common = {
+    delayMs: nodeDelayMs(n.data),
+    anchor: (n.data?.anchor as StepAnchor) ?? "wait",
+    offsetMs: nodeOffsetMs(n.data),
+    nodeId: n.id,
+  };
+  if (n.type === "workflow") {
+    return {
+      kind: "call_workflow",
+      content: "",
+      targetWorkflowId: (n.data?.targetWorkflowId as string | null) ?? null,
+      ...common,
+    };
+  }
+  if (n.type === "condition") {
+    return {
+      kind: "condition",
+      content: "",
+      conditionField: String(n.data?.conditionField ?? "qualification_status"),
+      conditionOperator: String(n.data?.conditionOperator ?? "equals"),
+      conditionValue: String(n.data?.conditionValue ?? ""),
+      ...common,
+    };
+  }
+  if (n.type === "action") {
+    return {
+      kind: "action",
+      content: "",
+      actionType: String(n.data?.actionType ?? "add_tag"),
+      actionValue: String(n.data?.actionValue ?? ""),
+      actionField: String(n.data?.actionField ?? ""),
+      actionWorkflowId: (n.data?.actionWorkflowId as string | null) ?? null,
+      ...common,
+    };
+  }
+  return {
+    kind: "message",
+    content: String(n.data?.content ?? "").trim(),
+    targetWorkflowId: null,
+    media: (n.data?.media as OutboundAttachment | null) ?? null,
+    buttons: Array.isArray(n.data?.buttons) ? n.data!.buttons : [],
+    ...common,
+  };
+}
+
+// A step is executable if it carries a payload (message body/media/buttons),
+// a target workflow, or is a condition/action node.
+function isExecutableStep(s: WorkflowStep): boolean {
+  if (s.kind === "call_workflow") return Boolean(s.targetWorkflowId);
+  if (s.kind === "condition" || s.kind === "action") return true;
+  return s.content.length > 0 || Boolean(s.media?.url) || (s.buttons?.length ?? 0) > 0;
+}
+
+function isStepNode(n: GraphNode): boolean {
+  return n.type !== "trigger";
+}
+
+/** First executable node id in the graph (the node wired under the trigger). */
+export function firstStepNodeId(graph: unknown): string | null {
+  const g = (graph ?? {}) as WorkflowGraph;
+  const nodes = g.nodes ?? [];
+  const edges = g.edges ?? [];
+  const trigger = nodes.find((n) => n.type === "trigger");
+  if (trigger) {
+    const edge = edges.find((e) => e.source === trigger.id);
+    if (edge) return edge.target;
+  }
+  const first = nodes.find((n) => isStepNode(n));
+  return first?.id ?? null;
+}
+
+/** Look up a single executable step by node id. */
+export function stepAtNode(graph: unknown, nodeId: string | null): WorkflowStep | null {
+  if (!nodeId) return null;
+  const g = (graph ?? {}) as WorkflowGraph;
+  const node = (g.nodes ?? []).find((n) => n.id === nodeId && isStepNode(n));
+  if (!node) return null;
+  const step = nodeToStep(node);
+  return isExecutableStep(step) ? step : { ...step, kind: step.kind };
+}
+
+/** Follow the outgoing edge from a node. `branch` picks the true/false path. */
+export function nextStepNodeId(graph: unknown, nodeId: string, branch?: "true" | "false"): string | null {
+  const g = (graph ?? {}) as WorkflowGraph;
+  const edges = (g.edges ?? []).filter((e) => e.source === nodeId);
+  if (edges.length === 0) return null;
+  if (branch) {
+    const match = edges.find((e) => (e.sourceHandle ?? "") === branch);
+    if (match) return match.target;
+    // Fall back to the only unlabeled edge so half-wired branches still flow.
+    const plain = edges.find((e) => !e.sourceHandle);
+    return plain?.target ?? null;
+  }
+  const plain = edges.find((e) => !e.sourceHandle) ?? edges[0];
+  return plain?.target ?? null;
+}
+
 // Resolve the ordered steps from a saved visual graph. Walks the edges starting
-// from the trigger node; falls back to node array order. Includes message steps
-// and "call workflow" steps (which enroll the lead into another workflow).
+// from the trigger node; falls back to node array order. Used for linear
+// scheduling/preview; branching execution uses the node walker above.
 export function orderedSteps(graph: unknown): WorkflowStep[] {
   const g = (graph ?? {}) as WorkflowGraph;
   const nodes = g.nodes ?? [];
   const edges = g.edges ?? [];
-  const isStepNode = (n: GraphNode) => n.type === "message" || n.type === "workflow" || n.type === undefined;
   const stepNodes = nodes.filter(isStepNode);
   if (stepNodes.length === 0) return [];
 
   const trigger = nodes.find((n) => n.type === "trigger");
-  const toStep = (n: GraphNode): WorkflowStep => {
-    if (n.type === "workflow") {
-      return {
-        kind: "call_workflow",
-        content: "",
-        targetWorkflowId: (n.data?.targetWorkflowId as string | null) ?? null,
-        delayMs: nodeDelayMs(n.data),
-        anchor: (n.data?.anchor as StepAnchor) ?? "wait",
-        offsetMs: nodeOffsetMs(n.data),
-      };
-    }
-    return {
-      kind: "message",
-      content: String(n.data?.content ?? "").trim(),
-      targetWorkflowId: null,
-      delayMs: nodeDelayMs(n.data),
-      anchor: (n.data?.anchor as StepAnchor) ?? "wait",
-      offsetMs: nodeOffsetMs(n.data),
-      media: (n.data?.media as OutboundAttachment | null) ?? null,
-      buttons: Array.isArray(n.data?.buttons) ? n.data!.buttons : [],
-    };
-  };
-
-  // A step is valid if it has content (message), attached media, buttons, or a target workflow.
-  const isValid = (s: WorkflowStep) =>
-    s.kind === "call_workflow"
-      ? Boolean(s.targetWorkflowId)
-      : s.content.length > 0 || Boolean(s.media?.url) || (s.buttons?.length ?? 0) > 0;
 
   if (trigger && edges.length > 0) {
     const ordered: WorkflowStep[] = [];
     const seen = new Set<string>();
     let currentId: string | undefined = trigger.id;
     while (currentId) {
-      const edge = edges.find((e) => e.source === currentId);
+      const edge = edges.find((e) => e.source === currentId && !e.sourceHandle) ?? edges.find((e) => e.source === currentId);
       if (!edge || seen.has(edge.target)) break;
       seen.add(edge.target);
       const node = nodes.find((n) => n.id === edge.target);
-      if (node && isStepNode(node)) ordered.push(toStep(node));
+      if (node && isStepNode(node)) ordered.push(nodeToStep(node));
       currentId = edge.target;
     }
-    const filtered = ordered.filter(isValid);
+    const filtered = ordered.filter(isExecutableStep);
     if (filtered.length > 0) return filtered;
   }
 
-  return stepNodes.map(toStep).filter(isValid);
+  return stepNodes.map(nodeToStep).filter(isExecutableStep);
 }
 
 
@@ -1535,23 +1625,186 @@ async function sendWorkflowMessage(
   return sent;
 }
 
+// ---------- Typebot-style conditions & actions ----------
+
+/** Fetch the fields a condition can test for a lead/phone. */
+async function conditionContext(phone: string, leadId: string | null) {
+  const db = await admin();
+  const q = db.from("leads").select("*").limit(1);
+  const { data } = leadId ? await q.eq("id", leadId) : await q.eq("phone_number", phone);
+  const lead = ((data as Array<Record<string, unknown>> | null) ?? [])[0] ?? null;
+  const { data: msgs } = await db
+    .from("whatsapp_messages")
+    .select("message_content, sender, received_at")
+    .eq("phone_number", phone)
+    .order("received_at", { ascending: false })
+    .limit(20);
+  const rows = (msgs as Array<Record<string, unknown>> | null) ?? [];
+  const lastLead = rows.find((m) => m.sender === "lead");
+  return {
+    lead,
+    tags: Array.isArray(lead?.tags) ? (lead!.tags as string[]) : [],
+    lastReply: String(lastLead?.message_content ?? ""),
+    hasReplied: Boolean(lastLead),
+  };
+}
+
+/** Evaluate a condition step against the lead. Returns the branch to follow. */
+export async function evaluateCondition(step: WorkflowStep, phone: string, leadId: string | null): Promise<boolean> {
+  const ctx = await conditionContext(phone, leadId);
+  const field = step.conditionField ?? "qualification_status";
+  const op = step.conditionOperator ?? "equals";
+  const value = String(step.conditionValue ?? "").trim();
+
+  if (field === "tags") {
+    const has = ctx.tags.some((t) => t.toLowerCase() === value.toLowerCase());
+    return op === "not_has_tag" || op === "not_contains" || op === "not_equals" ? !has : has;
+  }
+  if (field === "has_replied") {
+    return op === "not_equals" ? !ctx.hasReplied : ctx.hasReplied;
+  }
+
+  const raw =
+    field === "last_reply"
+      ? ctx.lastReply
+      : String(((ctx.lead ?? {}) as Record<string, unknown>)[field] ?? "");
+  const a = raw.toLowerCase();
+  const b = value.toLowerCase();
+  switch (op) {
+    case "equals":
+      return a === b;
+    case "not_equals":
+      return a !== b;
+    case "contains":
+      return a.includes(b);
+    case "not_contains":
+      return !a.includes(b);
+    case "is_empty":
+      return a.trim().length === 0;
+    case "is_not_empty":
+      return a.trim().length > 0;
+    case "gt":
+      return Number(a) > Number(b);
+    case "lt":
+      return Number(a) < Number(b);
+    default:
+      return false;
+  }
+}
+
+/** Run an action step (tagging, field/status updates, flow assignment/removal). */
+export async function runWorkflowAction(
+  step: WorkflowStep,
+  phone: string,
+  leadId: string | null,
+  workspaceId: string | null,
+): Promise<{ stop: boolean }> {
+  const db = await admin();
+  const type = step.actionType ?? "add_tag";
+  const value = String(step.actionValue ?? "").trim();
+
+  const loadLead = async () => {
+    const q = db.from("leads").select("id, tags").limit(1);
+    const { data } = leadId ? await q.eq("id", leadId) : await q.eq("phone_number", phone);
+    return ((data as Array<Record<string, unknown>> | null) ?? [])[0] ?? null;
+  };
+
+  if (type === "add_tag" || type === "remove_tag") {
+    const lead = await loadLead();
+    if (!lead || !value) return { stop: false };
+    const current = Array.isArray(lead.tags) ? (lead.tags as string[]) : [];
+    const next =
+      type === "add_tag"
+        ? Array.from(new Set([...current, value]))
+        : current.filter((t) => t.toLowerCase() !== value.toLowerCase());
+    await db.from("leads").update({ tags: next } as never).eq("id", lead.id as string);
+    return { stop: false };
+  }
+
+  if (type === "set_status") {
+    const lead = await loadLead();
+    if (lead && value) {
+      await db.from("leads").update({ qualification_status: value } as never).eq("id", lead.id as string);
+    }
+    return { stop: false };
+  }
+
+  if (type === "set_field") {
+    const lead = await loadLead();
+    const field = String(step.actionField ?? "").trim();
+    const allowed = [
+      "lead_name",
+      "course_interest",
+      "country_interest",
+      "notes",
+      "email",
+      "assigned_to",
+      "qualification_status",
+    ];
+    if (lead && field && allowed.includes(field)) {
+      await db.from("leads").update({ [field]: value } as never).eq("id", lead.id as string);
+    }
+    return { stop: false };
+  }
+
+  if (type === "enroll_workflow") {
+    if (step.actionWorkflowId) {
+      await enrollLeadInWorkflowById({ workflowId: step.actionWorkflowId, phone, leadId, workspaceId });
+    }
+    return { stop: false };
+  }
+
+  if (type === "remove_workflow") {
+    const target = step.actionWorkflowId;
+    const q = db
+      .from("workflow_enrollments")
+      .update({ status: "cancelled" } as never)
+      .eq("phone_number", phone)
+      .eq("status", "active");
+    if (target) await q.eq("workflow_id", target);
+    else await q;
+    return { stop: false };
+  }
+
+  if (type === "human_takeover") {
+    await db
+      .from("conversations")
+      .update({ human_takeover: true, status: "pending" } as never)
+      .eq("phone_number", phone);
+    return { stop: false };
+  }
+
+  if (type === "stop_flow") return { stop: true };
+
+  return { stop: false };
+}
+
 // Execute a single workflow step: send its message, or (for a "call workflow"
 // step) enroll the lead into the target workflow. Enrolling without sendNow lets
 // the cron advance the called workflow on its next tick, which also prevents
 // infinite recursion between workflows that reference each other (the dedup in
 // enrollLeadInWorkflowById stops a lead being enrolled twice in the same flow).
+// Returns the branch taken for condition steps and whether the flow should stop.
 async function executeWorkflowStep(
   step: WorkflowStep | undefined,
   phone: string,
   workspaceId: string | null,
   leadId: string | null,
-): Promise<void> {
-  if (!step) return;
+): Promise<{ branch?: "true" | "false"; stop?: boolean }> {
+  if (!step) return {};
+  if (step.kind === "condition") {
+    const result = await evaluateCondition(step, phone, leadId);
+    return { branch: result ? "true" : "false" };
+  }
+  if (step.kind === "action") {
+    const { stop } = await runWorkflowAction(step, phone, leadId, workspaceId);
+    return { stop };
+  }
   if (step.kind === "call_workflow") {
     if (step.targetWorkflowId) {
       await enrollLeadInWorkflowById({ workflowId: step.targetWorkflowId, phone, leadId, workspaceId });
     }
-    return;
+    return {};
   }
   const hasMedia = Boolean(step.media?.url);
   const rawButtons = (step.buttons ?? []).filter((b) => b && String(b.title ?? "").trim()).slice(0, 3);
@@ -1565,6 +1818,7 @@ async function executeWorkflowStep(
       buttons: buttons.length > 0 ? buttons : null,
     });
   }
+  return {};
 }
 
 
@@ -1698,6 +1952,14 @@ async function tryWorkflowResponder(params: {
       });
     }
 
+    // Send first so the provider message id + delivery status are captured.
+    const agentSent = await sendWorkspaceMessage({
+      workspace: params.workspace,
+      creds: params.creds,
+      phone: params.phone,
+      conversationId: params.conversationId,
+      message: cleanReply,
+    });
     await db.from("whatsapp_messages").insert({
       phone_number: params.phone,
       message_content: cleanReply,
@@ -1705,14 +1967,9 @@ async function tryWorkflowResponder(params: {
       message_type: "text",
       ai_response: cleanReply,
       processed: true,
-    });
-    await sendWorkspaceMessage({
-      workspace: params.workspace,
-      creds: params.creds,
-      phone: params.phone,
-      conversationId: params.conversationId,
-      message: cleanReply,
-    });
+      wamid: agentSent.wamid ?? null,
+      delivery_status: agentSent.ok ? "sent" : "failed",
+    } as never);
     return cleanReply;
   }
 
@@ -1823,6 +2080,7 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
           lead_id: lead.id,
           phone_number: lead.phone_number,
           current_step: 0,
+          current_node_id: step0?.nodeId ?? firstStepNodeId(wf.graph),
           status: "active",
           next_run_at: runAt.toISOString(),
         } as never);
@@ -1852,8 +2110,14 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
         return 0;
       }
       const steps = orderedSteps(wf.graph);
-      const step = Number(enr.current_step ?? 0);
-      if (step >= steps.length) {
+      const stepIndex = Number(enr.current_step ?? 0);
+      // Branching walker: prefer the stored node id, falling back to the legacy
+      // linear index for enrollments created before branching existed.
+      let nodeId =
+        (enr.current_node_id as string | null) ??
+        steps[stepIndex]?.nodeId ??
+        (stepIndex === 0 ? firstStepNodeId(wf.graph) : null);
+      if (!nodeId) {
         await db
           .from("workflow_enrollments")
           .update({ status: "completed", next_run_at: null } as never)
@@ -1861,37 +2125,81 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
         return 0;
       }
 
-      await executeWorkflowStep(
-        steps[step],
-        String(enr.phone_number),
-        (wf.workspace_id as string) ?? null,
-        (enr.lead_id as string | null) ?? null,
-      );
+      const phone = String(enr.phone_number);
+      const goalAt = (enr.goal_at as string | null) ?? null;
+      let executed = 0;
+      let done = false;
+      let scheduled = false;
+      let nextNodeId: string | null = null;
+      let nextStepObj: WorkflowStep | null = null;
 
-      const nextStep = step + 1;
-      if (nextStep >= steps.length) {
-        await db
-          .from("workflow_enrollments")
-          .update({ current_step: nextStep, status: "completed", next_run_at: null, last_step_at: new Date().toISOString() } as never)
-          .eq("id", enr.id as string);
-      } else {
-        const nextStepObj = steps[nextStep];
-        const goalAt = (enr.goal_at as string | null) ?? null;
-        const apptAt =
-          nextStepObj?.anchor === "before_appointment"
-            ? await getLeadAppointmentAt(String(enr.phone_number))
-            : null;
-        const runAt = stepNextRunAt(nextStepObj, goalAt, apptAt);
+      // Run the due node; chain through instant condition/action nodes so a
+      // branch resolves within the same tick.
+      for (let hops = 0; hops < 25; hops += 1) {
+        const step = stepAtNode(wf.graph, nodeId);
+        if (!step) {
+          done = true;
+          break;
+        }
+        const result = await executeWorkflowStep(
+          step,
+          phone,
+          (wf.workspace_id as string) ?? null,
+          (enr.lead_id as string | null) ?? null,
+        );
+        executed = 1;
+        if (result.stop) {
+          done = true;
+          break;
+        }
+        const candidate = nextStepNodeId(wf.graph, nodeId!, result.branch);
+        if (!candidate) {
+          done = true;
+          break;
+        }
+        const candidateStep = stepAtNode(wf.graph, candidate);
+        const instant =
+          candidateStep !== null &&
+          (candidateStep.kind === "condition" || candidateStep.kind === "action") &&
+          candidateStep.anchor === "wait" &&
+          candidateStep.delayMs <= 0;
+        if (instant) {
+          nodeId = candidate;
+          continue;
+        }
+        nextNodeId = candidate;
+        nextStepObj = candidateStep;
+        scheduled = true;
+        break;
+      }
+
+      if (done || !scheduled || !nextNodeId) {
         await db
           .from("workflow_enrollments")
           .update({
-            current_step: nextStep,
-            next_run_at: runAt.toISOString(),
+            current_step: stepIndex + 1,
+            current_node_id: null,
+            status: "completed",
+            next_run_at: null,
             last_step_at: new Date().toISOString(),
           } as never)
           .eq("id", enr.id as string);
+        return executed;
       }
-      return 1;
+
+      const apptAt =
+        nextStepObj?.anchor === "before_appointment" ? await getLeadAppointmentAt(phone) : null;
+      const runAt = stepNextRunAt(nextStepObj ?? undefined, goalAt, apptAt);
+      await db
+        .from("workflow_enrollments")
+        .update({
+          current_step: stepIndex + 1,
+          current_node_id: nextNodeId,
+          next_run_at: runAt.toISOString(),
+          last_step_at: new Date().toISOString(),
+        } as never)
+        .eq("id", enr.id as string);
+      return executed;
     });
   }
 
@@ -1958,6 +2266,7 @@ async function enrollLeadInWorkflowRow(
         lead_id: params.leadId ?? null,
         phone_number: params.phone,
         current_step: nextStep,
+        current_node_id: null,
         status: "completed",
         reacted: false,
         goal_at: goalAt,
@@ -1974,6 +2283,7 @@ async function enrollLeadInWorkflowRow(
         lead_id: params.leadId ?? null,
         phone_number: params.phone,
         current_step: nextStep,
+        current_node_id: nextStepObj?.nodeId ?? null,
         status: "active",
         reacted: false,
         goal_at: goalAt,
@@ -1995,6 +2305,7 @@ async function enrollLeadInWorkflowRow(
     lead_id: params.leadId ?? null,
     phone_number: params.phone,
     current_step: 0,
+    current_node_id: step0?.nodeId ?? firstStepNodeId(target.graph),
     status: "active",
     reacted: false,
     goal_at: goalAt,
@@ -2204,7 +2515,12 @@ export async function deliverCampaignMessage(params: {
     null;
 
   // Chatwoot needs an existing conversation to post into; create one on demand.
-  if (workspace && workspace.provider_type !== "evolution" && !conversationId) {
+  if (
+    workspace &&
+    workspace.provider_type !== "evolution" &&
+    workspace.provider_type !== "whatsapp_cloud" &&
+    !conversationId
+  ) {
     conversationId = await createChatwootConversation({
       creds,
       inboxId: workspace.chatwoot_inbox_id ?? null,
