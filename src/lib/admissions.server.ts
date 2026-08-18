@@ -1952,6 +1952,14 @@ async function tryWorkflowResponder(params: {
       });
     }
 
+    // Send first so the provider message id + delivery status are captured.
+    const agentSent = await sendWorkspaceMessage({
+      workspace: params.workspace,
+      creds: params.creds,
+      phone: params.phone,
+      conversationId: params.conversationId,
+      message: cleanReply,
+    });
     await db.from("whatsapp_messages").insert({
       phone_number: params.phone,
       message_content: cleanReply,
@@ -1959,14 +1967,9 @@ async function tryWorkflowResponder(params: {
       message_type: "text",
       ai_response: cleanReply,
       processed: true,
-    });
-    await sendWorkspaceMessage({
-      workspace: params.workspace,
-      creds: params.creds,
-      phone: params.phone,
-      conversationId: params.conversationId,
-      message: cleanReply,
-    });
+      wamid: agentSent.wamid ?? null,
+      delivery_status: agentSent.ok ? "sent" : "failed",
+    } as never);
     return cleanReply;
   }
 
