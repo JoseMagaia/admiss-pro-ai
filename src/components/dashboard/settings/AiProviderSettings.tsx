@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Save, Cpu, KeyRound, Plug, Loader2 } from "lucide-react";
+import { Save, KeyRound, Plug, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -47,7 +47,7 @@ export function AiProviderSettings() {
   const { data } = useQuery({ queryKey: ["ai-config"], queryFn: () => getFn() });
   const cfg = (data?.config ?? null) as ConfigRow | null;
 
-  const [mode, setMode] = useState<"built_in" | "custom">("built_in");
+  const [mode] = useState<"custom">("custom");
   const [provider, setProvider] = useState("openai");
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
@@ -56,7 +56,6 @@ export function AiProviderSettings() {
 
   useEffect(() => {
     if (!cfg) return;
-    setMode((cfg.provider_mode as "built_in" | "custom") ?? "built_in");
     setProvider(cfg.custom_provider ?? "openai");
     setBaseUrl(cfg.custom_base_url ?? "");
     setModel(cfg.custom_model ?? "");
@@ -123,42 +122,9 @@ export function AiProviderSettings() {
     <div className="space-y-6">
       <SettingsCard
         title="AI Provider"
-        description="Choose between Lovable's built-in AI or your own provider and API key. Applies instantly to the assistant."
+        description="The assistant uses your own provider and API key. Applies instantly to the assistant, AI reports and responder agents."
       >
-      {/* Mode toggle */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => setMode("built_in")}
-          className={cn(
-            "flex items-start gap-3 rounded-xl border p-4 text-left transition-colors",
-            mode === "built_in" ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-muted/50",
-          )}
-        >
-          <Cpu className="mt-0.5 h-5 w-5 text-primary" />
-          <span>
-            <span className="block text-sm font-semibold">Built-in AI</span>
-            <span className="block text-xs text-muted-foreground">Powered by Lovable AI. No API key required.</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode("custom")}
-          className={cn(
-            "flex items-start gap-3 rounded-xl border p-4 text-left transition-colors",
-            mode === "custom" ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-muted/50",
-          )}
-        >
-          <KeyRound className="mt-0.5 h-5 w-5 text-primary" />
-          <span>
-            <span className="block text-sm font-semibold">Own API Key</span>
-            <span className="block text-xs text-muted-foreground">Use your own provider, model and key.</span>
-          </span>
-        </button>
-      </div>
-
-      {mode === "custom" && (
-        <div className="space-y-4 rounded-xl border bg-muted/30 p-4">
+      <div className="space-y-4 rounded-xl border bg-muted/30 p-4">
           <div className="space-y-1.5">
             <Label>Provider</Label>
             <select
@@ -217,22 +183,19 @@ export function AiProviderSettings() {
             </p>
           </div>
         </div>
-      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={() => save.mutate()} disabled={save.isPending}>
           <Save className="mr-1 h-4 w-4" /> Save Provider Settings
         </Button>
-        {mode === "custom" && (
-          <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending}>
-            {test.isPending ? (
-              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-            ) : (
-              <Plug className="mr-1 h-4 w-4" />
-            )}
-            Test connection
-          </Button>
-        )}
+        <Button variant="outline" onClick={() => test.mutate()} disabled={test.isPending}>
+          {test.isPending ? (
+            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+          ) : (
+            <Plug className="mr-1 h-4 w-4" />
+          )}
+          Test connection
+        </Button>
       </div>
       </SettingsCard>
 

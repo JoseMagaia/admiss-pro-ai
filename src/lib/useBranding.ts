@@ -9,7 +9,7 @@ import logoDarkAsset from "@/assets/fliq-logo-dark.png.asset.json";
 // surfaces (e.g. the sidebar).
 export const DEFAULT_BRAND = {
   name: "fliq",
-  tagline: "Linkmoore Education · AI Admissions Platform",
+  tagline: "fliq · AI Lead Generation & Appointment Platform",
   logoLight: logoLightAsset.url,
   logoDark: logoDarkAsset.url,
 };

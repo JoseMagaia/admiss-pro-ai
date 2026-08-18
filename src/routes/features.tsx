@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
-  GraduationCap,
+  Target,
   Globe,
   Bot,
   Calendar,
@@ -15,17 +15,17 @@ import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/features")({
   head: () => ({
     meta: [
-      { title: "Features — Linkmoore Education AI Admissions" },
+      { title: "Features — fliq" },
       {
         name: "description",
         content:
-          "Explore the Linkmoore AI admissions platform: 24/7 WhatsApp lead qualification, scholarship screening, document collection and automated booking preparation.",
+          "Explore fliq: 24/7 WhatsApp lead capture, AI qualification, automated follow-ups and appointment booking.",
       },
-      { property: "og:title", content: "Features — Linkmoore Education AI Admissions" },
+      { property: "og:title", content: "Features — fliq" },
       {
         property: "og:description",
         content:
-          "24/7 WhatsApp lead qualification, scholarship screening, document collection and automated booking preparation.",
+          "24/7 WhatsApp lead capture, AI qualification, automated follow-ups and appointment booking.",
       },
       { property: "og:type", content: "website" },
       { property: "og:url", content: "https://agents.linkmoore.com/features" },
@@ -39,22 +39,12 @@ const features = [
   {
     icon: Bot,
     title: "24/7 Lead Qualification",
-    desc: "An AI admissions agent qualifies every WhatsApp lead instantly — day or night, in Portuguese or English.",
-  },
-  {
-    icon: GraduationCap,
-    title: "Scholarship Screening",
-    desc: "Assess academic profiles and financial alignment to surface students who fit your programs and funding.",
-  },
-  {
-    icon: Globe,
-    title: "Admissions Guidance",
-    desc: "Capture course and destination interest, then guide students through every admission requirement.",
+    desc: "An AI assistant captures and qualifies every WhatsApp lead instantly — day or night, in Portuguese or English.",
   },
   {
     icon: Calendar,
-    title: "Booking Preparation",
-    desc: "Qualified leads are handed to your team with a booking request ready for the confirmation call.",
+    title: "Appointment Setting",
+    desc: "Qualified leads pick a slot from your calendar and get booked automatically — ready for your team to confirm.",
   },
   {
     icon: MessageSquare,
@@ -62,18 +52,28 @@ const features = [
     desc: "Connected through Chatwoot, replies appear right inside the conversation — no extra apps needed.",
   },
   {
+    icon: Globe,
+    title: "Multi-channel Capture",
+    desc: "Bring leads in from WhatsApp and more, with every conversation unified in a single inbox.",
+  },
+  {
     icon: FileText,
-    title: "Document Collection",
-    desc: "Request and track academic documents and parent consent automatically along the pipeline.",
+    title: "Smart Follow-ups",
+    desc: "Automated sequences keep every lead warm and engaged until they book a call with your team.",
+  },
+  {
+    icon: Target,
+    title: "Qualified Handoff",
+    desc: "Only ready-to-convert leads reach your team — with full context and a booking request attached.",
   },
 ];
 
 const detailed = [
-  "Lead memory that remembers every student across conversations.",
-  "Financial readiness and parent-consent checks built into the flow.",
+  "Lead memory that remembers every prospect across conversations.",
+  "Availability and appointment slots synced to your calendar options.",
   "Configurable AI prompt, variables and provider — no redeploy needed.",
   "Switch between built-in AI or your own provider and API key.",
-  "Human takeover the moment a student asks for a person.",
+  "Human takeover the moment a lead asks for a person.",
   "Outbound HTTP actions to trigger your CRM or automation tools.",
 ];
 
@@ -84,9 +84,9 @@ function Features() {
         <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
           <Link to="/" className="flex items-center gap-2 text-primary-foreground">
             <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-accent shadow-glow">
-              <GraduationCap className="h-5 w-5 text-accent-foreground" />
+              <Target className="h-5 w-5 text-accent-foreground" />
             </span>
-            <span className="font-display text-lg font-bold">Linkmoore</span>
+            <span className="font-display text-lg font-bold">fliq</span>
           </Link>
           <Button asChild variant="secondary" size="sm">
             <Link to="/auth">
@@ -98,9 +98,10 @@ function Features() {
 
       <section className="bg-gradient-hero pb-16 pt-32 text-primary-foreground">
         <div className="mx-auto max-w-4xl px-6 text-center">
-          <h1 className="text-4xl font-extrabold sm:text-5xl">Built for modern admissions teams</h1>
+          <h1 className="text-4xl font-extrabold sm:text-5xl">Built to fill your calendar</h1>
           <p className="mx-auto mt-5 max-w-2xl text-lg text-primary-foreground/80">
-            Everything Linkmoore's AI assistant does to turn WhatsApp conversations into enrolled students.
+            Everything fliq's AI assistant does to turn WhatsApp conversations into qualified leads and
+            booked appointments.
           </p>
         </div>
       </section>
@@ -150,10 +151,10 @@ function Features() {
       <footer className="border-t py-8">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-3 px-6 text-sm text-muted-foreground sm:flex-row">
           <div className="flex items-center gap-2">
-            <GraduationCap className="h-4 w-4 text-primary" />
-            <span className="font-display font-semibold text-foreground">Linkmoore Education</span>
+            <Target className="h-4 w-4 text-primary" />
+            <span className="font-display font-semibold text-foreground">fliq</span>
           </div>
-          <p>AI Admissions Qualification Platform</p>
+          <p>AI Lead Generation & Appointment Platform</p>
         </div>
       </footer>
     </div>

@@ -95,7 +95,9 @@ export function WorkflowManager() {
         const agentName = agents.find((a) => a.id === w.agent_id)?.name ?? "No responder";
         const stepCount = ((w.graph as { nodes?: unknown[] })?.nodes ?? []).filter((n) => {
           const t = (n as { type?: string }).type;
-          return t === "message" || t === "workflow";
+          const d = (n as { data?: { type?: string; _t?: string } }).data;
+          const kind = d?.type ?? d?._t ?? t;
+          return Boolean(kind) && kind !== "trigger";
         }).length;
         return (
           <div key={w.id} className="flex items-center justify-between gap-3 rounded-xl border bg-card p-4">

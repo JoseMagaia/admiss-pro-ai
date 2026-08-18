@@ -40,7 +40,7 @@ import { useBranding } from "@/lib/useBranding";
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
     meta: [
-      { title: "Admissions Dashboard — Linkmoore Education" },
+      { title: "fliq — Lead & Appointment Dashboard" },
       { name: "description", content: "Manage leads, conversations, bookings and AI behavior." },
       { name: "robots", content: "noindex" },
     ],

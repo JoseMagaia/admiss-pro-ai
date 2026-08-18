@@ -8,8 +8,8 @@ export const Route = createFileRoute("/api/public/process-workflows")({
     handlers: {
       POST: async ({ request }) => {
         const apiKey = request.headers.get("apikey");
-        const expected = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY;
-        if (expected && apiKey !== expected) {
+        const expected = process.env.WEBHOOK_SECRET || "local-dev-webhook-secret";
+        if (apiKey !== expected) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },

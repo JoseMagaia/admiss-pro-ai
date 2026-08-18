@@ -230,7 +230,7 @@ export function AiProviderFallback() {
   return (
     <SettingsCard
       title="Provider Fallback & Auto-Rotation"
-      description="Store multiple provider credentials in priority order. When a provider hits its rate limit, the assistant automatically rotates to the next provider's models. Built-in AI is always the final fallback."
+      description="Store multiple provider credentials in priority order. When a provider hits its rate limit, the assistant automatically rotates to the next provider's models."
     >
       <div className="flex items-start justify-between gap-4 rounded-xl border bg-muted/30 p-4">
         <div className="flex items-start gap-3">
@@ -367,8 +367,8 @@ export function AiProviderFallback() {
       </Button>
 
       <div className="rounded-lg border border-dashed bg-muted/20 p-3 text-xs text-muted-foreground">
-        <span className="font-medium text-foreground">Built-in AI</span> is automatically used as the last fallback after every
-        provider above is exhausted, so the assistant never goes offline.
+        Add every provider you want available for rotation. If none respond, the assistant replies with a graceful
+        "advisor will get back to you" message.
       </div>
     </SettingsCard>
   );

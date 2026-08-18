@@ -48,7 +48,7 @@ export interface AiContext {
 export interface WorkspaceRow {
   id: string;
   name: string;
-  /** Connection provider: "chatwoot" (default) or "evolution" (Evolution API / WhatsApp). */
+  /** Connection provider: "chatwoot" (default), "evolution" or "waba" (Meta WhatsApp Business Platform). */
   provider_type: string;
   chatwoot_url: string | null;
   chatwoot_account_id: string | null;
@@ -57,6 +57,13 @@ export interface WorkspaceRow {
   evolution_url: string | null;
   evolution_api_key: string | null;
   evolution_instance: string | null;
+  waba_phone_number_id: string | null;
+  waba_business_account_id: string | null;
+  waba_access_token: string | null;
+  waba_api_version: string | null;
+  waba_verify_token: string | null;
+  waba_app_secret: string | null;
+  waba_display_name: string | null;
   enabled: boolean;
   is_default: boolean;
   use_shared_ai: boolean;
@@ -85,7 +92,8 @@ export async function loadAiContext(): Promise<AiContext> {
   const builtInModel = (config?.model as string) ?? "google/gemini-3-flash-preview";
 
   // Build the prioritized fallback chain when rotation is enabled and at least
-  // one provider is configured. Built-in Lovable AI is always appended last.
+  // one user-configured provider exists. The old built-in Lovable gateway is
+  // intentionally excluded — a custom provider is required.
   let fallbackChain: import("./ai-engine.server").AiFallbackTarget[] | null = null;
   if (cfg?.fallback_enabled && Array.isArray(pool) && pool.length > 0) {
     const chain: import("./ai-engine.server").AiFallbackTarget[] = (pool as Array<Record<string, unknown>>)
@@ -95,8 +103,7 @@ export async function loadAiContext(): Promise<AiContext> {
         apiKey: (row.api_key as string | null) ?? null,
         models: Array.isArray(row.models) ? (row.models as string[]).filter(Boolean) : [],
       }))
-      .filter((t) => t.provider && (t.provider.toLowerCase() === "built_in" || (t.apiKey && t.models.length > 0)));
-    chain.push({ provider: "built_in", baseUrl: null, apiKey: null, models: [builtInModel] });
+      .filter((t) => t.provider && t.provider.toLowerCase() !== "built_in" && (t.apiKey && t.models.length > 0));
     fallbackChain = chain;
   }
 
@@ -132,6 +139,7 @@ export async function resolveWorkspace(params: {
   inboxId?: string | null;
   accountId?: string | null;
   instance?: string | null;
+  phoneNumberId?: string | null;
 }): Promise<WorkspaceRow | null> {
   // Discovery must search across all spaces to find the owning workspace.
   const db = await rawAdmin();
@@ -142,6 +150,16 @@ export async function resolveWorkspace(params: {
   if (params.workspaceId) {
     const byId = rows.find((w) => w.id === params.workspaceId);
     if (byId) return byId;
+  }
+  if (params.phoneNumberId) {
+    const wanted = String(params.phoneNumberId).trim();
+    const byWaba = rows.find(
+      (w) =>
+        w.provider_type === "waba" &&
+        w.waba_phone_number_id &&
+        String(w.waba_phone_number_id).trim() === wanted,
+    );
+    if (byWaba) return byWaba;
   }
   if (params.instance) {
     const wanted = String(params.instance).trim();
@@ -538,10 +556,70 @@ export async function sendEvolutionReply(
   }
 }
 
-// Provider-agnostic outbound delivery. Routes to Evolution API when the
-// workspace uses that provider, otherwise falls back to Chatwoot. This is the
-// single send path used by the AI engine, responder agents, workflows, manual
-// replies and scheduled messages so behavior stays identical across providers.
+// Send a WhatsApp message through the official Meta WhatsApp Business Platform
+// (WABA / Cloud API). Uses the Phone Number ID + system-user access token stored
+// on the connection, and the graph API version chosen in settings.
+export async function sendWabaReply(
+  workspace: WorkspaceRow | null,
+  phone: string,
+  message: string,
+): Promise<SendResult> {
+  const phoneNumberId = String(workspace?.waba_phone_number_id ?? "").trim();
+  const token = String(workspace?.waba_access_token ?? "").trim();
+  const apiVersion = String(workspace?.waba_api_version ?? "v21.0").trim() || "v21.0";
+  if (!phoneNumberId || !token) {
+    return { ok: false, error: "WABA isn't fully set up for this connection yet (phone number ID + token)." };
+  }
+  const number = toEvolutionNumber(phone);
+  if (!number) return { ok: false, error: "The contact's phone number is invalid." };
+  const url = `https://graph.facebook.com/${encodeURIComponent(apiVersion)}/${encodeURIComponent(phoneNumberId)}/messages`;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: number,
+        type: "text",
+        text: { body: message, preview_url: false },
+      }),
+    });
+    if (!res.ok) {
+      const bodyText = await res.text().catch(() => "");
+      let detail = "";
+      try {
+        const parsed = JSON.parse(bodyText) as { error?: { message?: string; code?: number } };
+        detail = parsed?.error?.message ?? "";
+      } catch {
+        detail = bodyText.slice(0, 200);
+      }
+      console.error("WABA send failed:", res.status, bodyText.slice(0, 300));
+      if (res.status === 401 || res.status === 403) {
+        return { ok: false, error: "Meta rejected the access token (check it in Settings → Connections)." };
+      }
+      if (res.status === 404) {
+        return { ok: false, error: "Phone number ID not found on Meta (check the connection)." };
+      }
+      return {
+        ok: false,
+        error: detail ? `WhatsApp rejected the message: ${detail}` : `Meta returned an error (${res.status}).`,
+      };
+    }
+    return { ok: true };
+  } catch (e) {
+    console.error("WABA reply failed:", e);
+    return { ok: false, error: "Couldn't reach the Meta Graph API." };
+  }
+}
+
+// Provider-agnostic outbound delivery. Routes to Evolution API or the official
+// WhatsApp Business Platform (WABA) when the connection uses those providers,
+// otherwise falls back to Chatwoot. This is the single send path used by the AI
+// engine, responder agents, workflows, manual replies and scheduled messages so
+// behavior stays identical across providers.
 export async function sendWorkspaceMessage(params: {
   workspace: WorkspaceRow | null;
   creds: ChatwootCreds | null;
@@ -555,6 +633,9 @@ export async function sendWorkspaceMessage(params: {
   }
   if (workspace.provider_type === "evolution") {
     return sendEvolutionReply(workspace, phone, message);
+  }
+  if (workspace.provider_type === "waba") {
+    return sendWabaReply(workspace, phone, message);
   }
   return sendChatwootReply(creds, conversationId, message);
 }
@@ -577,6 +658,8 @@ export async function processInboundMessage(params: {
   chatwootAccountId?: string | null;
   /** Evolution API instance name (when the message arrived via Evolution webhook). */
   evolutionInstance?: string | null;
+  /** WABA Phone Number ID (when the message arrived via the Meta WhatsApp webhook). */
+  wabaPhoneNumberId?: string | null;
 }): Promise<ProcessResult> {
   const {
     phone,
@@ -586,14 +669,17 @@ export async function processInboundMessage(params: {
     chatwootInboxId,
     chatwootAccountId,
     evolutionInstance,
+    wabaPhoneNumberId,
   } = params;
 
-  // Resolve which workspace (Chatwoot inbox or Evolution instance) handles this
-  // conversation FIRST so the rest of the pipeline runs inside the owning Space.
+  // Resolve which workspace (Chatwoot inbox, Evolution instance or WABA number)
+  // handles this conversation FIRST so the rest of the pipeline runs inside the
+  // owning Space.
   const workspace = await resolveWorkspace({
     inboxId: chatwootInboxId,
     accountId: chatwootAccountId,
     instance: evolutionInstance,
+    phoneNumberId: wabaPhoneNumberId,
   });
   const { getDefaultSpaceId } = await import("./space-context.server");
   const spaceId = (workspace?.space_id as string | null) ?? (await getDefaultSpaceId());
@@ -975,9 +1061,23 @@ import { PIPELINE_COLUMNS } from "./pipeline";
 import { DEFAULT_AGENT_ID, delayToMs, type StepAnchor } from "./orchestration";
 import { runResponderAgent } from "./ai-engine.server";
 
+export type WorkflowStepKind =
+  | "message"
+  | "image"
+  | "buttons"
+  | "wait"
+  | "condition"
+  | "setvar"
+  | "ai"
+  | "http"
+  | "booking"
+  | "handoff"
+  | "end"
+  | "call_workflow";
+
 export interface WorkflowStep {
-  /** Step kind: send a message, or enroll the lead into another workflow. */
-  kind: "message" | "call_workflow";
+  /** Block kind executed by the engine. */
+  kind: WorkflowStepKind;
   content: string;
   /** For call_workflow steps: the workflow to enroll the lead into. */
   targetWorkflowId?: string | null;
@@ -987,25 +1087,38 @@ export interface WorkflowStep {
   anchor: StepAnchor;
   /** For countdown anchors: how long before the target date to send, in ms. */
   offsetMs: number;
+  // --- block-specific payload ---
+  imageUrl?: string | null;
+  caption?: string | null;
+  options?: Array<{ id: string; label: string }>;
+  instruction?: string | null;
+  agentId?: string | null;
+  agentName?: string | null;
+  actionId?: string | null;
+  actionName?: string | null;
+  appointmentType?: string | null;
+  daysAhead?: number;
+  notes?: string | null;
+  note?: string | null;
+  varName?: string | null;
+  varValue?: string | null;
+  field?: string | null;
+  operator?: string | null;
+  value?: string | null;
+  trueLabel?: string | null;
+  falseLabel?: string | null;
 }
 
 interface GraphNode {
   id: string;
   type?: string;
-  data?: {
-    content?: string;
-    targetWorkflowId?: string | null;
-    delayMinutes?: number;
-    delayValue?: number;
-    delayUnit?: string;
-    anchor?: string;
-    offsetValue?: number;
-    offsetUnit?: string;
-  };
+  data?: Record<string, unknown>;
 }
 interface GraphEdge {
   source: string;
   target: string;
+  sourceHandle?: string | null;
+  label?: string | null;
 }
 interface WorkflowGraph {
   nodes?: GraphNode[];
@@ -1077,53 +1190,211 @@ async function getLeadAppointmentAt(phone: string): Promise<string | null> {
 }
 
 // Resolve the ordered steps from a saved visual graph. Walks the edges starting
-// from the trigger node; falls back to node array order. Includes message steps
-// and "call workflow" steps (which enroll the lead into another workflow).
-export function orderedSteps(graph: unknown): WorkflowStep[] {
+// from the trigger node; falls back to node array order. Supports the full set of
+// Typebot-style blocks. Branch nodes (condition / buttons) resolve their outgoing
+// edge NOW against the lead's current data, so the same graph can take different
+// paths on different cron ticks.
+export async function orderedSteps(graph: unknown, phone?: string | null): Promise<WorkflowStep[]> {
   const g = (graph ?? {}) as WorkflowGraph;
   const nodes = g.nodes ?? [];
   const edges = g.edges ?? [];
-  const isStepNode = (n: GraphNode) => n.type === "message" || n.type === "workflow" || n.type === undefined;
+  const STEP_KINDS = new Set([
+    "text",
+    "message",
+    "image",
+    "buttons",
+    "wait",
+    "condition",
+    "setvar",
+    "ai",
+    "http",
+    "booking",
+    "handoff",
+    "end",
+    "workflow",
+    "redirect",
+  ]);
+  // Block kind of a graph node. The current builder stores the kind in
+  // data.type / data._t while node.type is always "flow"; legacy graphs used
+  // node.type directly ("message", "workflow", ...). Resolve both.
+  const stepKindOf = (n: GraphNode): string => {
+    const d = (n.data ?? {}) as Record<string, unknown>;
+    return String(d.type ?? d._t ?? n.type ?? "text");
+  };
+  const isStepNode = (n: GraphNode) => STEP_KINDS.has(stepKindOf(n));
   const stepNodes = nodes.filter(isStepNode);
   if (stepNodes.length === 0) return [];
 
-  const trigger = nodes.find((n) => n.type === "trigger");
-  const toStep = (n: GraphNode): WorkflowStep => {
-    if (n.type === "workflow") {
-      return {
-        kind: "call_workflow",
-        content: "",
-        targetWorkflowId: (n.data?.targetWorkflowId as string | null) ?? null,
-        delayMs: nodeDelayMs(n.data),
-        anchor: (n.data?.anchor as StepAnchor) ?? "wait",
-        offsetMs: nodeOffsetMs(n.data),
-      };
+  // Context for branching evaluated against the lead (fields + enrollment vars + last reply).
+  let leadRow: Record<string, unknown> | null = null;
+  let enrCtx: Record<string, string> = {};
+  let lastReply: string | null = null;
+  if (phone) {
+    try {
+      const db = await admin();
+      const { data: lead } = await db.from("leads").select("*").eq("phone_number", phone).maybeSingle();
+      leadRow = (lead as Record<string, unknown> | null) ?? null;
+      const { data: enr } = await db
+        .from("workflow_enrollments")
+        .select("context")
+        .eq("phone_number", phone)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      enrCtx = ((enr as { context?: Record<string, string> } | null)?.context ?? {}) as Record<string, string>;
+      const hist = await recentHistory(phone);
+      const lastUser = [...hist].reverse().find((h) => h.sender === "lead" || h.sender === "user");
+      lastReply = lastUser ? String(lastUser.message_content ?? "") : null;
+    } catch {
+      // Branch to defaults on lookup failure.
     }
-    return {
-      kind: "message",
-      content: String(n.data?.content ?? "").trim(),
-      targetWorkflowId: null,
-      delayMs: nodeDelayMs(n.data),
-      anchor: (n.data?.anchor as StepAnchor) ?? "wait",
-      offsetMs: nodeOffsetMs(n.data),
+  }
+
+  const toStep = (n: GraphNode): WorkflowStep => {
+    const d = (n.data ?? {}) as Record<string, unknown>;
+    const base = {
+      content: String(d.content ?? "").trim(),
+      delayMs: nodeDelayMs(d),
+      anchor: (d.anchor as StepAnchor) ?? "wait",
+      offsetMs: nodeOffsetMs(d),
     };
+    switch (stepKindOf(n)) {
+      case "workflow":
+      case "redirect":
+        return {
+          ...base,
+          kind: "call_workflow",
+          content: "",
+          targetWorkflowId: (d.targetWorkflowId as string | null) ?? null,
+        };
+      case "image":
+        return { ...base, kind: "image", imageUrl: (d.imageUrl as string | null) ?? null, caption: (d.caption as string | null) ?? null };
+      case "buttons":
+        return { ...base, kind: "buttons", options: (d.options as Array<{ id: string; label: string }>) ?? [] };
+      case "wait":
+        return { ...base, kind: "wait" };
+      case "condition":
+        return {
+          ...base,
+          kind: "condition",
+          field: (d.field as string | null) ?? null,
+          operator: (d.operator as string | null) ?? "equals",
+          value: (d.value as string | null) ?? "",
+          trueLabel: (d.trueLabel as string | null) ?? "Yes",
+          falseLabel: (d.falseLabel as string | null) ?? "No",
+        };
+      case "setvar":
+        return { ...base, kind: "setvar", varName: (d.varName as string | null) ?? null, varValue: (d.varValue as string | null) ?? null };
+      case "ai":
+        return {
+          ...base,
+          kind: "ai",
+          agentId: (d.agentId as string | null) ?? null,
+          agentName: (d.agentName as string | null) ?? null,
+          instruction: (d.instruction as string | null) ?? null,
+        };
+      case "http":
+        return { ...base, kind: "http", actionId: (d.actionId as string | null) ?? null, actionName: (d.actionName as string | null) ?? null };
+      case "booking":
+        return {
+          ...base,
+          kind: "booking",
+          appointmentType: (d.appointmentType as string | null) ?? "booking",
+          daysAhead: Number(d.daysAhead) || 3,
+          notes: (d.notes as string | null) ?? null,
+        };
+      case "handoff":
+        return { ...base, kind: "handoff", note: (d.note as string | null) ?? null };
+      case "end":
+        return { ...base, kind: "end", note: (d.note as string | null) ?? null };
+      default:
+        return { ...base, kind: "message" };
+    }
   };
 
-  // A step is valid if it has content (message) or a target workflow (call_workflow).
-  const isValid = (s: WorkflowStep) =>
-    s.kind === "call_workflow" ? Boolean(s.targetWorkflowId) : s.content.length > 0;
+  // A step is valid if it carries the payload its kind needs.
+  const isValid = (s: WorkflowStep): boolean => {
+    switch (s.kind) {
+      case "call_workflow":
+        return Boolean(s.targetWorkflowId);
+      case "message":
+        return s.content.length > 0;
+      case "image":
+        return Boolean(s.imageUrl);
+      case "buttons":
+        return s.content.length > 0 || (s.options ?? []).length > 0;
+      case "setvar":
+        return Boolean(s.varName);
+      case "http":
+        return Boolean(s.actionId);
+      default:
+        return true;
+    }
+  };
 
+  const evaluate = (s: WorkflowStep): boolean => {
+    const field = s.field ?? "";
+    const raw = enrCtx[field] ?? leadRow?.[field] ?? "";
+    const expected = fillTemplate(String(s.value ?? ""), { ...enrCtx, ...(leadRow ?? {}) });
+    const operator = s.operator ?? "equals";
+    const numA = Number(raw);
+    const numB = Number(expected);
+    switch (operator) {
+      case "is_set":
+        return raw !== undefined && raw !== null && String(raw).trim() !== "";
+      case "is_empty":
+        return raw === undefined || raw === null || String(raw).trim() === "";
+      case "contains":
+        return String(raw).toLowerCase().includes(String(expected).toLowerCase());
+      case "gt":
+        return !Number.isNaN(numA) && !Number.isNaN(numB) && numA > numB;
+      case "lt":
+        return !Number.isNaN(numA) && !Number.isNaN(numB) && numA < numB;
+      case "not_equals":
+        return String(raw) !== String(expected);
+      default:
+        return String(raw) === String(expected);
+    }
+  };
+
+  const trigger = nodes.find((n) => n.type === "trigger");
   if (trigger && edges.length > 0) {
     const ordered: WorkflowStep[] = [];
     const seen = new Set<string>();
     let currentId: string | undefined = trigger.id;
-    while (currentId) {
-      const edge = edges.find((e) => e.source === currentId);
-      if (!edge || seen.has(edge.target)) break;
-      seen.add(edge.target);
-      const node = nodes.find((n) => n.id === edge.target);
-      if (node && isStepNode(node)) ordered.push(toStep(node));
-      currentId = edge.target;
+    let guard = 0;
+    while (currentId && !seen.has(currentId) && guard++ < 200) {
+      seen.add(currentId);
+      const node = nodes.find((n) => n.id === currentId);
+      if (!node) break;
+      if (isStepNode(node) && stepKindOf(node) !== "trigger") {
+        const step = toStep(node);
+        ordered.push(step);
+        // Terminal kinds stop the walk.
+        if (step.kind === "end" || step.kind === "handoff") break;
+      }
+      const outs = edges.filter((e) => e.source === currentId);
+      if (node && stepKindOf(node) === "condition") {
+        const step = ordered[ordered.length - 1];
+        const matches = step ? evaluate(step) : true;
+        const want = matches ? "yes" : "no";
+        currentId = outs.find((e) => e.sourceHandle === want)?.target ?? outs[0]?.target ?? "";
+        continue;
+      }
+      if (node && stepKindOf(node) === "buttons") {
+        const step = ordered[ordered.length - 1];
+        const labels = (step?.options ?? []).map((o) => o.label.trim().toLowerCase());
+        const hit = lastReply ? labels.indexOf(lastReply.trim().toLowerCase()) : -1;
+        const hitOpt = hit >= 0 ? (step?.options ?? [])[hit] : undefined;
+        currentId =
+          (hitOpt ? outs.find((e) => e.sourceHandle === `opt_${hitOpt.id}`) : undefined)?.target ??
+          outs.find((e) => !e.sourceHandle)?.target ??
+          outs[0]?.target ??
+          "";
+        continue;
+      }
+      const nextEdge = edges.find((e) => e.source === currentId);
+      currentId = nextEdge?.target ?? "";
     }
     const filtered = ordered.filter(isValid);
     if (filtered.length > 0) return filtered;
@@ -1199,21 +1470,185 @@ async function sendWorkflowMessage(phone: string, message: string, workflowWorks
 // the cron advance the called workflow on its next tick, which also prevents
 // infinite recursion between workflows that reference each other (the dedup in
 // enrollLeadInWorkflowById stops a lead being enrolled twice in the same flow).
+// Execute an AI block: resolve the responder context (default qualification
+// agent unless another agent is picked), generate a message and send it.
+async function runAiWorkflowStep(
+  step: WorkflowStep,
+  phone: string,
+  workspaceId: string | null,
+  leadId: string | null,
+): Promise<void> {
+  void leadId;
+  const db = await admin();
+  const { data: lead } = await db.from("leads").select("*").eq("phone_number", phone).maybeSingle();
+  const leadRow = (lead as Record<string, unknown> | null) ?? null;
+  let ctx: AiContext;
+  if (step.agentId && step.agentId !== DEFAULT_AGENT_ID) {
+    const { data: ag } = await db.from("responder_agents").select("*").eq("id", step.agentId).maybeSingle();
+    const agent = ag as Record<string, unknown> | null;
+    ctx = agent ? await loadResponderContext(agent) : await loadAiContext();
+  } else {
+    ctx = await loadAiContext();
+  }
+  const history = await recentHistory(phone);
+  const { reply, error } = await runResponderAgent({
+    systemPrompt: ctx.systemPrompt,
+    model: ctx.model,
+    temperature: ctx.temperature,
+    variables: ctx.variables,
+    settings: ctx.settings,
+    lead: leadRow as unknown as LeadRecord,
+    history,
+    userMessage: String(step.instruction ?? "").trim() || "Continue the conversation with the lead.",
+    provider: ctx.provider,
+  });
+  const text = error || !reply ? null : reply.trim();
+  if (text) await sendWorkflowMessage(phone, text, workspaceId);
+}
+
+// Execute an HTTP block: load the stored action, merge variables into URL,
+// headers and body, then fire the request. Failures are logged, never fatal.
+async function runHttpWorkflowStep(step: WorkflowStep, phone: string): Promise<void> {
+  if (!step.actionId) return;
+  const db = await admin();
+  const { data: ac } = await db.from("http_actions").select("*").eq("id", step.actionId).maybeSingle();
+  const action = ac as Record<string, unknown> | null;
+  if (!action || action.enabled === false) return;
+
+  const ctx: Record<string, unknown> = {};
+  const { data: customVars } = await db.from("ai_variables").select("variable_name, variable_value");
+  for (const v of (customVars as Array<{ variable_name: string; variable_value: string }> | null) ?? []) {
+    ctx[v.variable_name] = v.variable_value;
+  }
+  const { data: lead } = await db.from("leads").select("*").eq("phone_number", phone).maybeSingle();
+  const leadRow = (lead as Record<string, unknown> | null) ?? {};
+  ctx.lead_name = leadRow.lead_name ?? "";
+  ctx.phone_number = phone;
+  const fill = (s: string) => fillTemplate(s, ctx);
+  const fillJson = (v: unknown): unknown => {
+    if (typeof v === "string") return fill(v);
+    if (Array.isArray(v)) return v.map(fillJson);
+    if (v && typeof v === "object") {
+      return Object.fromEntries(Object.entries(v as Record<string, unknown>).map(([k, val]) => [k, fillJson(val)]));
+    }
+    return v;
+  };
+
+  const url = fill(String(action.url ?? ""));
+  const headers = fillJson(action.headers ?? {}) as Record<string, string>;
+  const method = String(action.method ?? "POST").toUpperCase();
+  let body: string | undefined;
+  const rawTemplate = String(action.payload_template ?? "");
+  if (rawTemplate.trim()) {
+    try {
+      body = JSON.stringify(JSON.parse(fill(rawTemplate)));
+    } catch {
+      body = fill(rawTemplate);
+    }
+  }
+  try {
+    await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json", ...headers },
+      body: body && !["GET", "HEAD"].includes(method) ? body : undefined,
+    });
+  } catch (e) {
+    console.error("Workflow HTTP step failed:", e);
+  }
+}
+
+// Execute a booking block: create an appointment a few days out and confirm it
+// to the lead in the conversation.
+async function runBookingWorkflowStep(
+  step: WorkflowStep,
+  phone: string,
+  workspaceId: string | null,
+): Promise<void> {
+  const db = await admin();
+  const { data: lead } = await db.from("leads").select("lead_name").eq("phone_number", phone).maybeSingle();
+  const days = Math.max(1, Math.min(90, Number(step.daysAhead) || 3));
+  const when = new Date(Date.now() + days * 86400000);
+  await upsertLeadBooking(db, {
+    phone,
+    leadName: (lead as { lead_name?: string | null } | null)?.lead_name ?? null,
+    date: when.toISOString(),
+    status: "pending",
+    notes: String(step.notes ?? "") || "Booked automatically by workflow.",
+  });
+  const label = when.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+  await sendWorkflowMessage(
+    phone,
+    `Great news! I've booked your ${String(step.appointmentType ?? "consultation")} for ${label}. 🎉`,
+    workspaceId,
+  );
+}
+
+// Execute a single workflow step, dispatching on the block kind .
 async function executeWorkflowStep(
   step: WorkflowStep | undefined,
   phone: string,
   workspaceId: string | null,
   leadId: string | null,
+  enrId?: string | null,
 ): Promise<void> {
   if (!step) return;
-  if (step.kind === "call_workflow") {
-    if (step.targetWorkflowId) {
-      await enrollLeadInWorkflowById({ workflowId: step.targetWorkflowId, phone, leadId, workspaceId });
+  switch (step.kind) {
+    case "call_workflow": {
+      if (step.targetWorkflowId) {
+        await enrollLeadInWorkflowById({ workflowId: step.targetWorkflowId, phone, leadId, workspaceId });
+      }
+      return;
     }
-    return;
-  }
-  if (step.content) {
-    await sendWorkflowMessage(phone, step.content, workspaceId);
+    case "image": {
+      const body = [String(step.caption ?? ""), String(step.imageUrl ?? "")].filter(Boolean).join("\n");
+      if (body) await sendWorkflowMessage(phone, body, workspaceId);
+      return;
+    }
+    case "buttons": {
+      if (step.content) await sendWorkflowMessage(phone, step.content, workspaceId);
+      return;
+    }
+    case "ai": {
+      await runAiWorkflowStep(step, phone, workspaceId, leadId);
+      return;
+    }
+    case "http": {
+      await runHttpWorkflowStep(step, phone);
+      return;
+    }
+    case "booking": {
+      await runBookingWorkflowStep(step, phone, workspaceId);
+      return;
+    }
+    case "handoff": {
+      const db = await admin();
+      await db.from("conversations").update({ human_takeover: true } as never).eq("phone_number", phone);
+      return;
+    }
+    case "setvar": {
+      if (step.varName && enrId) {
+        const db = await admin();
+        const { data: enr } = await db.from("workflow_enrollments").select("context").eq("id", enrId).maybeSingle();
+        const ctx = ((enr as { context?: Record<string, string> } | null)?.context ?? {}) as Record<string, string>;
+        const merged = fillTemplate(String(step.varValue ?? ""), {
+          ...ctx,
+          phone_number: phone,
+        });
+        ctx[String(step.varName)] = merged;
+        await db.from("workflow_enrollments").update({ context: ctx } as never).eq("id", enrId);
+      }
+      return;
+    }
+    case "condition":
+    case "wait":
+    case "end": {
+      // Branching was resolved when the step list was built; wait delays the
+      // next tick via next_run_at; end simply lets the sequence complete.
+      return;
+    }
+    default: {
+      if (step.content) await sendWorkflowMessage(phone, step.content, workspaceId);
+    }
   }
 }
 
@@ -1393,7 +1828,7 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
       );
       if (triggerType === "manual") return 0;
 
-      const steps = orderedSteps(wf.graph);
+      const steps = await orderedSteps(wf.graph, null);
       if (steps.length === 0) return 0;
       const cfg = (wf.trigger_config ?? {}) as {
         segment?: string;
@@ -1501,7 +1936,7 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
         await db.from("workflow_enrollments").update({ status: "stopped" } as never).eq("id", enr.id as string);
         return 0;
       }
-      const steps = orderedSteps(wf.graph);
+      const steps = await orderedSteps(wf.graph, String(enr.phone_number));
       const step = Number(enr.current_step ?? 0);
       if (step >= steps.length) {
         await db
@@ -1516,6 +1951,7 @@ export async function processWorkflows(): Promise<{ enrolled: number; sent: numb
         String(enr.phone_number),
         (wf.workspace_id as string) ?? null,
         (enr.lead_id as string | null) ?? null,
+        (enr.id as string) ?? null,
       );
 
       const nextStep = step + 1;
@@ -1571,7 +2007,7 @@ async function enrollLeadInWorkflowRow(
   params: EnrollLeadParams,
 ): Promise<{ status: EnrollStatus; workflowId?: string }> {
   const db = await admin();
-  const steps = orderedSteps(target.graph);
+  const steps = await orderedSteps(target.graph, params.phone);
   if (steps.length === 0) return { status: "no_steps", workflowId: target.id as string };
 
   // Route messages through the selected workspace for this lead going forward.

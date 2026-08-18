@@ -229,7 +229,7 @@ export function ReportsTab() {
   const [pendingActions, setPendingActions] = useState<ProposedAction[]>([]);
   const [actionResults, setActionResults] = useState<Record<string, ActionResult>>({});
   const [showModelCfg, setShowModelCfg] = useState(false);
-  const [modelMode, setModelMode] = useState<ModelMode>("built_in");
+  const [modelMode, setModelMode] = useState<ModelMode>("ai_settings");
   const [builtInModel, setBuiltInModel] = useState(BUILTIN_MODELS[0].id);
   const [customProvider, setCustomProvider] = useState("");
   const [customBaseUrl, setCustomBaseUrl] = useState("");
@@ -529,26 +529,13 @@ export function ReportsTab() {
                   onChange={(e) => setModelMode(e.target.value as ModelMode)}
                   className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
                 >
-                  <option value="built_in">Built-in Lovable AI</option>
                   <option value="ai_settings">Use AI Settings provider</option>
                   <option value="custom">Custom provider (own API)</option>
                 </select>
-                {modelMode === "built_in" && (
-                  <select
-                    value={builtInModel}
-                    onChange={(e) => setBuiltInModel(e.target.value)}
-                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
-                  >
-                    {BUILTIN_MODELS.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                )}
                 {modelMode === "ai_settings" && (
                   <p className="text-[11px] text-muted-foreground">
-                    Uses the custom provider configured in AI Settings, or the built-in model if none is set.
+                    Uses the custom provider configured in AI Settings. Add your provider and API key there to enable AI
+                    reports.
                   </p>
                 )}
                 {modelMode === "custom" && (

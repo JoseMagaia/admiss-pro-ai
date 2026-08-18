@@ -36,6 +36,8 @@ export const SETTINGS_ACCESS: Record<string, AppRole[]> = {
   users: ["super_admin"], // User management
   spaces: ["super_admin"], // Spaces (multi-tenant sub-accounts)
   telephony: ["super_admin"], // VoIP / SIP / Twilio connection settings
+  calendar: ["super_admin", "admin"], // Calendar & availability (booking slots)
+  video: ["super_admin"], // Jitsi video call settings
 };
 
 // Roles allowed to create/edit dial campaigns (dial lists) for the power dialer.

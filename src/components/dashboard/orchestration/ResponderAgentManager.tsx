@@ -219,7 +219,7 @@ function AgentEditor({ initial, onDone }: { initial: Agent; onDone: () => void }
           <Input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Follow-up Closer" />
         </div>
         <div className="space-y-1.5">
-          <Label>Workspace / Inbox</Label>
+          <Label>Connection / Inbox</Label>
           <select
             value={form.workspace_id ?? ""}
             onChange={(e) => set("workspace_id", e.target.value || null)}
@@ -247,20 +247,13 @@ function AgentEditor({ initial, onDone }: { initial: Agent; onDone: () => void }
       {/* Provider mode */}
       <div className="space-y-2">
         <Label>AI Provider</Label>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <ProviderButton
             active={form.provider_mode === "inherit"}
             onClick={() => set("provider_mode", "inherit")}
             icon={GitBranch}
             title="Inherit"
             subtitle="Use qualification agent's provider & model"
-          />
-          <ProviderButton
-            active={form.provider_mode === "built_in"}
-            onClick={() => set("provider_mode", "built_in")}
-            icon={Cpu}
-            title="Built-in AI"
-            subtitle="Lovable AI. No key required."
           />
           <ProviderButton
             active={form.provider_mode === "custom"}
@@ -271,36 +264,6 @@ function AgentEditor({ initial, onDone }: { initial: Agent; onDone: () => void }
           />
         </div>
       </div>
-
-      {form.provider_mode === "built_in" && (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <Label>Model</Label>
-            <select
-              value={form.model}
-              onChange={(e) => set("model", e.target.value)}
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-            >
-              {[...new Set([...BUILT_IN_MODELS, form.model].filter(Boolean))].map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1.5">
-            <Label>Temperature ({form.temperature})</Label>
-            <Input
-              type="number"
-              min={0}
-              max={2}
-              step={0.1}
-              value={form.temperature}
-              onChange={(e) => set("temperature", Number(e.target.value))}
-            />
-          </div>
-        </div>
-      )}
 
       {form.provider_mode === "custom" && (
         <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
@@ -459,7 +422,7 @@ export function ResponderAgentManager() {
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {a.is_default
                 ? `Qualification agent · ${a.model} · managed in AI Settings`
-                : `${a.provider_mode === "inherit" ? "Inherits provider" : a.provider_mode === "built_in" ? `Built-in · ${a.model}` : `Custom · ${a.custom_model || a.custom_provider}`}${a.description ? ` · ${a.description}` : ""}`}
+                : `${a.provider_mode === "inherit" ? "Inherits provider" : a.provider_mode === "built_in" ? `Uses AI Settings · ${a.model}` : `Custom · ${a.custom_model || a.custom_provider}`}${a.description ? ` · ${a.description}` : ""}`}
             </p>
           </div>
           <div className="flex shrink-0 gap-1">
