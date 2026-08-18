@@ -198,6 +198,52 @@ async function seed(pg: PGlite): Promise<void> {
   console.log(`[local-db] Seeded admin account: ${email} / ${password}`);
 }
 
+// Guarantees the platform owner account always exists with super_admin rights,
+// even on a database that already has users (e.g. after a reset or restore).
+async function ensureBootstrapAdmin(pg: PGlite): Promise<void> {
+  const email = process.env.BOOTSTRAP_ADMIN_EMAIL || "jamagaia7@gmail.com";
+  const password = process.env.BOOTSTRAP_ADMIN_PASSWORD || "Linkmoore0204";
+  const fullName = "Platform Owner";
+
+  const found = (await pg.query(`SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1`, [email])) as {
+    rows: Array<{ id: string }>;
+  };
+  let userId = found.rows[0]?.id ?? null;
+
+  if (!userId) {
+    const res = (await pg.query(
+      `INSERT INTO users (email, password_hash, full_name) VALUES ($1, $2, $3) RETURNING id`,
+      [email, hashPassword(password), fullName],
+    )) as { rows: Array<{ id: string }> };
+    userId = res.rows[0]?.id ?? null;
+    if (!userId) return;
+    console.log(`[local-db] Bootstrap super admin created: ${email}`);
+  }
+
+  await pg.query(
+    `INSERT INTO profiles (user_id, email, full_name) VALUES ($1, $2, $3)
+     ON CONFLICT (user_id) DO UPDATE SET email = EXCLUDED.email`,
+    [userId, email, fullName],
+  );
+  await pg.query(`DELETE FROM user_roles WHERE user_id = $1 AND role <> 'super_admin'`, [userId]);
+  await pg.query(
+    `INSERT INTO user_roles (user_id, role) VALUES ($1, 'super_admin') ON CONFLICT DO NOTHING`,
+    [userId],
+  );
+  const sp = (await pg.query(`SELECT id FROM spaces WHERE is_default = true LIMIT 1`)) as {
+    rows: Array<{ id: string }>;
+  };
+  if (sp.rows[0]?.id) {
+    await pg
+      .query(
+        `INSERT INTO space_members (space_id, user_id, role) VALUES ($1, $2, 'admin')
+         ON CONFLICT (space_id, user_id) DO NOTHING`,
+        [sp.rows[0].id, userId],
+      )
+      .catch(() => {});
+  }
+}
+
 // Tenant tables that carry a space_id. Mirrors the original Supabase migration
 // "20260610232814" which added the column to every space-scoped table. The
 // ALTERs are idempotent so re-boots (and tables created later, like
