@@ -939,6 +939,7 @@ export type Database = {
           qualification_status: string
           space_id: string | null
           student_or_parent: string | null
+          tags: string[]
           updated_at: string
           workspace_id: string | null
         }
@@ -961,6 +962,7 @@ export type Database = {
           qualification_status?: string
           space_id?: string | null
           student_or_parent?: string | null
+          tags?: string[]
           updated_at?: string
           workspace_id?: string | null
         }
@@ -983,6 +985,7 @@ export type Database = {
           qualification_status?: string
           space_id?: string | null
           student_or_parent?: string | null
+          tags?: string[]
           updated_at?: string
           workspace_id?: string | null
         }
@@ -1833,6 +1836,7 @@ export type Database = {
       workflow_enrollments: {
         Row: {
           created_at: string
+          current_node_id: string | null
           current_step: number
           goal_at: string | null
           id: string
@@ -1848,6 +1852,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          current_node_id?: string | null
           current_step?: number
           goal_at?: string | null
           id?: string
@@ -1863,6 +1868,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          current_node_id?: string | null
           current_step?: number
           goal_at?: string | null
           id?: string
