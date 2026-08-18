@@ -1582,6 +1582,105 @@ export const testWorkspaceConnection = createServerFn({ method: "POST" })
     }
   });
 
+// ---------------------------------------------------------------------------
+// Meta Embedded Signup (One-Click WhatsApp Business API onboarding).
+//
+// The browser runs Meta's Embedded Signup dialog (FB.login with a `config_id`),
+// which returns a short-lived authorization `code` plus the freshly created
+// WABA id / phone number id via a postMessage event. This function exchanges
+// that code for a business access token, subscribes our app to the WABA so
+// webhooks start flowing, and registers the phone number on Cloud API.
+export const exchangeWhatsappSignupCode = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        code: z.string().min(10).max(2000),
+        waba_id: z.string().max(100).nullable().optional(),
+        phone_number_id: z.string().max(100).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message, access_token: null, warnings: [] as string[] };
+    }
+
+    const appId = process.env["META_APP_ID"];
+    const appSecret = process.env["META_APP_SECRET"];
+    if (!appId || !appSecret) {
+      return {
+        ok: false as const,
+        error:
+          "Meta app credentials are not configured on the server. Add META_APP_ID and META_APP_SECRET, then retry.",
+        access_token: null,
+        warnings: [] as string[],
+      };
+    }
+
+    const GRAPH = "https://graph.facebook.com/v20.0";
+    try {
+      const tokenRes = await fetch(
+        `${GRAPH}/oauth/access_token?client_id=${encodeURIComponent(appId)}&client_secret=${encodeURIComponent(
+          appSecret,
+        )}&code=${encodeURIComponent(data.code)}`,
+      );
+      const tokenJson = (await tokenRes.json().catch(() => null)) as
+        | { access_token?: string; error?: { message?: string } }
+        | null;
+      if (!tokenRes.ok || !tokenJson?.access_token) {
+        return {
+          ok: false as const,
+          error: tokenJson?.error?.message ?? `Meta rejected the signup code (${tokenRes.status}).`,
+          access_token: null,
+          warnings: [] as string[],
+        };
+      }
+      const accessToken = tokenJson.access_token;
+
+      const warnings: string[] = [];
+      if (data.waba_id) {
+        const sub = await fetch(`${GRAPH}/${encodeURIComponent(data.waba_id)}/subscribed_apps`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!sub.ok) warnings.push("Could not subscribe the app to the WhatsApp account webhooks.");
+      }
+      if (data.phone_number_id) {
+        const reg = await fetch(`${GRAPH}/${encodeURIComponent(data.phone_number_id)}/register`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ messaging_product: "whatsapp", pin: "000000" }),
+        });
+        if (!reg.ok) warnings.push("The phone number may already be registered on Cloud API.");
+      }
+
+      return { ok: true as const, error: null, access_token: accessToken, warnings };
+    } catch {
+      return {
+        ok: false as const,
+        error: "Couldn't reach Meta. Try again.",
+        access_token: null,
+        warnings: [] as string[],
+      };
+    }
+  });
+
+// Public (non-secret) Meta app configuration the browser needs to launch the
+// Embedded Signup dialog.
+export const getMetaSignupConfig = createServerFn({ method: "GET" }).handler(async () => {
+  try {
+    await guard(["super_admin"]);
+  } catch {
+    return { appId: null as string | null, configId: null as string | null };
+  }
+  return {
+    appId: process.env["META_APP_ID"] ?? null,
+    configId: process.env["META_EMBEDDED_SIGNUP_CONFIG_ID"] ?? null,
+  };
+});
+
 const SUPER = ["super_admin"] as AppRole[];
 
 async function isSuper(): Promise<boolean> {
