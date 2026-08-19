@@ -51,7 +51,11 @@ export const TENANT_TABLES = new Set<string>([
   "ticket_queues",
   "tags",
   "notifications",
+  "calendars",
+  "calendar_availability",
+  "calendar_exceptions",
 ]);
+
 
 
 // A space id that matches nothing — used as a safe fallback so reads return
