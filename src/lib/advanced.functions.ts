@@ -341,6 +341,66 @@ async function buildAnalytics(
     }));
   }
 
+  // Evidence gathering: when the manager asks about a topic, pull the matching
+  // messages plus a slice of each surrounding thread so the AI can quote real
+  // conversation evidence rather than guessing from aggregates.
+  let threadEvidence:
+    | Array<{
+        phone: string;
+        lead_name: string | null;
+        stage: string | null;
+        matches: number;
+        thread: Array<{ sender: string; at: string; text: string }>;
+      }>
+    | undefined;
+  const terms = String(opts.contentQuery ?? "")
+    .split(/[,\s]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3)
+    .slice(0, 6);
+  if (terms.length > 0) {
+    const { data: hits } = await db
+      .from("whatsapp_messages")
+      .select("phone_number, sender, received_at, message_content")
+      .or(terms.map((t) => `message_content.ilike.%${t.replace(/[%,()]/g, "")}%`).join(","))
+      .order("received_at", { ascending: false })
+      .limit(200);
+    const rows = (hits ?? []) as Array<{
+      phone_number: string;
+      sender: string;
+      received_at: string;
+      message_content: string;
+    }>;
+    const counts = new Map<string, number>();
+    for (const r of rows) counts.set(r.phone_number, (counts.get(r.phone_number) ?? 0) + 1);
+    const phones = Array.from(counts.keys()).slice(0, 8);
+    threadEvidence = [];
+    for (const phone of phones) {
+      const { data: thread } = await db
+        .from("whatsapp_messages")
+        .select("sender, received_at, message_content")
+        .eq("phone_number", phone)
+        .order("received_at", { ascending: false })
+        .limit(40);
+      const lead = leadRows.find((l) => l.phone_number === phone);
+      threadEvidence.push({
+        phone,
+        lead_name: lead?.lead_name ?? null,
+        stage: lead?.qualification_status ?? null,
+        matches: counts.get(phone) ?? 0,
+        thread: ((thread ?? []) as Array<{ sender: string; received_at: string; message_content: string }>)
+          .reverse()
+          .map((m) => ({
+            sender: m.sender,
+            at: m.received_at,
+            text: String(m.message_content ?? "").slice(0, 400),
+          })),
+      });
+    }
+  }
+
+
+
   return {
     rangeDays: days,
     totals: {
