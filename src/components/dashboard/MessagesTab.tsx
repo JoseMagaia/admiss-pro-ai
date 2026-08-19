@@ -24,6 +24,8 @@ import {
   CheckCheck,
   AlertCircle,
   RefreshCw,
+  PanelRightOpen,
+  PanelRightClose,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -37,6 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { LeadPanel } from "@/components/dashboard/messages/LeadPanel";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -217,6 +220,8 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
   // Voice-note recorder state.
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  // Right-hand lead context panel (info / notes / history).
+  const [panelOpen, setPanelOpen] = useState(true);
   const recordChunksRef = useRef<Blob[]>([]);
   const [recording, setRecording] = useState(false);
 
@@ -584,7 +589,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
 
   return (
-    <div className="-mx-4 grid h-[calc(100vh-9rem)] grid-cols-1 gap-3 px-2 sm:-mx-6 sm:px-3 md:h-[calc(100vh-10rem)] md:grid-cols-[minmax(240px,280px)_1fr]">
+    <div className={"-mx-4 grid h-[calc(100vh-9rem)] grid-cols-1 gap-3 px-2 sm:-mx-6 sm:px-3 md:h-[calc(100vh-10rem)] md:grid-cols-[minmax(240px,280px)_1fr] " + (active && panelOpen ? "xl:grid-cols-[minmax(240px,280px)_1fr_minmax(280px,320px)]" : "")}>
       {/* List */}
       <div
         className={cn(
@@ -735,6 +740,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                   <span className="truncate">{active}</span>
                 </span>
                 {/* AI toggle — always visible and easy to tap on mobile. */}
+                <span className="flex shrink-0 items-center gap-2">
                 <label className="flex shrink-0 items-center gap-1.5 rounded-full border bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground">
                   {takeover ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                   AI {takeover ? "paused" : "active"}
@@ -744,6 +750,16 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                     disabled={toggleTakeover.isPending}
                   />
                 </label>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setPanelOpen((v) => !v)}
+                  title={panelOpen ? "Hide lead details" : "Show lead details"}
+                >
+                  {panelOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+                </Button>
+                </span>
               </div>
               {activePhone && <ConversationTickets phone={activePhone} />}
               {/* Workflow controls — own row so they stay reachable on small screens. */}
@@ -994,6 +1010,13 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
           <div className="flex flex-1 items-center justify-center text-muted-foreground">Select a conversation</div>
         )}
       </div>
+
+      {/* Lead context panel */}
+      {active && panelOpen && (
+        <div className="hidden xl:block">
+          <LeadPanel phone={active} />
+        </div>
+      )}
 
       {/* Schedule dialog */}
       <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
