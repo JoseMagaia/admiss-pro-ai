@@ -1,46 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { ALL_ROLES, type AppRole } from "@/lib/roles";
+import { type AppRole } from "@/lib/roles";
+import { spaceCtx, scopedDb, activeSpaceId, guard, isAuthed, ANY_ROLE } from "@/lib/dashboard-helpers";
 
-// Resolve the caller's active Space (honors x-space-id, validates membership).
-async function spaceCtx() {
-  const { resolveSpaceContext } = await import("./space-context.server");
-  return resolveSpaceContext();
-}
-
-// Service-role client scoped to the caller's active Space. Tenant tables are
-// auto-filtered/tagged by space_id. Suspended spaces (for non-super-admins)
-// resolve to an empty sentinel space so nothing leaks.
-async function scopedDb() {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  const { makeScopedClient, NO_SPACE } = await import("./space-context.server");
-  const ctx = await spaceCtx();
-  const sid = ctx && (ctx.isSuperAdmin || ctx.status === "active") ? ctx.spaceId : NO_SPACE;
-  return makeScopedClient(supabaseAdmin, sid);
-}
-
-// Active space id, used to run admissions-pipeline helpers inside the space.
-async function activeSpaceId(): Promise<string | null> {
-  const ctx = await spaceCtx();
-  if (!ctx) return null;
-  if (ctx.status === "suspended" && !ctx.isSuperAdmin) return null;
-  return ctx.spaceId;
-}
-
-// Throws when the caller lacks an allowed role. Use inside write handlers.
-async function guard(allowed: AppRole[]) {
-  const { assertRole } = await import("@/integrations/supabase/role-guard.server");
-  return assertRole(allowed);
-}
-
-// Returns true when the caller is authenticated with any role. Use for reads.
-async function isAuthed(): Promise<boolean> {
-  const { getRequestUser } = await import("@/integrations/supabase/role-guard.server");
-  const u = await getRequestUser();
-  return Boolean(u?.role);
-}
-
-const ANY_ROLE = ALL_ROLES;
 
 /* ----------------------------- LEADS ----------------------------- */
 
