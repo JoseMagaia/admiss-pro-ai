@@ -1115,6 +1115,20 @@ export async function processInboundMessage(params: {
     await db.from("conversations").update({ workspace_id: workspace.id } as never).eq("phone_number", phone);
   }
 
+  // A ticket represents the conversation itself, so every lead thread gets one
+  // automatically. Agents then transfer it to a queue or a colleague. Reopened
+  // threads (a new message after the previous ticket was closed) get a fresh
+  // ticket so the handling history stays auditable.
+  await ensureConversationTicket({
+    phone,
+    leadId: (lead as { id?: string } | null)?.id ?? null,
+    leadName: (lead as { lead_name?: string | null } | null)?.lead_name ?? null,
+    conversationId: (conv as { id?: string } | null)?.id ?? null,
+    firstMessage: message,
+  });
+
+
+
   // Human takeover detection.
   if (!humanTakeover && detectHumanTakeover(message)) {
     humanTakeover = true;
