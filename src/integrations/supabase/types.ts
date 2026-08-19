@@ -1055,6 +1055,57 @@ export type Database = {
         }
         Relationships: []
       }
+      lead_notes: {
+        Row: {
+          author_label: string | null
+          author_user_id: string | null
+          body: string
+          created_at: string
+          id: string
+          lead_id: string | null
+          phone_number: string | null
+          space_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          author_label?: string | null
+          author_user_id?: string | null
+          body: string
+          created_at?: string
+          id?: string
+          lead_id?: string | null
+          phone_number?: string | null
+          space_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          author_label?: string | null
+          author_user_id?: string | null
+          body?: string
+          created_at?: string
+          id?: string
+          lead_id?: string | null
+          phone_number?: string | null
+          space_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_notes_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_notes_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lead_opportunities: {
         Row: {
           created_at: string
@@ -2008,32 +2059,77 @@ export type Database = {
           },
         ]
       }
+      ticket_queue_members: {
+        Row: {
+          created_at: string
+          id: string
+          queue_id: string
+          space_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          queue_id: string
+          space_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          queue_id?: string
+          space_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_queue_members_queue_id_fkey"
+            columns: ["queue_id"]
+            isOneToOne: false
+            referencedRelation: "ticket_queues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_queue_members_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ticket_queues: {
         Row: {
+          ai_handoff_stages: string[]
           color: string
           created_at: string
           description: string | null
           id: string
+          is_ai_default: boolean
           name: string
           position: number
           space_id: string | null
           updated_at: string
         }
         Insert: {
+          ai_handoff_stages?: string[]
           color?: string
           created_at?: string
           description?: string | null
           id?: string
+          is_ai_default?: boolean
           name: string
           position?: number
           space_id?: string | null
           updated_at?: string
         }
         Update: {
+          ai_handoff_stages?: string[]
           color?: string
           created_at?: string
           description?: string | null
           id?: string
+          is_ai_default?: boolean
           name?: string
           position?: number
           space_id?: string | null
