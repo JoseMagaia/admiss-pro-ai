@@ -161,7 +161,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
   // Pull history from the connected Chatwoot inbox(es) into the timeline.
   const syncMutation = useMutation({
-    mutationFn: () => syncFn({ data: {} }),
+    mutationFn: () => syncFn(),
     onSuccess: (res) => {
       const r = res as { imported?: number; error?: string | null; reports?: Array<{ error?: string; skipped?: string }> };
       if (r.error) {
