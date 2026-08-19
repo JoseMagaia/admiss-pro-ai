@@ -28,7 +28,6 @@ import {
   PanelRightClose,
 } from "lucide-react";
 import { toast } from "sonner";
-import { getSettings } from "@/lib/dashboard.functions";
 import { resolveAudioFormat } from "@/lib/audio/formats";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -65,6 +64,7 @@ import {
   listWorkspaces,
   startConversation,
   uploadMessageAttachment,
+  getSettings,
 } from "@/lib/dashboard.functions";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
 import { ConversationTickets } from "./tickets/ConversationTickets";
