@@ -1194,41 +1194,43 @@ export async function processInboundMessage(params: {
       .update({ human_takeover: true, status: "pending", assigned_agent: "Admissions Team" })
       .eq("phone_number", phone);
 
-    // The AI asked for a human: raise a ticket (unless one is already open)
-    // and notify the space so an agent picks it up.
+    // The lead asked for a human: escalate the conversation's ticket and
+    // notify the space so an agent picks it up.
     try {
-      const { data: existing } = await db
-        .from("tickets")
-        .select("id")
-        .eq("phone_number", phone)
-        .neq("status", "closed")
-        .limit(1);
-      if (!existing || existing.length === 0) {
-        const { data: created } = await db
+      const ticketId = await ensureConversationTicket({
+        phone,
+        leadId: lead.id ?? null,
+        leadName: lead.lead_name ?? null,
+        firstMessage: message,
+      });
+      if (ticketId) {
+        await db
           .from("tickets")
-          .insert({
-            subject: `Human requested — ${lead.lead_name ?? phone}`,
-            phone_number: phone,
-            lead_id: lead.id ?? null,
-            status: "open",
+          .update({
             priority: "high",
-            created_by_kind: "ai",
-            notes: message.slice(0, 500),
+            status: "open",
+            subject: `Human requested — ${lead.lead_name ?? phone}`,
           } as never)
-          .select("id")
-          .maybeSingle();
-        await db.from("notifications").insert({
-          user_id: null,
-          title: `AI requested a human for ${lead.lead_name ?? phone}`,
-          body: message.slice(0, 300),
-          kind: "ticket",
-          ticket_id: (created as { id?: string } | null)?.id ?? null,
-          link_phone: phone,
+          .eq("id", ticketId);
+        await db.from("ticket_events").insert({
+          ticket_id: ticketId,
+          actor_label: "AI Agent",
+          kind: "escalated",
+          detail: message.slice(0, 300),
         } as never);
       }
+      await db.from("notifications").insert({
+        user_id: null,
+        title: `AI requested a human for ${lead.lead_name ?? phone}`,
+        body: message.slice(0, 300),
+        kind: "ticket",
+        ticket_id: ticketId,
+        link_phone: phone,
+      } as never);
     } catch (e) {
       console.error("Failed to raise handoff ticket:", e);
     }
+
   }
 
   if (humanTakeover) {
