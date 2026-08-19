@@ -580,6 +580,21 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
           <Button size="sm" className="w-full gap-1.5" onClick={() => setNewOpen(true)}>
             <Plus className="h-4 w-4" /> New conversation
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full gap-1.5"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+          >
+            {syncMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Sync inbox
+          </Button>
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
