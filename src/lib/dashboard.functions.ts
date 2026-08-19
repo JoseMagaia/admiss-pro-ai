@@ -1081,9 +1081,10 @@ export const sendHumanMessage = createServerFn({ method: "POST" })
   });
 
 // Upload a chat attachment (image, voice note, document…) to the private
-// `message-media` bucket and return a long-lived signed URL. The URL is then
-// passed to `sendHumanMessage` — providers (WhatsApp Cloud, Evolution) fetch
-// the URL themselves so raw file bytes never travel through the message body.
+// `message-media` bucket and return a clean, stable public URL served by
+// `/api/public/media/*`. WhatsApp providers fetch that URL themselves, so raw
+// file bytes never travel through the message body and the recipient sees a
+// normal media bubble instead of a long signed link.
 export const uploadMessageAttachment = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
     z
@@ -1092,6 +1093,8 @@ export const uploadMessageAttachment = createServerFn({ method: "POST" })
         mime: z.string().min(1).max(200),
         // Base64 (no data: prefix). Cap at ~15 MB base64 (~11 MB raw).
         base64: z.string().min(1).max(20_000_000),
+        /** Public origin of the app, used to build the provider-facing URL. */
+        origin: z.string().url().max(300).optional(),
       })
       .parse(d),
   )
@@ -1112,7 +1115,13 @@ export const uploadMessageAttachment = createServerFn({ method: "POST" })
       .from("message-media")
       .upload(path, bytes, { contentType: data.mime, upsert: false });
     if (upErr) return { ok: false, error: upErr.message } as const;
-    // 7-day signed URL — plenty for the recipient's WhatsApp client to fetch.
+
+    const origin = (data.origin ?? "").replace(/\/+$/, "");
+    if (origin) {
+      const url = `${origin}/api/public/media/${path.split("/").map(encodeURIComponent).join("/")}`;
+      return { ok: true, url, mime: data.mime, filename: safe } as const;
+    }
+    // Fallback (no origin supplied): 7-day signed URL.
     const { data: signed, error: signErr } = await supabaseAdmin.storage
       .from("message-media")
       .createSignedUrl(path, 60 * 60 * 24 * 7);
@@ -1121,6 +1130,7 @@ export const uploadMessageAttachment = createServerFn({ method: "POST" })
     }
     return { ok: true, url: signed.signedUrl, mime: data.mime, filename: safe } as const;
   });
+
 
 
 /* Start a brand-new conversation with an unregistered lead. Creates the lead +
