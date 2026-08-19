@@ -69,7 +69,7 @@ export function BookingsTab() {
   const updateFn = useServerFn(updateAppointmentStatus);
   const workflowsFn = useServerFn(listActiveWorkflows);
   const triggerFn = useServerFn(triggerLeadWorkflow);
-  const [view, setView] = useState<"list" | "calendar">("list");
+  const [view, setView] = useState<"list" | "calendar" | "slots" | "manage">("list");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [timeFilter, setTimeFilter] = useState<string>("all");
   const [sort, setSort] = useState<string>("date_desc");
