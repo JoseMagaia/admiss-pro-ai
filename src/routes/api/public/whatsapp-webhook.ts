@@ -169,6 +169,7 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
               // plus the button reply id when the user tapped a quick reply.
               let content = "";
               let buttonId: string | null = null;
+              let attachment: { url: string | null; mime: string | null; kind: string | null } | null = null;
               const type = String(msg.type ?? "");
               if (type === "text") {
                 content = String((msg.text as Record<string, unknown>)?.body ?? "").trim();
@@ -181,6 +182,13 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
               } else if (type === "image" || type === "video" || type === "audio" || type === "document") {
                 const media = (msg[type] as Record<string, unknown>) ?? {};
                 content = String(media.caption ?? `[${type} attachment]`).trim();
+                attachment = {
+                  // Meta media must be fetched with the media id + access token;
+                  // we record the kind/mime now so the timeline renders it.
+                  url: null,
+                  mime: media.mime_type ? String(media.mime_type) : null,
+                  kind: type,
+                };
               } else if (type === "button") {
                 // Template-button reply. `payload` is the developer-defined id.
                 const b = (msg.button as Record<string, unknown>) ?? {};
@@ -198,6 +206,10 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
                   // workspace by its phone_number_id (resolveWorkspace knows both).
                   evolutionInstance: phoneNumberId,
                   buttonId,
+                  // Meta re-delivers webhooks on any non-200; the wamid keeps
+                  // the timeline free of duplicates.
+                  externalId: msg.id !== undefined ? String(msg.id) : null,
+                  attachment,
                 });
                 results.push(result);
               } catch (e) {
@@ -208,6 +220,7 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
                 });
               }
             }
+
           }
         }
 
