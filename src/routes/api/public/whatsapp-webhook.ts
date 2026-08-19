@@ -68,6 +68,9 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
         // { object: "whatsapp_business_account", entry: [{ id, changes: [{ field, value }] }] }
         const entries = Array.isArray(payload.entry) ? (payload.entry as Array<Record<string, unknown>>) : [];
         const results: unknown[] = [];
+        let messageCount = 0;
+        let statusCount = 0;
+        const phoneNumberIds = new Set<string>();
 
         for (const entry of entries) {
           const changes = Array.isArray(entry.changes) ? (entry.changes as Array<Record<string, unknown>>) : [];
@@ -76,6 +79,7 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
             const value = (change.value as Record<string, unknown>) ?? {};
             const metadata = (value.metadata as Record<string, unknown>) ?? {};
             const phoneNumberId = metadata.phone_number_id !== undefined ? String(metadata.phone_number_id) : null;
+            if (phoneNumberId) phoneNumberIds.add(phoneNumberId);
 
             // ---------- Delivery / Read receipts ----------
             // Meta emits `statuses[]` with { id (wamid), status: sent|delivered|read|failed, timestamp }.
@@ -84,6 +88,7 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
             // campaign_recipients row so the drip campaign report reflects
             // delivered/opened counts.
             const statuses = Array.isArray(value.statuses) ? (value.statuses as Array<Record<string, unknown>>) : [];
+            statusCount += statuses.length;
             if (statuses.length > 0) {
               const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
               const nowIso = new Date().toISOString();
@@ -153,6 +158,7 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
 
             // ---------- Inbound messages ----------
             const messages = Array.isArray(value.messages) ? (value.messages as Array<Record<string, unknown>>) : [];
+            messageCount += messages.length;
 
             for (const msg of messages) {
               const from = msg.from !== undefined ? String(msg.from) : "";
@@ -205,10 +211,29 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
           }
         }
 
-        return new Response(JSON.stringify({ ok: true, processed: results.length }), {
+        // This trace is intentionally metadata-only: it makes silent Meta
+        // delivery/configuration failures diagnosable without logging message
+        // bodies, contact phone numbers, tokens, or other private content.
+        console.info("WhatsApp Cloud webhook received", {
+          object: String(payload.object ?? ""),
+          entries: entries.length,
+          phoneNumberIds: [...phoneNumberIds],
+          messages: messageCount,
+          statuses: statusCount,
+          processed: results.length,
+        });
+
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            processed: results.length,
+            received: { messages: messageCount, statuses: statusCount },
+          }),
+          {
           status: 200,
           headers: { "Content-Type": "application/json" },
-        });
+          },
+        );
       },
     },
   },
