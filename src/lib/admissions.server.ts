@@ -731,7 +731,17 @@ export async function sendEvolutionMedia(
   const number = toEvolutionNumber(phone);
   if (!number) return { ok: false, error: "The contact's phone number is invalid." };
 
-  const isAudio = media.kind === "audio";
+  // Audio can either go out as a native voice note or as a downloadable file,
+  // depending on the format the super admin enabled in Settings → Audio.
+  let isAudio = media.kind === "audio";
+  if (isAudio) {
+    const fmt = await loadAudioFormat();
+    media = { ...media, filename: audioFilename(media.filename, fmt.ext) };
+    if (fmt.asDocument) {
+      isAudio = false;
+      media = { ...media, kind: "document" };
+    }
+  }
   const url = isAudio
     ? `${base}/message/sendWhatsAppAudio/${encodeURIComponent(instance)}`
     : `${base}/message/sendMedia/${encodeURIComponent(instance)}`;
@@ -949,6 +959,12 @@ export async function sendWhatsAppCloudMedia(
   const baseMime = (media.mime ?? "").split(";")[0]!.trim().toLowerCase();
   const allowed = WA_CLOUD_MIME[kind];
   if (allowed && baseMime && !allowed.includes(baseMime)) kind = "document";
+  // Honour the configured audio delivery format: file attachment vs voice bubble.
+  if (media.kind === "audio") {
+    const fmt = await loadAudioFormat();
+    if (fmt.asDocument) kind = "document";
+    media = { ...media, filename: audioFilename(media.filename, fmt.ext) };
+  }
   const phoneId = String(workspace.wa_phone_number_id ?? "").trim();
   const token = String(workspace.wa_access_token ?? "").trim();
   if (!phoneId || !token) return { ok: false, error: "WhatsApp Cloud API isn't fully configured." };
