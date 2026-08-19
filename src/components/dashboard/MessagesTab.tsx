@@ -554,8 +554,18 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
       rec.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
         const type = (rec.mimeType || mimeType || "audio/webm").split(";")[0];
-        const blob = new Blob(recordChunksRef.current, { type });
-        const ext = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "m4a" : type.includes("mpeg") ? "mp3" : "webm";
+        let blob = new Blob(recordChunksRef.current, { type });
+        let ext = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "m4a" : type.includes("mpeg") ? "mp3" : "webm";
+        if (ext === "webm") {
+          // Chrome records WebM/Opus; WhatsApp only plays Ogg/Opus, so repackage
+          // the same Opus frames into an Ogg container before uploading.
+          const { webmOpusToOgg } = await import("@/lib/audio/webm-opus-to-ogg");
+          const ogg = await webmOpusToOgg(blob);
+          if (ogg) {
+            blob = ogg;
+            ext = "ogg";
+          }
+        }
         await uploadBlob(blob, `voice-${Date.now()}.${ext}`);
       };
       rec.start();
