@@ -916,6 +916,26 @@ const WA_CLOUD_MIME: Record<string, string[]> = {
   sticker: ["image/webp"],
 };
 
+// Audio delivery format chosen by the super admin (Settings → Audio). When the
+// format is a "document" one, audio is delivered as a downloadable file so the
+// contact opens it in their local player instead of an inline voice bubble.
+export async function loadAudioFormat() {
+  const { resolveAudioFormat } = await import("./audio/formats");
+  try {
+    const db = await admin();
+    const { data } = await db.from("education_settings").select("audio_delivery_format").limit(1).maybeSingle();
+    return resolveAudioFormat((data as { audio_delivery_format?: string } | null)?.audio_delivery_format);
+  } catch {
+    return resolveAudioFormat(undefined);
+  }
+}
+
+/** Filename with the extension matching the active audio format. */
+function audioFilename(name: string | null | undefined, ext: string): string {
+  const base = (name ?? `audio-${Date.now()}`).replace(/\.[a-z0-9]+$/i, "");
+  return `${base}.${ext}`;
+}
+
 // Send a media message (image/video/audio/document) via WhatsApp Cloud API.
 export async function sendWhatsAppCloudMedia(
   workspace: WorkspaceRow | null,
