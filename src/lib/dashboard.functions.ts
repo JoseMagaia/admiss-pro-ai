@@ -2574,3 +2574,224 @@ export const removeLeadWorkflow = createServerFn({ method: "POST" })
 
 
 
+
+/* -------------------- WHATSAPP CLOUD DIAGNOSTICS -------------------- */
+
+export interface WaCheck {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+}
+
+/**
+ * End-to-end health check for an official WhatsApp Cloud (Meta) inbox:
+ *  1. the access token + phone number id are valid,
+ *  2. the number is registered on the Cloud API,
+ *  3. the WhatsApp Business Account is subscribed to this app (inbound + receipts),
+ *  4. our public webhook URL answers Meta's verification handshake WITHOUT a redirect
+ *     (Meta does not follow redirects — a 301/302 silently breaks inbound messages
+ *      and delivery receipts, which is the classic "it says sent but nothing arrives").
+ */
+export const diagnoseWhatsappCloud = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ id: z.string().uuid(), origin: z.string().url().max(300) }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(["super_admin"]);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message, checks: [] as WaCheck[], callbackUrl: "" };
+    }
+    const db = await scopedDb();
+    const { data: row } = await db
+      .from("chatwoot_workspaces")
+      .select("*")
+      .eq("id", data.id)
+      .maybeSingle();
+    const ws = row as Record<string, string | null> | null;
+    if (!ws) return { ok: false, error: "Inbox connection not found.", checks: [] as WaCheck[], callbackUrl: "" };
+
+    const phoneId = String(ws.wa_phone_number_id ?? "").trim();
+    const wabaId = String(ws.wa_business_account_id ?? "").trim();
+    const token = String(ws.wa_access_token ?? "").trim();
+    const verifyToken = String(ws.wa_verify_token ?? "").trim();
+    const checks: WaCheck[] = [];
+    const G = "https://graph.facebook.com/v21.0";
+
+    // 1 + 2 — token / phone number health.
+    if (!phoneId || !token) {
+      checks.push({
+        key: "number",
+        label: "Access token & phone number",
+        ok: false,
+        detail: "Save the Phone Number ID and access token first.",
+      });
+    } else {
+      try {
+        const res = await fetch(
+          `${G}/${encodeURIComponent(phoneId)}?fields=display_phone_number,verified_name,quality_rating,platform_type,code_verification_status`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        const json = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
+          error?: { message?: string };
+        };
+        if (!res.ok) {
+          checks.push({
+            key: "number",
+            label: "Access token & phone number",
+            ok: false,
+            detail: json.error?.message ?? `Meta returned ${res.status}.`,
+          });
+        } else {
+          checks.push({
+            key: "number",
+            label: "Access token & phone number",
+            ok: true,
+            detail: `${String(json.display_phone_number ?? phoneId)} · ${String(json.verified_name ?? "")} · quality ${String(json.quality_rating ?? "n/a")}`,
+          });
+          const platform = String(json.platform_type ?? "");
+          checks.push({
+            key: "registration",
+            label: "Number registered on Cloud API",
+            ok: platform === "CLOUD_API" || platform === "",
+            detail:
+              platform === "CLOUD_API" || platform === ""
+                ? "Ready to send from the Cloud API."
+                : `Number is on "${platform}" — migrate it to the Cloud API in WhatsApp Manager, otherwise sends are accepted but never delivered.`,
+          });
+        }
+      } catch {
+        checks.push({
+          key: "number",
+          label: "Access token & phone number",
+          ok: false,
+          detail: "Couldn't reach Meta's Graph API.",
+        });
+      }
+    }
+
+    // 3 — WABA app subscription (required for inbound messages + delivery receipts).
+    if (!wabaId || !token) {
+      checks.push({
+        key: "subscription",
+        label: "App subscribed to the WhatsApp Business Account",
+        ok: false,
+        detail: "Save the WhatsApp Business Account ID to check (and enable) the webhook subscription.",
+      });
+    } else {
+      try {
+        const res = await fetch(`${G}/${encodeURIComponent(wabaId)}/subscribed_apps`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          data?: Array<Record<string, unknown>>;
+          error?: { message?: string };
+        };
+        if (!res.ok) {
+          checks.push({
+            key: "subscription",
+            label: "App subscribed to the WhatsApp Business Account",
+            ok: false,
+            detail: json.error?.message ?? `Meta returned ${res.status}.`,
+          });
+        } else if ((json.data ?? []).length > 0) {
+          checks.push({
+            key: "subscription",
+            label: "App subscribed to the WhatsApp Business Account",
+            ok: true,
+            detail: "Inbound messages and delivery receipts are subscribed.",
+          });
+        } else {
+          // Auto-fix: subscribe now.
+          const sub = await fetch(`${G}/${encodeURIComponent(wabaId)}/subscribed_apps`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          checks.push({
+            key: "subscription",
+            label: "App subscribed to the WhatsApp Business Account",
+            ok: sub.ok,
+            detail: sub.ok
+              ? "Wasn't subscribed — subscribed it for you just now."
+              : "Not subscribed, and the automatic fix failed. Subscribe the app in Meta → WhatsApp → Configuration.",
+          });
+        }
+      } catch {
+        checks.push({
+          key: "subscription",
+          label: "App subscribed to the WhatsApp Business Account",
+          ok: false,
+          detail: "Couldn't reach Meta's Graph API.",
+        });
+      }
+    }
+
+    // 4 — webhook handshake, following redirects manually so we can flag them.
+    const origin = data.origin.replace(/\/+$/, "");
+    let callbackUrl = `${origin}/api/public/whatsapp-webhook`;
+    if (!verifyToken) {
+      checks.push({
+        key: "webhook",
+        label: "Webhook callback reachable",
+        ok: false,
+        detail: "Set a Verify Token on this inbox first.",
+      });
+    } else {
+      const nonce = String(Math.floor(Math.random() * 1e9));
+      let target = callbackUrl;
+      let redirected = false;
+      let detail = "";
+      let ok = false;
+      try {
+        for (let hop = 0; hop < 3; hop++) {
+          const probe = `${target}?hub.mode=subscribe&hub.verify_token=${encodeURIComponent(verifyToken)}&hub.challenge=${nonce}`;
+          const res = await fetch(probe, { redirect: "manual" });
+          if (res.status >= 300 && res.status < 400) {
+            const loc = res.headers.get("location");
+            if (!loc) {
+              detail = `The callback URL redirects (${res.status}) and Meta does not follow redirects.`;
+              break;
+            }
+            redirected = true;
+            target = new URL(loc, target).toString().split("?")[0];
+            continue;
+          }
+          const body = (await res.text().catch(() => "")).trim();
+          if (res.ok && body === nonce) {
+            ok = !redirected;
+            callbackUrl = target;
+            detail = redirected
+              ? `Works, but only after a redirect. Use exactly this URL in Meta: ${target}`
+              : "Meta's verification handshake succeeded.";
+          } else if (res.status === 403) {
+            detail = "Reachable, but the Verify Token didn't match the saved one.";
+          } else {
+            detail = `Callback returned ${res.status}${body ? `: ${body.slice(0, 120)}` : ""}.`;
+          }
+          break;
+        }
+      } catch {
+        detail = "Couldn't reach the callback URL from the server.";
+      }
+      checks.push({
+        key: "webhook",
+        label: "Webhook callback reachable",
+        ok,
+        detail: detail || "No response from the callback URL.",
+      });
+    }
+
+    // 5 — fallback template for the 24-hour rule.
+    const template = String(ws.wa_default_template ?? "").trim();
+    checks.push({
+      key: "template",
+      label: "Fallback template for the 24-hour window",
+      ok: Boolean(template),
+      detail: template
+        ? `Using "${template}" (${String(ws.wa_template_language ?? "en_US")}) when the contact hasn't replied in 24h.`
+        : "Not set. WhatsApp blocks free-form messages more than 24h after the contact's last reply, so those sends will fail.",
+    });
+
+    return { ok: checks.every((c) => c.ok), error: null, checks, callbackUrl };
+  });
