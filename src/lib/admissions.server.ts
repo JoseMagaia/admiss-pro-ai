@@ -1095,6 +1095,42 @@ export async function processInboundMessage(params: {
       .from("conversations")
       .update({ human_takeover: true, status: "pending", assigned_agent: "Admissions Team" })
       .eq("phone_number", phone);
+
+    // The AI asked for a human: raise a ticket (unless one is already open)
+    // and notify the space so an agent picks it up.
+    try {
+      const { data: existing } = await db
+        .from("tickets")
+        .select("id")
+        .eq("phone_number", phone)
+        .neq("status", "closed")
+        .limit(1);
+      if (!existing || existing.length === 0) {
+        const { data: created } = await db
+          .from("tickets")
+          .insert({
+            subject: `Human requested — ${lead.lead_name ?? phone}`,
+            phone_number: phone,
+            lead_id: lead.id ?? null,
+            status: "open",
+            priority: "high",
+            created_by_kind: "ai",
+            notes: message.slice(0, 500),
+          } as never)
+          .select("id")
+          .maybeSingle();
+        await db.from("notifications").insert({
+          user_id: null,
+          title: `AI requested a human for ${lead.lead_name ?? phone}`,
+          body: message.slice(0, 300),
+          kind: "ticket",
+          ticket_id: (created as { id?: string } | null)?.id ?? null,
+          link_phone: phone,
+        } as never);
+      }
+    } catch (e) {
+      console.error("Failed to raise handoff ticket:", e);
+    }
   }
 
   if (humanTakeover) {
