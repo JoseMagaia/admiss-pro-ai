@@ -420,6 +420,8 @@ async function buildAnalytics(
     topCountries,
     ...(messageLog ? { messageLog } : {}),
     ...(leadDirectory ? { leadDirectory } : {}),
+    ...(threadEvidence && threadEvidence.length > 0 ? { threadEvidence } : {}),
+
   };
 }
 
