@@ -1,12 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
+import type { Row, HistoryEntry } from "./lead-panel-helpers";
 
 /** Lead side panel: profile, notes and activity history for one conversation. */
 export const getLeadPanel = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ phone: z.string().min(3).max(60) }).parse(d))
   .handler(async ({ data }) => {
     const { isAuthed } = await import("./dashboard-helpers");
-    const { buildLeadPanel, type Row, type HistoryEntry } = await import("./lead-panel-helpers");
+    const { buildLeadPanel } = await import("./lead-panel-helpers");
     if (!(await isAuthed())) {
       return {
         lead: null as Row | null,
