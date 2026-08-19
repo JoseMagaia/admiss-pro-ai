@@ -23,6 +23,7 @@ import {
   Check,
   CheckCheck,
   AlertCircle,
+  RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
@@ -47,6 +48,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   listMessageThreads,
+  syncInbox,
   listConversationMessages,
   sendHumanMessage,
   scheduleMessage,
@@ -155,6 +157,27 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const pauseFn = useServerFn(pauseLeadWorkflow);
   const workspacesFn = useServerFn(listWorkspaces);
   const startFn = useServerFn(startConversation);
+  const syncFn = useServerFn(syncInbox);
+
+  // Pull history from the connected Chatwoot inbox(es) into the timeline.
+  const syncMutation = useMutation({
+    mutationFn: () => syncFn(),
+    onSuccess: (res) => {
+      const r = res as { imported?: number; error?: string | null; reports?: Array<{ error?: string; skipped?: string }> };
+      if (r.error) {
+        toast.error(r.error);
+        return;
+      }
+      const failed = (r.reports ?? []).filter((x) => x.error);
+      if (failed.length > 0) toast.warning(failed[0].error ?? "Some inboxes could not be synced");
+      else if ((r.imported ?? 0) > 0) toast.success(`Synced ${r.imported} message(s) from the connected inbox`);
+      else toast.info("Inbox is already up to date");
+      qc.invalidateQueries({ queryKey: ["message-threads"] });
+      qc.invalidateQueries({ queryKey: ["conversation-messages"] });
+    },
+    onError: () => toast.error("Inbox sync failed"),
+  });
+
 
   const [search, setSearch] = useState("");
   const [active, setActive] = useState<string | null>(null);
@@ -557,6 +580,21 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
           <Button size="sm" className="w-full gap-1.5" onClick={() => setNewOpen(true)}>
             <Plus className="h-4 w-4" /> New conversation
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full gap-1.5"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+          >
+            {syncMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Sync inbox
+          </Button>
+
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input

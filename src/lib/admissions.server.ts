@@ -965,6 +965,10 @@ export async function processInboundMessage(params: {
   evolutionInstance?: string | null;
   /** Interactive button id (WhatsApp Cloud quick-reply / template button payload). */
   buttonId?: string | null;
+  /** Stable provider message id, used to de-duplicate webhook retries and inbox syncs. */
+  externalId?: string | null;
+  /** Inbound media (Chatwoot attachment / WhatsApp media). */
+  attachment?: { url: string | null; mime: string | null; kind: string | null } | null;
 }): Promise<ProcessResult> {
   const {
     message,
@@ -974,6 +978,8 @@ export async function processInboundMessage(params: {
     chatwootAccountId,
     evolutionInstance,
     buttonId,
+    externalId,
+    attachment,
   } = params;
   // Match the stored contact format so inbound messages land on the existing
   // lead/conversation instead of spawning a digits-only duplicate.
@@ -993,14 +999,31 @@ export async function processInboundMessage(params: {
   const db = await admin();
   const creds = await resolveCreds(workspace);
 
+  // De-duplicate provider retries (Meta and Chatwoot both re-deliver webhooks).
+  if (externalId) {
+    const { data: dupe } = await db
+      .from("whatsapp_messages")
+      .select("id")
+      .eq("wamid", externalId)
+      .maybeSingle();
+    if (dupe) {
+      return { reply: "", stage: "DUPLICATE", humanTakeover: false };
+    }
+  }
+
   // Log inbound message.
   await db.from("whatsapp_messages").insert({
     phone_number: phone,
     message_content: message,
     sender: "lead",
-    message_type: "text",
+    message_type: attachment?.url ? "media" : "text",
     processed: false,
-  });
+    wamid: externalId ?? null,
+    attachment_url: attachment?.url ?? null,
+    attachment_mime: attachment?.mime ?? null,
+    attachment_kind: attachment?.kind ?? null,
+  } as never);
+
 
   // Drip Campaigns: a reply from this contact stops any further campaign
   // messages to them and records the reply for campaign reporting. The reply
@@ -1154,7 +1177,79 @@ export async function processInboundMessage(params: {
   });
 }
 
+// Mirror a message an agent sent from the Chatwoot UI (or a Chatwoot bot/
+// template message) into the app timeline, so the Messages tab shows the same
+// thread the connected inbox does. History only — never triggers the AI.
+export async function recordOutboundEcho(params: {
+  phone: string;
+  message: string;
+  externalId?: string | null;
+  chatwootConversationId?: string | null;
+  chatwootContactId?: string | null;
+  chatwootInboxId?: string | null;
+  chatwootAccountId?: string | null;
+  sender?: "human" | "ai" | "note";
+  attachment?: { url: string | null; mime: string | null; kind: string | null } | null;
+  createdAt?: string | null;
+}): Promise<{ ok: boolean; duplicate?: boolean }> {
+  const workspace = await resolveWorkspace({
+    inboxId: params.chatwootInboxId,
+    accountId: params.chatwootAccountId,
+  });
+  const { getDefaultSpaceId } = await import("./space-context.server");
+  const spaceId = (workspace?.space_id as string | null) ?? (await getDefaultSpaceId());
+
+  return runInSpace(spaceId, async () => {
+    const db = await admin();
+    const phone = await canonicalInboundPhone(params.phone);
+
+    if (params.externalId) {
+      const { data: dupe } = await db
+        .from("whatsapp_messages")
+        .select("id")
+        .eq("wamid", params.externalId)
+        .maybeSingle();
+      if (dupe) return { ok: true, duplicate: true };
+    }
+
+    // Keep the lead/conversation records in step with the inbox.
+    const lead = await getOrCreateLead(
+      phone,
+      params.chatwootConversationId ?? null,
+      params.chatwootContactId ?? null,
+      workspace?.id ?? null,
+    );
+    const { data: conv } = await db.from("conversations").select("id").eq("phone_number", phone).maybeSingle();
+    if (!conv) {
+      await db.from("conversations").insert({
+        phone_number: phone,
+        lead_id: lead?.id ?? null,
+        chatwoot_conversation_id: params.chatwootConversationId ?? null,
+        workspace_id: workspace?.id ?? null,
+        status: "open",
+      } as never);
+    }
+
+    await db.from("whatsapp_messages").insert({
+      phone_number: phone,
+      message_content: params.message,
+      sender: params.sender ?? "human",
+      message_type: params.attachment?.url ? "media" : "text",
+      processed: true,
+      wamid: params.externalId ?? null,
+      attachment_url: params.attachment?.url ?? null,
+      attachment_mime: params.attachment?.mime ?? null,
+      attachment_kind: params.attachment?.kind ?? null,
+      delivery_status: "sent",
+      ...(params.createdAt ? { received_at: params.createdAt } : {}),
+    } as never);
+
+    return { ok: true };
+  });
+}
+
 // Deliver a single manual/scheduled message to a contact and log it.
+
 export async function deliverHumanMessage(params: {
   phone: string;
   message: string;
