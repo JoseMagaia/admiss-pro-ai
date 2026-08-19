@@ -100,6 +100,19 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
                   // A read implies delivered; backfill if we somehow missed it.
                   patch.delivered_at = nowIso;
                 }
+                if (status === "failed") {
+                  // Surface Meta's own reason (e.g. "re-engagement message")
+                  // so the chat can explain why it never arrived.
+                  const errs = Array.isArray(st.errors) ? (st.errors as Array<Record<string, unknown>>) : [];
+                  const first = errs[0] ?? {};
+                  const details =
+                    ((first.error_data as Record<string, unknown> | undefined)?.details as string | undefined) ??
+                    (first.title as string | undefined) ??
+                    (first.message as string | undefined) ??
+                    "WhatsApp could not deliver this message.";
+                  patch.delivery_error = first.code ? `[${first.code}] ${details}` : details;
+                }
+
                 const { data: updatedRows } = await supabaseAdmin
                   .from("whatsapp_messages")
                   .update(patch as never)
