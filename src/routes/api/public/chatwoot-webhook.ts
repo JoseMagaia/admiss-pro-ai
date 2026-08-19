@@ -133,7 +133,7 @@ export const Route = createFileRoute("/api/public/chatwoot-webhook")({
               sender: payload.private === true ? "note" : "human",
               attachment,
             });
-            return new Response(JSON.stringify({ ok: true, mirrored: true, ...echo }), {
+            return new Response(JSON.stringify({ mirrored: true, ...echo }), {
               status: 200,
               headers: { "Content-Type": "application/json" },
             });
