@@ -192,7 +192,12 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
               // plus the button reply id when the user tapped a quick reply.
               let content = "";
               let buttonId: string | null = null;
-              let attachment: { url: string | null; mime: string | null; kind: string | null } | null = null;
+              let attachment: {
+                url: string | null;
+                path?: string | null;
+                mime: string | null;
+                kind: string | null;
+              } | null = null;
               const type = String(msg.type ?? "");
               if (type === "text") {
                 content = String((msg.text as Record<string, unknown>)?.body ?? "").trim();
