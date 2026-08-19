@@ -994,7 +994,64 @@ export interface ProcessResult {
   error?: string;
 }
 
+/**
+ * Make sure the conversation with this lead is represented by an open ticket.
+ *
+ * A ticket is the conversation, not an internal note: it is created
+ * automatically on the first (or first-after-close) inbound message, and can
+ * then be transferred to a queue or to another user/role for handling.
+ * Returns the ticket id (existing or newly created).
+ */
+export async function ensureConversationTicket(params: {
+  phone: string;
+  leadId?: string | null;
+  leadName?: string | null;
+  conversationId?: string | null;
+  firstMessage?: string | null;
+}): Promise<string | null> {
+  const db = await admin();
+  try {
+    const { data: existing } = await db
+      .from("tickets")
+      .select("id")
+      .eq("phone_number", params.phone)
+      .neq("status", "closed")
+      .limit(1);
+    const found = ((existing ?? []) as Array<{ id: string }>)[0];
+    if (found) return found.id;
+
+    const { data: created } = await db
+      .from("tickets")
+      .insert({
+        subject: `Conversation — ${params.leadName ?? params.phone}`,
+        phone_number: params.phone,
+        lead_id: params.leadId ?? null,
+        conversation_id: params.conversationId ?? null,
+        status: "open",
+        priority: "normal",
+        created_by_kind: "system",
+        notes: params.firstMessage ? params.firstMessage.slice(0, 500) : null,
+      } as never)
+      .select("id")
+      .maybeSingle();
+    const id = (created as { id?: string } | null)?.id ?? null;
+    if (id) {
+      await db.from("ticket_events").insert({
+        ticket_id: id,
+        actor_label: "System",
+        kind: "created",
+        detail: "Conversation started",
+      } as never);
+    }
+    return id;
+  } catch (e) {
+    console.error("Failed to ensure conversation ticket:", e);
+    return null;
+  }
+}
+
 export async function processInboundMessage(params: {
+
   phone: string;
   message: string;
   chatwootConversationId?: string | null;
