@@ -965,6 +965,10 @@ export async function processInboundMessage(params: {
   evolutionInstance?: string | null;
   /** Interactive button id (WhatsApp Cloud quick-reply / template button payload). */
   buttonId?: string | null;
+  /** Stable provider message id, used to de-duplicate webhook retries and inbox syncs. */
+  externalId?: string | null;
+  /** Inbound media (Chatwoot attachment / WhatsApp media). */
+  attachment?: { url: string | null; mime: string | null; kind: string | null } | null;
 }): Promise<ProcessResult> {
   const {
     message,
@@ -974,6 +978,8 @@ export async function processInboundMessage(params: {
     chatwootAccountId,
     evolutionInstance,
     buttonId,
+    externalId,
+    attachment,
   } = params;
   // Match the stored contact format so inbound messages land on the existing
   // lead/conversation instead of spawning a digits-only duplicate.
@@ -993,14 +999,31 @@ export async function processInboundMessage(params: {
   const db = await admin();
   const creds = await resolveCreds(workspace);
 
+  // De-duplicate provider retries (Meta and Chatwoot both re-deliver webhooks).
+  if (externalId) {
+    const { data: dupe } = await db
+      .from("whatsapp_messages")
+      .select("id")
+      .eq("wamid", externalId)
+      .maybeSingle();
+    if (dupe) {
+      return { reply: "", stage: "DUPLICATE", humanTakeover: false };
+    }
+  }
+
   // Log inbound message.
   await db.from("whatsapp_messages").insert({
     phone_number: phone,
     message_content: message,
     sender: "lead",
-    message_type: "text",
+    message_type: attachment?.url ? "media" : "text",
     processed: false,
-  });
+    wamid: externalId ?? null,
+    attachment_url: attachment?.url ?? null,
+    attachment_mime: attachment?.mime ?? null,
+    attachment_kind: attachment?.kind ?? null,
+  } as never);
+
 
   // Drip Campaigns: a reply from this contact stops any further campaign
   // messages to them and records the reply for campaign reporting. The reply
