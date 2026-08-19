@@ -522,7 +522,10 @@ export interface RunResponderArgs {
   history: EngineMessage[];
   userMessage: string;
   provider?: ProviderConfig | null;
+  /** Human-readable list of genuinely free slots on the booking calendar. */
+  availability?: string | null;
 }
+
 
 export interface RunResponderResult {
   reply: string;
