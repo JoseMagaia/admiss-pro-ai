@@ -54,6 +54,8 @@ export const TENANT_TABLES = new Set<string>([
   "calendars",
   "calendar_availability",
   "calendar_exceptions",
+  "lead_notes",
+  "ticket_queue_members",
 ]);
 
 

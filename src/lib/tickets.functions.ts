@@ -23,6 +23,9 @@ export const upsertQueue = createServerFn({ method: "POST" })
         description: z.string().max(500).nullable().optional(),
         color: z.string().max(20).optional().default("#6366f1"),
         position: z.number().int().min(0).max(999).optional().default(0),
+        ai_handoff_stages: z.array(z.string().max(80)).max(40).optional().default([]),
+        is_ai_default: z.boolean().optional().default(false),
+        member_ids: z.array(z.string().uuid()).max(100).optional(),
       })
       .parse(d),
   )
@@ -33,16 +36,47 @@ export const upsertQueue = createServerFn({ method: "POST" })
       return { ok: false, error: (e as Error).message };
     }
     const db = await scopedDb();
+    const sid = await activeSpaceId();
     const row = {
       name: data.name,
       description: data.description ?? null,
       color: data.color,
       position: data.position,
+      ai_handoff_stages: data.ai_handoff_stages,
+      is_ai_default: data.is_ai_default,
     };
-    const { error } = data.id
-      ? await db.from("ticket_queues").update(row as never).eq("id", data.id)
-      : await db.from("ticket_queues").insert(row as never);
-    return error ? { ok: false, error: error.message } : { ok: true };
+
+    let queueId = data.id ?? null;
+    if (data.id) {
+      const { error } = await db.from("ticket_queues").update(row as never).eq("id", data.id);
+      if (error) return { ok: false, error: error.message };
+    } else {
+      const { data: created, error } = await db
+        .from("ticket_queues")
+        .insert(row as never)
+        .select("id")
+        .maybeSingle();
+      if (error) return { ok: false, error: error.message };
+      queueId = (created as { id?: string } | null)?.id ?? null;
+    }
+    if (!queueId) return { ok: false, error: "Queue could not be saved." };
+
+    // Only one queue can be the AI's default handoff target.
+    if (data.is_ai_default) {
+      await db.from("ticket_queues").update({ is_ai_default: false } as never).neq("id", queueId);
+      await db.from("ticket_queues").update({ is_ai_default: true } as never).eq("id", queueId);
+    }
+
+    // Replace queue staffing when the caller supplied a member list.
+    if (data.member_ids) {
+      await db.from("ticket_queue_members").delete().eq("queue_id", queueId);
+      if (data.member_ids.length > 0) {
+        await db.from("ticket_queue_members").insert(
+          data.member_ids.map((user_id) => ({ space_id: sid, queue_id: queueId, user_id })) as never,
+        );
+      }
+    }
+    return { ok: true, id: queueId };
   });
 
 export const deleteQueue = createServerFn({ method: "POST" })
@@ -57,6 +91,14 @@ export const deleteQueue = createServerFn({ method: "POST" })
     const { error } = await db.from("ticket_queues").delete().eq("id", data.id);
     return error ? { ok: false, error: error.message } : { ok: true };
   });
+
+/** Queue staffing: which users belong to which queue. */
+export const listQueueMembers = createServerFn({ method: "GET" }).handler(async () => {
+  if (!(await isAuthed())) return { members: [] };
+  const db = await scopedDb();
+  const { data } = await db.from("ticket_queue_members").select("queue_id, user_id");
+  return { members: (data ?? []) as Array<{ queue_id: string; user_id: string }> };
+});
 
 /* --------------------------------- TAGS -------------------------------- */
 
