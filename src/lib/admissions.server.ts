@@ -799,6 +799,16 @@ export async function sendWhatsAppCloudReply(
 }
 
 
+// Mime types WhatsApp Cloud accepts for each media type. Anything else is
+// delivered as a document so the message still reaches the contact instead of
+// failing silently (e.g. browser-recorded audio/webm).
+const WA_CLOUD_MIME: Record<string, string[]> = {
+  image: ["image/jpeg", "image/png"],
+  audio: ["audio/aac", "audio/amr", "audio/mpeg", "audio/mp4", "audio/ogg"],
+  video: ["video/mp4", "video/3gp", "video/3gpp"],
+  sticker: ["image/webp"],
+};
+
 // Send a media message (image/video/audio/document) via WhatsApp Cloud API.
 export async function sendWhatsAppCloudMedia(
   workspace: WorkspaceRow | null,
@@ -808,9 +818,12 @@ export async function sendWhatsAppCloudMedia(
   if (!workspace) return { ok: false, error: "No WhatsApp Cloud workspace resolved." };
   const to = toWhatsAppCloudNumber(phone);
   if (!to) return { ok: false, error: "The contact's phone number is invalid." };
-  const kind = media.kind === "sticker" ? "sticker" : media.kind;
+  let kind = media.kind === "sticker" ? "sticker" : media.kind;
+  const baseMime = (media.mime ?? "").split(";")[0]!.trim().toLowerCase();
+  const allowed = WA_CLOUD_MIME[kind];
+  if (allowed && baseMime && !allowed.includes(baseMime)) kind = "document";
   const mediaObj: Record<string, unknown> = { link: media.url };
-  if (media.filename && kind === "document") mediaObj.filename = media.filename;
+  if (kind === "document") mediaObj.filename = media.filename ?? "attachment";
   if (media.caption && (kind === "image" || kind === "video" || kind === "document")) {
     mediaObj.caption = media.caption;
   }
