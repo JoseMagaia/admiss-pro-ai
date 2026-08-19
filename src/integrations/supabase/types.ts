@@ -2325,11 +2325,81 @@ export type Database = {
         }
         Relationships: []
       }
+      waba_templates: {
+        Row: {
+          category: string
+          components: Json
+          created_at: string
+          created_by: string | null
+          id: string
+          language: string
+          last_synced_at: string | null
+          meta_template_id: string | null
+          name: string
+          rejection_reason: string | null
+          space_id: string
+          status: string
+          submitted_at: string | null
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          category?: string
+          components?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          language?: string
+          last_synced_at?: string | null
+          meta_template_id?: string | null
+          name: string
+          rejection_reason?: string | null
+          space_id: string
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          category?: string
+          components?: Json
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          language?: string
+          last_synced_at?: string | null
+          meta_template_id?: string | null
+          name?: string
+          rejection_reason?: string | null
+          space_id?: string
+          status?: string
+          submitted_at?: string | null
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "waba_templates_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "waba_templates_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "chatwoot_workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_messages: {
         Row: {
           ai_response: string | null
           attachment_kind: string | null
           attachment_mime: string | null
+          attachment_path: string | null
           attachment_url: string | null
           campaign_id: string | null
           delivered_at: string | null
@@ -2350,6 +2420,7 @@ export type Database = {
           ai_response?: string | null
           attachment_kind?: string | null
           attachment_mime?: string | null
+          attachment_path?: string | null
           attachment_url?: string | null
           campaign_id?: string | null
           delivered_at?: string | null
@@ -2370,6 +2441,7 @@ export type Database = {
           ai_response?: string | null
           attachment_kind?: string | null
           attachment_mime?: string | null
+          attachment_path?: string | null
           attachment_url?: string | null
           campaign_id?: string | null
           delivered_at?: string | null

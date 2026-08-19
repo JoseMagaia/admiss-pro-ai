@@ -27,6 +27,29 @@ async function findVerifyToken(): Promise<string | null> {
   return tokens[0] ?? null;
 }
 
+async function downloadMetaMedia(phoneNumberId: string, mediaId: string, filename: string) {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: workspace } = await supabaseAdmin
+    .from("chatwoot_workspaces")
+    .select("wa_access_token")
+    .eq("provider_type", "whatsapp_cloud")
+    .eq("wa_phone_number_id", phoneNumberId)
+    .eq("enabled", true)
+    .maybeSingle();
+  const token = String(workspace?.wa_access_token ?? "").trim();
+  if (!token) throw new Error("No access token for inbound media workspace.");
+  const metadataResponse = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(mediaId)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const metadata = (await metadataResponse.json().catch(() => ({}))) as { url?: string; mime_type?: string; error?: { message?: string } };
+  if (!metadataResponse.ok || !metadata.url) throw new Error(metadata.error?.message ?? "Meta media metadata was unavailable.");
+  const mediaResponse = await fetch(metadata.url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!mediaResponse.ok) throw new Error(`Meta media download failed (${mediaResponse.status}).`);
+  const mime = metadata.mime_type ?? mediaResponse.headers.get("content-type") ?? "application/octet-stream";
+  const { storeMessageMedia } = await import("@/lib/message-media.server");
+  return storeMessageMedia({ bytes: await mediaResponse.arrayBuffer(), mime, filename, folder: "inbound" });
+}
+
 export const Route = createFileRoute("/api/public/whatsapp-webhook")({
   server: {
     handlers: {
@@ -169,7 +192,12 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
               // plus the button reply id when the user tapped a quick reply.
               let content = "";
               let buttonId: string | null = null;
-              let attachment: { url: string | null; mime: string | null; kind: string | null } | null = null;
+              let attachment: {
+                url: string | null;
+                path?: string | null;
+                mime: string | null;
+                kind: string | null;
+              } | null = null;
               const type = String(msg.type ?? "");
               if (type === "text") {
                 content = String((msg.text as Record<string, unknown>)?.body ?? "").trim();
@@ -182,13 +210,26 @@ export const Route = createFileRoute("/api/public/whatsapp-webhook")({
               } else if (type === "image" || type === "video" || type === "audio" || type === "document") {
                 const media = (msg[type] as Record<string, unknown>) ?? {};
                 content = String(media.caption ?? `[${type} attachment]`).trim();
-                attachment = {
-                  // Meta media must be fetched with the media id + access token;
-                  // we record the kind/mime now so the timeline renders it.
-                  url: null,
-                  mime: media.mime_type ? String(media.mime_type) : null,
-                  kind: type,
-                };
+                const mediaId = String(media.id ?? "").trim();
+                if (phoneNumberId && mediaId) {
+                  try {
+                    const extension = type === "image" ? "jpg" : type === "audio" ? "ogg" : type === "video" ? "mp4" : "bin";
+                    const stored = await downloadMetaMedia(
+                      phoneNumberId,
+                      mediaId,
+                      String(media.filename ?? `${type}-${mediaId.slice(-12)}.${extension}`),
+                    );
+                    attachment = {
+                      url: stored.url,
+                      path: stored.path,
+                      mime: media.mime_type ? String(media.mime_type) : null,
+                      kind: type,
+                    };
+                  } catch (error) {
+                    console.error("WhatsApp inbound media download failed:", error);
+                    attachment = { url: null, path: null, mime: media.mime_type ? String(media.mime_type) : null, kind: type };
+                  }
+                }
               } else if (type === "button") {
                 // Template-button reply. `payload` is the developer-defined id.
                 const b = (msg.button as Record<string, unknown>) ?? {};

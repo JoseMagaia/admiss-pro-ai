@@ -544,8 +544,8 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
                     }
                     const base64 = typeof btoa === "function" ? btoa(binary) : "";
                     const res = (await uploadFn({
-                      data: { filename: file.name, mime: file.type || "application/octet-stream", base64, origin: window.location.origin },
-                    })) as { ok: boolean; url?: string; mime?: string; filename?: string; error?: string };
+                      data: { filename: file.name, mime: file.type || "application/octet-stream", base64 },
+                    })) as { ok: boolean; url?: string; path?: string; mime?: string; filename?: string; error?: string };
                     if (!res.ok || !res.url) {
                       toast.error(res.error ?? "Upload failed");
                       return;
@@ -558,7 +558,7 @@ function CampaignEditor({ campaignId, onBack }: { campaignId: string | null; onB
                         : mime.startsWith("video/")
                           ? "video"
                           : "document";
-                    setMedia({ url: res.url, mime, kind, filename: res.filename ?? file.name, caption: null });
+                    setMedia({ url: res.url, path: res.path, mime, kind, filename: res.filename ?? file.name, caption: null });
                     toast.success("Media attached");
                   } catch {
                     toast.error("Upload failed");

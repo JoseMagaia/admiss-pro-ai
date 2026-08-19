@@ -42,6 +42,7 @@ import { upsertWorkflow, uploadMessageAttachment } from "@/lib/dashboard.functio
 // Media attached to a workflow message step.
 export type StepMedia = {
   url: string;
+  path?: string | null;
   mime: string;
   kind: "image" | "audio" | "video" | "document";
   filename?: string | null;
@@ -906,8 +907,8 @@ export function WorkflowBuilder({
                               }
                               const base64 = typeof btoa === "function" ? btoa(binary) : "";
                               const res = (await uploadFn({
-                                data: { filename: file.name, mime: file.type || "application/octet-stream", base64, origin: window.location.origin },
-                              })) as { ok: boolean; url?: string; mime?: string; filename?: string; error?: string };
+                                data: { filename: file.name, mime: file.type || "application/octet-stream", base64 },
+                              })) as { ok: boolean; url?: string; path?: string; mime?: string; filename?: string; error?: string };
                               if (!res.ok || !res.url) {
                                 toast.error(res.error ?? "Upload failed");
                                 return;
@@ -921,7 +922,7 @@ export function WorkflowBuilder({
                                     ? "video"
                                     : "document";
                               updateSelected({
-                                media: { url: res.url, mime, kind, filename: res.filename ?? file.name, caption: null },
+                                media: { url: res.url, path: res.path, mime, kind, filename: res.filename ?? file.name, caption: null },
                               });
                               toast.success("Media attached");
                             } catch {
