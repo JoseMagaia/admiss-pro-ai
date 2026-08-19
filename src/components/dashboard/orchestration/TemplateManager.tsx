@@ -31,7 +31,6 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
 export function TemplateManager() {
   const qc = useQueryClient();
   const listFn = useServerFn(listWabaTemplates);
-  const saveFn = useServerFn(saveWabaTemplate);
   const submitFn = useServerFn(submitWabaTemplate);
   const syncFn = useServerFn(syncWabaTemplates);
   const deleteFn = useServerFn(deleteWabaTemplate);
@@ -70,7 +69,6 @@ export function TemplateManager() {
       <TemplateEditor
         initial={editing === "new" ? null : editing}
         workspaces={workspaces}
-        saveFn={saveFn}
         onDone={() => {
           setEditing(null);
           qc.invalidateQueries({ queryKey: ["waba-templates"] });
@@ -138,14 +136,13 @@ export function TemplateManager() {
 function TemplateEditor({
   initial,
   workspaces,
-  saveFn,
   onDone,
 }: {
   initial: WabaTemplateRow | null;
   workspaces: Workspace[];
-  saveFn: ReturnType<typeof useServerFn<typeof saveWabaTemplate>>;
   onDone: () => void;
 }) {
+  const saveFn = useServerFn(saveWabaTemplate);
   const initialParts = useMemo(() => {
     const components = initial?.components ?? [];
     return {
