@@ -1,0 +1,1 @@
+DROP POLICY IF EXISTS "auth upload message-media" ON storage.objects;
