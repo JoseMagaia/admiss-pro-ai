@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Save, Trash2, Star, Plug, MessageCircle, Copy, Webhook, Loader2, PlugZap } from "lucide-react";
+import { Plus, Save, Trash2, Star, Plug, MessageCircle, Copy, Webhook, Loader2, PlugZap, Stethoscope, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,15 @@ import {
   deleteWorkspace,
   setEvolutionWebhook,
   testWorkspaceConnection,
+  diagnoseWhatsappCloud,
 } from "@/lib/dashboard.functions";
+
+interface WaCheck {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+}
 
 type ProviderType = "chatwoot" | "evolution" | "whatsapp_cloud";
 
@@ -35,6 +43,8 @@ interface Workspace {
   wa_access_token: string | null;
   wa_verify_token: string | null;
   wa_app_secret: string | null;
+  wa_default_template: string | null;
+  wa_template_language: string | null;
   enabled: boolean;
   is_default: boolean;
   use_shared_ai: boolean;
@@ -55,6 +65,8 @@ const EMPTY: Workspace = {
   wa_access_token: "",
   wa_verify_token: "",
   wa_app_secret: "",
+  wa_default_template: "",
+  wa_template_language: "en_US",
   enabled: true,
   is_default: false,
   use_shared_ai: true,
@@ -83,6 +95,8 @@ function WorkspaceEditor({
   const saveFn = useServerFn(upsertWorkspace);
   const webhookFn = useServerFn(setEvolutionWebhook);
   const testFn = useServerFn(testWorkspaceConnection);
+  const diagnoseFn = useServerFn(diagnoseWhatsappCloud);
+  const [diagnoseResult, setDiagnoseResult] = useState<WaCheck[]>([]);
   const [form, setForm] = useState<Workspace>(initial);
   useEffect(() => setForm(initial), [initial]);
 
@@ -128,6 +142,19 @@ function WorkspaceEditor({
   });
 
 
+
+  const diagnose = useMutation({
+    mutationFn: () =>
+      diagnoseFn({ data: { id: form.id as string, origin: window.location.origin } as never }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error?: string | null; checks: WaCheck[] };
+      setDiagnoseResult(res.checks ?? []);
+      if (res.error) toast.error(res.error);
+      else if (res.ok) toast.success("WhatsApp Cloud is fully wired up");
+      else toast.warning("Some checks failed — see the details below");
+    },
+    onError: () => toast.error("Diagnostics failed"),
+  });
 
   const setWebhook = useMutation({
     mutationFn: () =>
