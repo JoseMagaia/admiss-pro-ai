@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Calendar, List, CalendarDays, Workflow, Zap, ArrowUpDown } from "lucide-react";
+import { Calendar, List, CalendarDays, Workflow, Zap, ArrowUpDown, CalendarCog, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "./StageBadge";
+import { CalendarManager } from "./bookings/CalendarManager";
+import { SlotPicker } from "./bookings/SlotPicker";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
