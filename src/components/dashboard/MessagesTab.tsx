@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   listMessageThreads,
+  syncInbox,
   listConversationMessages,
   sendHumanMessage,
   scheduleMessage,
