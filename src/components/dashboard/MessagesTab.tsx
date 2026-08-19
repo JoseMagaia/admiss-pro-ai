@@ -28,6 +28,8 @@ import {
   PanelRightClose,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getSettings } from "@/lib/dashboard.functions";
+import { resolveAudioFormat } from "@/lib/audio/formats";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -163,6 +165,14 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const workspacesFn = useServerFn(listWorkspaces);
   const startFn = useServerFn(startConversation);
   const syncFn = useServerFn(syncInbox);
+
+  // Audio format enabled by the super admin (Settings → Audio).
+  const settingsFn = useServerFn(getSettings);
+  const { data: settingsData } = useQuery({ queryKey: ["settings"], queryFn: () => settingsFn() });
+  const audioFormat = resolveAudioFormat(
+    (settingsData?.settings as { audio_delivery_format?: string } | null)?.audio_delivery_format,
+  );
+
 
   // Pull history from the connected Chatwoot inbox(es) into the timeline.
   const syncMutation = useMutation({
