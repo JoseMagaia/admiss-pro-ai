@@ -2390,7 +2390,9 @@ async function tryWorkflowResponder(params: {
       history,
       userMessage: params.message,
       provider: ctx.provider,
+      availability: await buildAvailabilityBrief(db),
     });
+
 
     if (error || !reply) {
       // Let the qualification engine handle it rather than going silent.
