@@ -515,6 +515,37 @@ export function toEvolutionNumber(phone: string): string {
   return String(phone).replace(/@.*$/, "").replace(/[^0-9]/g, "");
 }
 
+// Inbound webhooks (Meta / Evolution) deliver phone numbers as bare digits
+// ("351911925118") while the app stores contacts in E.164 with a leading "+"
+// ("+351911925118"). Without canonicalisation every inbound message creates a
+// duplicate lead/conversation and never shows up in the existing thread.
+// Resolve the variant that already exists in the database, defaulting to
+// "+digits" for brand new contacts.
+export async function canonicalInboundPhone(rawPhone: string): Promise<string> {
+  const digits = toEvolutionNumber(rawPhone);
+  if (!digits) return String(rawPhone);
+  const plus = `+${digits}`;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  const { data: convRows } = await supabaseAdmin
+    .from("conversations")
+    .select("phone_number")
+    .in("phone_number", [plus, digits]);
+  const convMatch = ((convRows as Array<{ phone_number: string }> | null) ?? []).map((r) => r.phone_number);
+  if (convMatch.includes(plus)) return plus;
+  if (convMatch.includes(digits)) return digits;
+
+  const { data: leadRows } = await supabaseAdmin
+    .from("leads")
+    .select("phone_number")
+    .in("phone_number", [plus, digits]);
+  const leadMatch = ((leadRows as Array<{ phone_number: string }> | null) ?? []).map((r) => r.phone_number);
+  if (leadMatch.includes(plus)) return plus;
+  if (leadMatch.includes(digits)) return digits;
+
+  return plus;
+}
+
 // Send a WhatsApp message through an Evolution API instance. Outbound targets
 // the contact's phone number directly (Evolution has no Chatwoot-style
 // conversation id). Best-effort: returns whether the send succeeded.
