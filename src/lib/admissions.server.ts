@@ -967,7 +967,6 @@ export async function processInboundMessage(params: {
   buttonId?: string | null;
 }): Promise<ProcessResult> {
   const {
-    phone,
     message,
     chatwootConversationId,
     chatwootContactId,
@@ -976,6 +975,9 @@ export async function processInboundMessage(params: {
     evolutionInstance,
     buttonId,
   } = params;
+  // Match the stored contact format so inbound messages land on the existing
+  // lead/conversation instead of spawning a digits-only duplicate.
+  const phone = await canonicalInboundPhone(params.phone);
 
   // Resolve which workspace (Chatwoot inbox or Evolution instance) handles this
   // conversation FIRST so the rest of the pipeline runs inside the owning Space.
