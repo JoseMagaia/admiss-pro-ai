@@ -654,16 +654,24 @@ async function postWhatsAppCloud(
     if (!res.ok) {
       const t = await res.text().catch(() => "");
       let detail = "";
+      let code: number | null = null;
       try {
-        const parsed = JSON.parse(t) as { error?: { message?: string } };
-        detail = parsed.error?.message ?? "";
+        const parsed = JSON.parse(t) as {
+          error?: { message?: string; code?: number; error_subcode?: number; error_data?: { details?: string } };
+        };
+        detail = parsed.error?.error_data?.details || parsed.error?.message || "";
+        code = typeof parsed.error?.code === "number" ? parsed.error.code : null;
       } catch {
         detail = t.slice(0, 200);
       }
-      if (res.status === 401 || res.status === 403) {
-        return { ok: false, error: "Meta rejected the access token. Regenerate it in Meta Business." };
+      if (res.status === 401 || res.status === 403 || code === 190) {
+        return { ok: false, error: "Meta rejected the access token. Regenerate it in Meta Business.", code: code ?? 190 };
       }
-      return { ok: false, error: `WhatsApp Cloud API returned ${res.status}${detail ? `: ${detail}` : ""}` };
+      return {
+        ok: false,
+        error: `WhatsApp Cloud API returned ${res.status}${detail ? `: ${detail}` : ""}`,
+        code,
+      };
     }
     // Meta returns { messages: [{ id: "wamid.XXX" }] } on success.
     let wamid: string | null = null;
@@ -680,7 +688,43 @@ async function postWhatsAppCloud(
   }
 }
 
+/** Meta error codes that mean "the 24-hour customer service window is closed",
+ *  i.e. only an approved template message can be delivered right now. */
+const WA_REENGAGEMENT_CODES = new Set([131047, 131026, 470]);
+
+function isReengagementError(r: SendResult): boolean {
+  if (r.ok) return false;
+  if (r.code && WA_REENGAGEMENT_CODES.has(r.code)) return true;
+  return /re-?engagement|24 hour|24-hour|outside the allowed window/i.test(r.error ?? "");
+}
+
+/** Send an approved template message (the only thing Meta delivers outside the
+ *  24-hour window). The template must have exactly one body variable, which we
+ *  fill with the message text. */
+export async function sendWhatsAppCloudTemplate(
+  workspace: WorkspaceRow,
+  phone: string,
+  templateName: string,
+  bodyParam: string,
+): Promise<SendResult> {
+  const to = toWhatsAppCloudNumber(phone);
+  if (!to) return { ok: false, error: "The contact's phone number is invalid." };
+  const language = String(workspace.wa_template_language ?? "en_US").trim() || "en_US";
+  const components = bodyParam.trim()
+    ? [{ type: "body", parameters: [{ type: "text", text: bodyParam.slice(0, 1024) }] }]
+    : [];
+  return postWhatsAppCloud(workspace, {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to,
+    type: "template",
+    template: { name: templateName, language: { code: language }, components },
+  });
+}
+
 // Send a plain text message via the official WhatsApp Business Cloud API.
+// When Meta refuses because the 24-hour service window is closed, retry with
+// the workspace's configured fallback template so the contact still gets it.
 export async function sendWhatsAppCloudReply(
   workspace: WorkspaceRow | null,
   phone: string,
@@ -689,14 +733,33 @@ export async function sendWhatsAppCloudReply(
   if (!workspace) return { ok: false, error: "No WhatsApp Cloud workspace resolved." };
   const to = toWhatsAppCloudNumber(phone);
   if (!to) return { ok: false, error: "The contact's phone number is invalid." };
-  return postWhatsAppCloud(workspace, {
+  const first = await postWhatsAppCloud(workspace, {
     messaging_product: "whatsapp",
     recipient_type: "individual",
     to,
     type: "text",
     text: { body: message, preview_url: true },
   });
+  if (first.ok || !isReengagementError(first)) return first;
+
+  const template = String(workspace.wa_default_template ?? "").trim();
+  if (!template) {
+    return {
+      ok: false,
+      code: first.code ?? null,
+      error:
+        "WhatsApp only delivers free-form messages within 24 hours of the contact's last reply. Set a fallback template on this inbox to reach them now.",
+    };
+  }
+  const viaTemplate = await sendWhatsAppCloudTemplate(workspace, phone, template, message);
+  if (viaTemplate.ok) return viaTemplate;
+  return {
+    ok: false,
+    code: viaTemplate.code ?? null,
+    error: `Outside the 24-hour window and the fallback template "${template}" failed: ${viaTemplate.error ?? "unknown error"}`,
+  };
 }
+
 
 // Send a media message (image/video/audio/document) via WhatsApp Cloud API.
 export async function sendWhatsAppCloudMedia(
