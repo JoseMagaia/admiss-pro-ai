@@ -1301,6 +1301,35 @@ export async function processInboundMessage(params: {
         leadName: lead.lead_name ?? null,
         firstMessage: message,
       });
+      // Route the escalation to the queue configured for this lead's stage
+      // (falling back to the queue marked as the AI's default handoff target).
+      const stage = String(lead.qualification_status ?? "");
+      const { data: queueRows } = await db
+        .from("ticket_queues")
+        .select("id, name, ai_handoff_stages, is_ai_default")
+        .order("position", { ascending: true });
+      const queues = (queueRows ?? []) as Array<{
+        id: string;
+        name: string;
+        ai_handoff_stages: string[] | null;
+        is_ai_default: boolean | null;
+      }>;
+      const routed =
+        queues.find((q) => (q.ai_handoff_stages ?? []).includes(stage)) ??
+        queues.find((q) => q.is_ai_default) ??
+        null;
+
+      let assignee: string | null = null;
+      let queueMembers: string[] = [];
+      if (routed) {
+        const { data: members } = await db
+          .from("ticket_queue_members")
+          .select("user_id")
+          .eq("queue_id", routed.id);
+        queueMembers = ((members ?? []) as Array<{ user_id: string }>).map((m) => m.user_id);
+        assignee = queueMembers[0] ?? null;
+      }
+
       if (ticketId) {
         await db
           .from("tickets")
@@ -1308,23 +1337,43 @@ export async function processInboundMessage(params: {
             priority: "high",
             status: "open",
             subject: `Human requested — ${lead.lead_name ?? phone}`,
+            ...(routed ? { queue_id: routed.id } : {}),
+            ...(assignee ? { assigned_user_id: assignee } : {}),
           } as never)
           .eq("id", ticketId);
         await db.from("ticket_events").insert({
           ticket_id: ticketId,
           actor_label: "AI Agent",
           kind: "escalated",
-          detail: message.slice(0, 300),
+          detail: routed
+            ? `Routed to ${routed.name}: ${message.slice(0, 260)}`
+            : message.slice(0, 300),
         } as never);
       }
-      await db.from("notifications").insert({
-        user_id: null,
-        title: `AI requested a human for ${lead.lead_name ?? phone}`,
-        body: message.slice(0, 300),
-        kind: "ticket",
-        ticket_id: ticketId,
-        link_phone: phone,
-      } as never);
+
+      const title = `AI requested a human for ${lead.lead_name ?? phone}`;
+      if (queueMembers.length > 0) {
+        // Notify everyone staffing the queue that owns this stage.
+        await db.from("notifications").insert(
+          queueMembers.map((user_id) => ({
+            user_id,
+            title,
+            body: message.slice(0, 300),
+            kind: "ticket",
+            ticket_id: ticketId,
+            link_phone: phone,
+          })) as never,
+        );
+      } else {
+        await db.from("notifications").insert({
+          user_id: null,
+          title,
+          body: message.slice(0, 300),
+          kind: "ticket",
+          ticket_id: ticketId,
+          link_phone: phone,
+        } as never);
+      }
     } catch (e) {
       console.error("Failed to raise handoff ticket:", e);
     }
