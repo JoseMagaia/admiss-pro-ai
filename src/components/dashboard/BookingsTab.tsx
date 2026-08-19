@@ -157,8 +157,23 @@ export function BookingsTab() {
         >
           <CalendarDays className="mr-1 h-4 w-4" /> Calendar
         </Button>
+        <Button
+          size="sm"
+          variant={view === "slots" ? "default" : "outline"}
+          onClick={() => setView("slots")}
+        >
+          <CalendarClock className="mr-1 h-4 w-4" /> Book a slot
+        </Button>
+        <Button
+          size="sm"
+          variant={view === "manage" ? "default" : "outline"}
+          onClick={() => setView("manage")}
+        >
+          <CalendarCog className="mr-1 h-4 w-4" /> Calendars
+        </Button>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className={cn("ml-auto flex flex-wrap items-center gap-2", view !== "list" && view !== "calendar" && "hidden")}>
+
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="h-8 w-[130px] text-xs">
               <SelectValue placeholder="Status" />
