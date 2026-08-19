@@ -18,6 +18,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Toaster } from "@/components/ui/sonner";
 import { LeadsTab } from "@/components/dashboard/LeadsTab";
 import { MessagesTab } from "@/components/dashboard/MessagesTab";
