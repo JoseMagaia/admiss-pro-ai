@@ -1070,6 +1070,98 @@ export type Database = {
           },
         ]
       }
+      notification_reads: {
+        Row: {
+          id: string
+          notification_id: string
+          read_at: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          notification_id: string
+          read_at?: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          notification_id?: string
+          read_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notification_reads_notification_id_fkey"
+            columns: ["notification_id"]
+            isOneToOne: false
+            referencedRelation: "notifications"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          kind: string
+          link_phone: string | null
+          read_at: string | null
+          space_id: string | null
+          target_role: Database["public"]["Enums"]["app_role"] | null
+          ticket_id: string | null
+          title: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          link_phone?: string | null
+          read_at?: string | null
+          space_id?: string | null
+          target_role?: Database["public"]["Enums"]["app_role"] | null
+          ticket_id?: string | null
+          title: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          link_phone?: string | null
+          read_at?: string | null
+          space_id?: string | null
+          target_role?: Database["public"]["Enums"]["app_role"] | null
+          ticket_id?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       offers: {
         Row: {
           created_at: string
@@ -1652,6 +1744,205 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "stage_opportunity_settings_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tags: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          name: string
+          space_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          name: string
+          space_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          name?: string
+          space_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tags_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ticket_events: {
+        Row: {
+          actor_label: string | null
+          actor_user_id: string | null
+          created_at: string
+          detail: string | null
+          id: string
+          kind: string
+          space_id: string | null
+          ticket_id: string
+        }
+        Insert: {
+          actor_label?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          detail?: string | null
+          id?: string
+          kind: string
+          space_id?: string | null
+          ticket_id: string
+        }
+        Update: {
+          actor_label?: string | null
+          actor_user_id?: string | null
+          created_at?: string
+          detail?: string | null
+          id?: string
+          kind?: string
+          space_id?: string | null
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_events_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_events_ticket_id_fkey"
+            columns: ["ticket_id"]
+            isOneToOne: false
+            referencedRelation: "tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ticket_queues: {
+        Row: {
+          color: string
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          position: number
+          space_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          position?: number
+          space_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          position?: number
+          space_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_queues_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      tickets: {
+        Row: {
+          assigned_user_id: string | null
+          closed_at: string | null
+          conversation_id: string | null
+          created_at: string
+          created_by: string | null
+          created_by_kind: string
+          id: string
+          lead_id: string | null
+          notes: string | null
+          phone_number: string | null
+          priority: string
+          queue_id: string | null
+          space_id: string | null
+          status: string
+          subject: string
+          tags: string[]
+          updated_at: string
+        }
+        Insert: {
+          assigned_user_id?: string | null
+          closed_at?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          created_by_kind?: string
+          id?: string
+          lead_id?: string | null
+          notes?: string | null
+          phone_number?: string | null
+          priority?: string
+          queue_id?: string | null
+          space_id?: string | null
+          status?: string
+          subject: string
+          tags?: string[]
+          updated_at?: string
+        }
+        Update: {
+          assigned_user_id?: string | null
+          closed_at?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          created_by_kind?: string
+          id?: string
+          lead_id?: string | null
+          notes?: string | null
+          phone_number?: string | null
+          priority?: string
+          queue_id?: string | null
+          space_id?: string | null
+          status?: string
+          subject?: string
+          tags?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tickets_queue_id_fkey"
+            columns: ["queue_id"]
+            isOneToOne: false
+            referencedRelation: "ticket_queues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tickets_space_id_fkey"
             columns: ["space_id"]
             isOneToOne: false
             referencedRelation: "spaces"
