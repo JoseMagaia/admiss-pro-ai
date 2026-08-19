@@ -403,6 +403,9 @@ export interface SendResult {
   error?: string;
   /** Provider message id (WhatsApp Cloud "wamid") used to correlate delivery/read receipts. */
   wamid?: string | null;
+  /** Provider error code (Meta Graph API error code) when the send failed. */
+  code?: number | null;
+
 }
 
 export async function sendChatwootReply(
