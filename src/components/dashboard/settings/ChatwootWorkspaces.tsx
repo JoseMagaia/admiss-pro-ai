@@ -434,7 +434,7 @@ function WorkspaceEditor({
             </div>
             <p className="text-xs text-muted-foreground">
               {form.id
-                ? "Verifies the token, number registration, webhook subscription and callback reachability — the usual causes of “sent” messages that never arrive."
+                ? "Verifies the token, number registration, this exact Meta app's webhook subscription, and callback reachability. A different app subscription does not count."
                 : "Save this inbox first, then run the checks."}
             </p>
             {diagnoseResult.length > 0 && (

@@ -1624,7 +1624,7 @@ export const exchangeWhatsappSignupCode = createServerFn({ method: "POST" })
       };
     }
 
-    const GRAPH = "https://graph.facebook.com/v20.0";
+    const GRAPH = "https://graph.facebook.com/v21.0";
     try {
       const tokenRes = await fetch(
         `${GRAPH}/oauth/access_token?client_id=${encodeURIComponent(appId)}&client_secret=${encodeURIComponent(
@@ -1650,7 +1650,17 @@ export const exchangeWhatsappSignupCode = createServerFn({ method: "POST" })
           method: "POST",
           headers: { Authorization: `Bearer ${accessToken}` },
         });
-        if (!sub.ok) warnings.push("Could not subscribe the app to the WhatsApp account webhooks.");
+        if (!sub.ok) {
+          const body = (await sub.json().catch(() => null)) as { error?: { message?: string } } | null;
+          return {
+            ok: false as const,
+            error:
+              body?.error?.message ??
+              "The WhatsApp account connected, but Meta did not enable inbound message webhooks. Reconnect after granting webhook access.",
+            access_token: null,
+            warnings,
+          };
+        }
       }
       if (data.phone_number_id) {
         const reg = await fetch(`${GRAPH}/${encodeURIComponent(data.phone_number_id)}/register`, {
@@ -2620,6 +2630,7 @@ export const diagnoseWhatsappCloud = createServerFn({ method: "POST" })
     const verifyToken = String(ws.wa_verify_token ?? "").trim();
     const checks: WaCheck[] = [];
     const G = "https://graph.facebook.com/v21.0";
+    const configuredAppId = String(process.env["META_APP_ID"] ?? "").trim();
 
     // 1 + 2 — token / phone number health.
     if (!phoneId || !token) {
@@ -2697,26 +2708,43 @@ export const diagnoseWhatsappCloud = createServerFn({ method: "POST" })
             ok: false,
             detail: json.error?.message ?? `Meta returned ${res.status}.`,
           });
-        } else if ((json.data ?? []).length > 0) {
+        } else if (
+          configuredAppId &&
+          (json.data ?? []).some((app) => String(app.id ?? "").trim() === configuredAppId)
+        ) {
           checks.push({
             key: "subscription",
             label: "App subscribed to the WhatsApp Business Account",
             ok: true,
-            detail: "Inbound messages and delivery receipts are subscribed.",
+            detail: "This app is subscribed for inbound messages and delivery receipts.",
           });
         } else {
-          // Auto-fix: subscribe now.
+          // Auto-fix: subscribe the app represented by this access token now.
           const sub = await fetch(`${G}/${encodeURIComponent(wabaId)}/subscribed_apps`, {
             method: "POST",
             headers: { Authorization: `Bearer ${token}` },
           });
+          let confirmed = false;
+          if (sub.ok && configuredAppId) {
+            const confirmRes = await fetch(`${G}/${encodeURIComponent(wabaId)}/subscribed_apps`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const confirmJson = (await confirmRes.json().catch(() => ({}))) as {
+              data?: Array<Record<string, unknown>>;
+            };
+            confirmed =
+              confirmRes.ok &&
+              (confirmJson.data ?? []).some((app) => String(app.id ?? "").trim() === configuredAppId);
+          }
           checks.push({
             key: "subscription",
             label: "App subscribed to the WhatsApp Business Account",
-            ok: sub.ok,
-            detail: sub.ok
-              ? "Wasn't subscribed — subscribed it for you just now."
-              : "Not subscribed, and the automatic fix failed. Subscribe the app in Meta → WhatsApp → Configuration.",
+            ok: confirmed,
+            detail: confirmed
+              ? "The configured app was missing — it has now been subscribed and verified."
+              : configuredAppId
+                ? "Meta did not confirm this app's subscription. Reconnect with Facebook and make sure the same Meta app owns the webhook configuration."
+                : "The server Meta App ID is missing, so the subscription cannot be matched to the app receiving this callback.",
           });
         }
       } catch {
