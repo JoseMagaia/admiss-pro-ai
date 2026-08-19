@@ -152,12 +152,29 @@ function mergeThread(
   threads.set(phone, { ...existing, ...patch });
 }
 
+// Pull message history from the connected inboxes (Chatwoot REST API) into the
+// app timeline. WhatsApp Cloud / Evolution report status instead, since those
+// providers only deliver through webhooks.
+export const syncInbox = createServerFn({ method: "POST" }).handler(async () => {
+  if (!(await isAuthed())) return { reports: [], imported: 0, error: "Unauthorized" };
+  try {
+    const db = await scopedDb();
+    const { syncInboxes } = await import("@/lib/inbox-sync.server");
+    const result = await syncInboxes(db);
+    return { ...result, error: null };
+  } catch (e) {
+    console.error("syncInbox failed", e);
+    return { reports: [], imported: 0, error: "Inbox sync failed." };
+  }
+});
+
 export const listConversations = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { conversations: [] };
   const db = await scopedDb();
   const { data } = await db.from("conversations").select("*").order("updated_at", { ascending: false }).limit(1000);
   return { conversations: data ?? [] };
 });
+
 
 export const listMessages = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { messages: [] };
