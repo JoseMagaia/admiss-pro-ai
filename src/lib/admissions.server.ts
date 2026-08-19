@@ -7,6 +7,8 @@ import {
   type LeadRecord,
   type QualificationDecision,
 } from "./ai-engine.server";
+import { addDays, computeSlots, dateKeyInZone, isSlotAvailable } from "./calendar-slots";
+
 
 type AdminClient = Awaited<
   typeof import("@/integrations/supabase/client.server")
