@@ -1335,6 +1335,9 @@ const workspaceSchema = z.object({
   wa_access_token: z.string().max(2000).nullable().optional(),
   wa_verify_token: z.string().max(200).nullable().optional(),
   wa_app_secret: z.string().max(500).nullable().optional(),
+  wa_default_template: z.string().max(200).nullable().optional(),
+  wa_template_language: z.string().max(20).nullable().optional(),
+
   enabled: z.boolean().optional(),
   is_default: z.boolean().optional(),
   use_shared_ai: z.boolean().optional(),
