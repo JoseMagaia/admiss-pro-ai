@@ -539,8 +539,10 @@ function buildResponderPrompt(args: {
   settings: Record<string, unknown> | null;
   lead: LeadRecord;
   history: EngineMessage[];
+  availability?: string | null;
 }): string {
   const resolved = applyVariables(args.systemPrompt, args.variables);
+
 
   const settingsBlock = args.settings
     ? `Company: ${args.settings.company_name ?? ""}
