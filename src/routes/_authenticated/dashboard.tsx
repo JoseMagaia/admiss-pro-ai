@@ -139,6 +139,7 @@ function Dashboard() {
         <div className="mt-4 space-y-2 border-t border-sidebar-border/50 pt-4">
           <SpaceSwitcher />
           <NotificationBell />
+          <ThemeToggle variant="sidebar" />
           <div className="px-2">
             <p className="truncate text-sm font-medium">{profile.full_name ?? profile.email}</p>
             <p className="text-xs text-sidebar-foreground/60">{role ? ROLE_LABELS[role] : "No role"}</p>
@@ -175,9 +176,10 @@ function Dashboard() {
               {t.label}
             </button>
           ))}
+          <ThemeToggle variant="icon" className="ml-auto shrink-0" />
           <button
             onClick={signOut}
-            className="ml-auto flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-muted-foreground"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-muted-foreground"
           >
             <LogOut className="h-4 w-4" />
           </button>
