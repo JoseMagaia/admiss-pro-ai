@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, Save, Trash2, Star, Plug, MessageCircle, Copy, Webhook, Loader2, PlugZap } from "lucide-react";
+import { Plus, Save, Trash2, Star, Plug, MessageCircle, Copy, Webhook, Loader2, PlugZap, Stethoscope, CheckCircle2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,15 @@ import {
   deleteWorkspace,
   setEvolutionWebhook,
   testWorkspaceConnection,
+  diagnoseWhatsappCloud,
 } from "@/lib/dashboard.functions";
+
+interface WaCheck {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+}
 
 type ProviderType = "chatwoot" | "evolution" | "whatsapp_cloud";
 
@@ -35,6 +43,8 @@ interface Workspace {
   wa_access_token: string | null;
   wa_verify_token: string | null;
   wa_app_secret: string | null;
+  wa_default_template: string | null;
+  wa_template_language: string | null;
   enabled: boolean;
   is_default: boolean;
   use_shared_ai: boolean;
@@ -55,6 +65,8 @@ const EMPTY: Workspace = {
   wa_access_token: "",
   wa_verify_token: "",
   wa_app_secret: "",
+  wa_default_template: "",
+  wa_template_language: "en_US",
   enabled: true,
   is_default: false,
   use_shared_ai: true,
@@ -83,6 +95,8 @@ function WorkspaceEditor({
   const saveFn = useServerFn(upsertWorkspace);
   const webhookFn = useServerFn(setEvolutionWebhook);
   const testFn = useServerFn(testWorkspaceConnection);
+  const diagnoseFn = useServerFn(diagnoseWhatsappCloud);
+  const [diagnoseResult, setDiagnoseResult] = useState<WaCheck[]>([]);
   const [form, setForm] = useState<Workspace>(initial);
   useEffect(() => setForm(initial), [initial]);
 
@@ -128,6 +142,19 @@ function WorkspaceEditor({
   });
 
 
+
+  const diagnose = useMutation({
+    mutationFn: () =>
+      diagnoseFn({ data: { id: form.id as string, origin: window.location.origin } as never }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error?: string | null; checks: WaCheck[] };
+      setDiagnoseResult(res.checks ?? []);
+      if (res.error) toast.error(res.error);
+      else if (res.ok) toast.success("WhatsApp Cloud is fully wired up");
+      else toast.warning("Some checks failed — see the details below");
+    },
+    onError: () => toast.error("Diagnostics failed"),
+  });
 
   const setWebhook = useMutation({
     mutationFn: () =>
@@ -337,13 +364,37 @@ function WorkspaceEditor({
             </div>
           </div>
 
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Fallback Template Name (24h window)</Label>
+              <Input
+                value={form.wa_default_template ?? ""}
+                onChange={(e) => set("wa_default_template", e.target.value)}
+                placeholder="e.g. hello_world"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                WhatsApp blocks free-form messages more than 24h after the contact's last reply. This approved
+                template (one body variable) is sent instead.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Template Language</Label>
+              <Input
+                value={form.wa_template_language ?? ""}
+                onChange={(e) => set("wa_template_language", e.target.value)}
+                placeholder="en_US"
+              />
+            </div>
+          </div>
+
           <div className="space-y-2 rounded-lg border border-dashed bg-background/60 p-3">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Webhook className="h-4 w-4 text-primary" /> Meta Webhook Callback URL
             </div>
             <p className="text-xs text-muted-foreground">
               In Meta Business → WhatsApp → Configuration, set this Callback URL and paste the Verify Token above.
-              Subscribe to the <code>messages</code> field.
+              Subscribe to the <code>messages</code> field. Meta does not follow redirects — use the exact public
+              domain your app serves on.
             </p>
             <div className="flex items-center gap-2">
               <Input readOnly value={whatsappCloudWebhookUrl()} className="text-xs" />
@@ -360,8 +411,53 @@ function WorkspaceEditor({
               </Button>
             </div>
           </div>
+
+          <div className="space-y-2 rounded-lg border bg-background/60 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <Stethoscope className="h-4 w-4 text-primary" /> Delivery diagnostics
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={!form.id || diagnose.isPending}
+                onClick={() => diagnose.mutate()}
+              >
+                {diagnose.isPending ? (
+                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Stethoscope className="mr-1 h-4 w-4" />
+                )}
+                Run checks
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {form.id
+                ? "Verifies the token, number registration, webhook subscription and callback reachability — the usual causes of “sent” messages that never arrive."
+                : "Save this inbox first, then run the checks."}
+            </p>
+            {diagnoseResult.length > 0 && (
+              <ul className="space-y-1.5">
+                {diagnoseResult.map((c) => (
+                  <li key={c.key} className="flex items-start gap-2 text-xs">
+                    {c.ok ? (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-500" />
+                    ) : (
+                      <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                    )}
+                    <span>
+                      <span className="font-medium">{c.label}:</span>{" "}
+                      <span className="text-muted-foreground">{c.detail}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </>
       )}
+
 
 
 

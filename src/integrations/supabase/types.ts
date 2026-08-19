@@ -518,7 +518,9 @@ export type Database = {
           wa_access_token: string | null
           wa_app_secret: string | null
           wa_business_account_id: string | null
+          wa_default_template: string | null
           wa_phone_number_id: string | null
+          wa_template_language: string | null
           wa_verify_token: string | null
         }
         Insert: {
@@ -541,7 +543,9 @@ export type Database = {
           wa_access_token?: string | null
           wa_app_secret?: string | null
           wa_business_account_id?: string | null
+          wa_default_template?: string | null
           wa_phone_number_id?: string | null
+          wa_template_language?: string | null
           wa_verify_token?: string | null
         }
         Update: {
@@ -564,7 +568,9 @@ export type Database = {
           wa_access_token?: string | null
           wa_app_secret?: string | null
           wa_business_account_id?: string | null
+          wa_default_template?: string | null
           wa_phone_number_id?: string | null
+          wa_template_language?: string | null
           wa_verify_token?: string | null
         }
         Relationships: [
@@ -1766,6 +1772,7 @@ export type Database = {
           attachment_url: string | null
           campaign_id: string | null
           delivered_at: string | null
+          delivery_error: string | null
           delivery_status: string | null
           id: string
           message_content: string
@@ -1785,6 +1792,7 @@ export type Database = {
           attachment_url?: string | null
           campaign_id?: string | null
           delivered_at?: string | null
+          delivery_error?: string | null
           delivery_status?: string | null
           id?: string
           message_content?: string
@@ -1804,6 +1812,7 @@ export type Database = {
           attachment_url?: string | null
           campaign_id?: string | null
           delivered_at?: string | null
+          delivery_error?: string | null
           delivery_status?: string | null
           id?: string
           message_content?: string
