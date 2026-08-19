@@ -13,7 +13,6 @@ import {
   Contact as ContactIcon,
   Settings as SettingsIcon,
   Gauge,
-  PhoneCall,
   ArrowLeft,
   LogOut,
   Loader2,
@@ -28,7 +27,6 @@ import { PipelineTab } from "@/components/dashboard/PipelineTab";
 import { OrchestrationTab } from "@/components/dashboard/OrchestrationTab";
 import { MeetingOutcomesTab } from "@/components/dashboard/MeetingOutcomesTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
-import { CallsTab } from "@/components/dashboard/CallsTab";
 import { AdvancedTab } from "@/components/dashboard/advanced/AdvancedTab";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
@@ -50,7 +48,6 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
 
 const ALL_TABS = [
   { id: "messages", label: "Messages", icon: MessageSquare },
-  { id: "calls", label: "Calls", icon: PhoneCall },
   { id: "bookings", label: "Bookings", icon: Calendar },
   { id: "pipeline", label: "Pipeline", icon: KanbanSquare },
   { id: "meeting_outcomes", label: "Meeting Outcomes", icon: ClipboardCheck },
@@ -99,7 +96,6 @@ function Dashboard() {
   const tabs = ALL_TABS.filter((t) => {
     if (t.id === "advanced") return advancedAccess;
     if (t.id === "orchestration" && !flagOn("orchestration")) return false;
-    if (t.id === "calls" && !flagOn("calls")) return false;
     return canAccessTab(role, t.id);
   });
   const activeTab = tabs.some((t) => t.id === tab) ? tab : tabs[0]?.id ?? "leads";
@@ -206,13 +202,12 @@ function Dashboard() {
               {activeTab !== "settings" &&
                 activeTab !== "orchestration" &&
                 activeTab !== "advanced" &&
-                activeTab !== "calls" &&
+                activeTab !== "messages" &&
                 activeTab !== "meeting_outcomes" && <DashboardStats />}
 
               <div className="mt-6">
                 {activeTab === "leads" && <LeadsTab />}
                 {activeTab === "messages" && <MessagesTab pendingConversation={pendingConversation} onPendingHandled={() => setPendingConversation(null)} />}
-                {activeTab === "calls" && <CallsTab />}
                 {activeTab === "contacts" && <ContactsTab />}
                 {activeTab === "bookings" && <BookingsTab />}
                 {activeTab === "pipeline" && <PipelineTab canAdvanced={advancedAccess} />}
