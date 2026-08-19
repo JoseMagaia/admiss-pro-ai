@@ -85,6 +85,7 @@ type MessageRow = {
   sender: string;
   received_at: string;
   attachment_url?: string | null;
+  attachment_path?: string | null;
   attachment_mime?: string | null;
   attachment_kind?: string | null;
   /** Delivery lifecycle for outbound messages ("sent" | "delivered" | "read" | "failed"). */
@@ -366,9 +367,24 @@ export const listConversationMessages = createServerFn({ method: "POST" })
       .order("received_at", { ascending: false })
       .limit(data.limit ?? 1000);
     const messages = (((rows as MessageRow[] | null) ?? []) as MessageRow[]).reverse();
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const paths = messages.map((message) => message.attachment_path).filter((path): path is string => Boolean(path));
+    const signedByPath = new Map<string, string>();
+    if (paths.length > 0) {
+      const { data: signed } = await supabaseAdmin.storage.from("message-media").createSignedUrls(paths, 60 * 60);
+      for (const item of signed ?? []) {
+        if (item.path && item.signedUrl) signedByPath.set(item.path, item.signedUrl);
+      }
+    }
+    const hydratedMessages = messages.map((message) => ({
+      ...message,
+      attachment_url: message.attachment_path
+        ? (signedByPath.get(message.attachment_path) ?? message.attachment_url)
+        : message.attachment_url,
+    }));
     return {
-      phone: messages.at(-1)?.phone_number ?? canonicalPhone,
-      messages,
+      phone: hydratedMessages.at(-1)?.phone_number ?? canonicalPhone,
+      messages: hydratedMessages,
       conversation: conv ?? null,
     };
   });
@@ -1039,6 +1055,7 @@ export const sendHumanMessage = createServerFn({ method: "POST" })
         attachment: z
           .object({
             url: z.string().url().max(2000),
+            path: z.string().min(1).max(1000).nullable().optional(),
             mime: z.string().min(1).max(200),
             kind: z.enum(["image", "audio", "video", "document", "sticker"]),
             filename: z.string().max(300).nullable().optional(),
@@ -1093,8 +1110,6 @@ export const uploadMessageAttachment = createServerFn({ method: "POST" })
         mime: z.string().min(1).max(200),
         // Base64 (no data: prefix). Cap at ~15 MB base64 (~11 MB raw).
         base64: z.string().min(1).max(20_000_000),
-        /** Public origin of the app, used to build the provider-facing URL. */
-        origin: z.string().url().max(300).optional(),
       })
       .parse(d),
   )
@@ -1104,31 +1119,17 @@ export const uploadMessageAttachment = createServerFn({ method: "POST" })
     } catch (e) {
       return { ok: false, error: (e as Error).message } as const;
     }
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     // Decode base64 into a Uint8Array.
     const raw = typeof atob === "function" ? atob(data.base64) : Buffer.from(data.base64, "base64").toString("binary");
     const bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
-    const safe = data.filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
-    const path = `${new Date().toISOString().slice(0, 10)}/${crypto.randomUUID()}-${safe}`;
-    const { error: upErr } = await supabaseAdmin.storage
-      .from("message-media")
-      .upload(path, bytes, { contentType: data.mime, upsert: false });
-    if (upErr) return { ok: false, error: upErr.message } as const;
-
-    const origin = (data.origin ?? "").replace(/\/+$/, "");
-    if (origin) {
-      const url = `${origin}/api/public/media/${path.split("/").map(encodeURIComponent).join("/")}`;
-      return { ok: true, url, mime: data.mime, filename: safe } as const;
+    try {
+      const { storeMessageMedia } = await import("./message-media.server");
+      const stored = await storeMessageMedia({ bytes: bytes.buffer, mime: data.mime, filename: data.filename });
+      return { ok: true, url: stored.url, path: stored.path, mime: data.mime, filename: stored.filename } as const;
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : "Upload failed" } as const;
     }
-    // Fallback (no origin supplied): 7-day signed URL.
-    const { data: signed, error: signErr } = await supabaseAdmin.storage
-      .from("message-media")
-      .createSignedUrl(path, 60 * 60 * 24 * 7);
-    if (signErr || !signed?.signedUrl) {
-      return { ok: false, error: signErr?.message ?? "Failed to sign URL" } as const;
-    }
-    return { ok: true, url: signed.signedUrl, mime: data.mime, filename: safe } as const;
   });
 
 

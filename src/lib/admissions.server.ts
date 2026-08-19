@@ -76,11 +76,11 @@ export interface WorkspaceRow {
   space_id?: string | null;
 }
 
-/** Attachment payload accepted by outbound message helpers. Media is passed as
- *  a URL (signed URL from Supabase Storage or externally hosted). Providers
- *  fetch the URL themselves — no base64 payloads cross the wire. */
+/** Attachment payload accepted by outbound message helpers. Storage-backed
+ * media carries its portable object path; the URL is only a local preview. */
 export interface OutboundAttachment {
   url: string;
+  path?: string | null;
   mime: string;
   /** Coarse category used to pick provider media API. */
   kind: "image" | "audio" | "video" | "document" | "sticker";
@@ -736,13 +736,22 @@ export async function sendEvolutionMedia(
     ? `${base}/message/sendWhatsAppAudio/${encodeURIComponent(instance)}`
     : `${base}/message/sendMedia/${encodeURIComponent(instance)}`;
 
+  let encodedMedia = media.url;
+  try {
+    const { loadMessageMedia } = await import("./message-media.server");
+    const loaded = await loadMessageMedia(media);
+    encodedMedia = Buffer.from(await loaded.blob.arrayBuffer()).toString("base64");
+  } catch (error) {
+    console.error("Evolution media preparation failed:", error);
+    return { ok: false, error: "The attachment could not be read from storage." };
+  }
   const body = isAudio
-    ? { number, audio: media.url }
+    ? { number, audio: encodedMedia }
     : {
         number,
         mediatype: media.kind, // image | video | document
         mimetype: media.mime,
-        media: media.url,
+        media: encodedMedia,
         fileName: media.filename ?? undefined,
         caption: media.caption ?? undefined,
       };
@@ -920,7 +929,32 @@ export async function sendWhatsAppCloudMedia(
   const baseMime = (media.mime ?? "").split(";")[0]!.trim().toLowerCase();
   const allowed = WA_CLOUD_MIME[kind];
   if (allowed && baseMime && !allowed.includes(baseMime)) kind = "document";
-  const mediaObj: Record<string, unknown> = { link: media.url };
+  const phoneId = String(workspace.wa_phone_number_id ?? "").trim();
+  const token = String(workspace.wa_access_token ?? "").trim();
+  if (!phoneId || !token) return { ok: false, error: "WhatsApp Cloud API isn't fully configured." };
+  let mediaId: string;
+  try {
+    const { loadMessageMedia } = await import("./message-media.server");
+    const loaded = await loadMessageMedia(media);
+    const form = new FormData();
+    form.append("messaging_product", "whatsapp");
+    form.append("type", baseMime || loaded.blob.type || "application/octet-stream");
+    form.append("file", loaded.blob, media.filename ?? "attachment");
+    const upload = await fetch(`https://graph.facebook.com/v21.0/${encodeURIComponent(phoneId)}/media`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const result = (await upload.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
+    if (!upload.ok || !result.id) {
+      return { ok: false, error: result.error?.message ?? `WhatsApp media upload failed (${upload.status}).` };
+    }
+    mediaId = result.id;
+  } catch (error) {
+    console.error("WhatsApp media preparation failed:", error);
+    return { ok: false, error: "The attachment could not be read from storage." };
+  }
+  const mediaObj: Record<string, unknown> = { id: mediaId };
   if (kind === "document") mediaObj.filename = media.filename ?? "attachment";
   if (media.caption && (kind === "image" || kind === "video" || kind === "document")) {
     mediaObj.caption = media.caption;
@@ -978,9 +1012,8 @@ export async function sendChatwootMedia(
   if (!conversationId) return { ok: false, error: "No active Chatwoot conversation for this contact yet." };
 
   try {
-    const fileRes = await fetch(media.url);
-    if (!fileRes.ok) throw new Error(`fetch ${fileRes.status}`);
-    const blob = await fileRes.blob();
+    const { loadMessageMedia } = await import("./message-media.server");
+    const { blob } = await loadMessageMedia(media);
     const filename = media.filename ?? media.url.split("/").pop()?.split("?")[0] ?? "attachment";
 
     const form = new FormData();
@@ -1163,7 +1196,7 @@ export async function processInboundMessage(params: {
   /** Stable provider message id, used to de-duplicate webhook retries and inbox syncs. */
   externalId?: string | null;
   /** Inbound media (Chatwoot attachment / WhatsApp media). */
-  attachment?: { url: string | null; mime: string | null; kind: string | null } | null;
+  attachment?: { url: string | null; path?: string | null; mime: string | null; kind: string | null } | null;
 }): Promise<ProcessResult> {
   const {
     message,
@@ -1215,6 +1248,7 @@ export async function processInboundMessage(params: {
     processed: false,
     wamid: externalId ?? null,
     attachment_url: attachment?.url ?? null,
+    attachment_path: attachment?.path ?? null,
     attachment_mime: attachment?.mime ?? null,
     attachment_kind: attachment?.kind ?? null,
   } as never);
@@ -1728,6 +1762,7 @@ export async function deliverHumanMessage(params: {
     message_type: attachment ? attachment.kind : "text",
     processed: true,
     attachment_url: attachment?.url ?? null,
+    attachment_path: attachment?.path ?? null,
     attachment_mime: attachment?.mime ?? null,
     attachment_kind: attachment?.kind ?? null,
     wamid: sent.wamid ?? null,
@@ -2123,6 +2158,7 @@ async function sendWorkflowMessage(
     message_type: extras?.media ? extras.media.kind : "text",
     processed: true,
     attachment_url: extras?.media?.url ?? null,
+    attachment_path: extras?.media?.path ?? null,
     attachment_mime: extras?.media?.mime ?? null,
     attachment_kind: extras?.media?.kind ?? null,
     wamid: sent.wamid ?? null,
@@ -3075,6 +3111,7 @@ export async function deliverCampaignMessage(params: {
     message_type: params.attachment ? params.attachment.kind : "text",
     processed: true,
     attachment_url: params.attachment?.url ?? null,
+    attachment_path: params.attachment?.path ?? null,
     attachment_mime: params.attachment?.mime ?? null,
     attachment_kind: params.attachment?.kind ?? null,
     wamid: sent.wamid ?? null,

@@ -104,6 +104,7 @@ interface Message {
   sender: string;
   received_at: string;
   attachment_url?: string | null;
+  attachment_path?: string | null;
   attachment_mime?: string | null;
   attachment_kind?: string | null;
   delivery_status?: string | null;
@@ -514,14 +515,15 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     try {
       const base64 = await blobToBase64(blob);
       const res = (await uploadFn({
-        data: { filename, mime: blob.type || "application/octet-stream", base64, origin: window.location.origin },
-      })) as { ok: boolean; url?: string; mime?: string; filename?: string; error?: string };
+        data: { filename, mime: blob.type || "application/octet-stream", base64 },
+      })) as { ok: boolean; url?: string; path?: string; mime?: string; filename?: string; error?: string };
       if (!res.ok || !res.url || !res.mime) {
         toast.error(res.error ?? "Upload failed");
         return;
       }
       setPendingAttachment({
         url: res.url,
+        path: res.path,
         mime: res.mime,
         filename: res.filename ?? filename,
         kind: classifyKind(res.mime),

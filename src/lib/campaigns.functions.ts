@@ -44,6 +44,7 @@ export type RecipientStats = {
 
 export type CampaignMedia = {
   url: string;
+  path?: string | null;
   mime: string;
   kind: "image" | "audio" | "video" | "document";
   filename?: string | null;
@@ -200,6 +201,7 @@ export const getCampaignOptions = createServerFn({ method: "GET" }).handler(asyn
 const mediaSchema = z
   .object({
     url: z.string().url().max(2000),
+    path: z.string().min(1).max(1000).nullable().optional(),
     mime: z.string().max(200),
     kind: z.enum(["image", "audio", "video", "document"]),
     filename: z.string().max(300).nullable().optional(),
