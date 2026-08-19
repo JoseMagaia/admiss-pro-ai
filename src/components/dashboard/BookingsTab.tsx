@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Calendar, List, CalendarDays, Workflow, Zap, ArrowUpDown } from "lucide-react";
+import { Calendar, List, CalendarDays, Workflow, Zap, ArrowUpDown, CalendarCog, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 import { StatusBadge } from "./StageBadge";
+import { CalendarManager } from "./bookings/CalendarManager";
+import { SlotPicker } from "./bookings/SlotPicker";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -66,7 +69,7 @@ export function BookingsTab() {
   const updateFn = useServerFn(updateAppointmentStatus);
   const workflowsFn = useServerFn(listActiveWorkflows);
   const triggerFn = useServerFn(triggerLeadWorkflow);
-  const [view, setView] = useState<"list" | "calendar">("list");
+  const [view, setView] = useState<"list" | "calendar" | "slots" | "manage">("list");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [timeFilter, setTimeFilter] = useState<string>("all");
   const [sort, setSort] = useState<string>("date_desc");
@@ -154,8 +157,23 @@ export function BookingsTab() {
         >
           <CalendarDays className="mr-1 h-4 w-4" /> Calendar
         </Button>
+        <Button
+          size="sm"
+          variant={view === "slots" ? "default" : "outline"}
+          onClick={() => setView("slots")}
+        >
+          <CalendarClock className="mr-1 h-4 w-4" /> Book a slot
+        </Button>
+        <Button
+          size="sm"
+          variant={view === "manage" ? "default" : "outline"}
+          onClick={() => setView("manage")}
+        >
+          <CalendarCog className="mr-1 h-4 w-4" /> Calendars
+        </Button>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className={cn("ml-auto flex flex-wrap items-center gap-2", view !== "list" && view !== "calendar" && "hidden")}>
+
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="h-8 w-[130px] text-xs">
               <SelectValue placeholder="Status" />
@@ -197,7 +215,12 @@ export function BookingsTab() {
         </div>
       </div>
 
-      {view === "list" ? (
+      {view === "manage" ? (
+        <CalendarManager />
+      ) : view === "slots" ? (
+        <SlotPicker />
+      ) : view === "list" ? (
+
         <div className="overflow-x-auto rounded-2xl border bg-card shadow-card">
           <table className="w-full text-sm">
             <thead>

@@ -202,7 +202,11 @@ function bucketByHour(timestamps: string[]): { hour: number; count: number }[] {
 // When opts.includeContent is true it also attaches a bounded sample of recent
 // message contents/timestamps and a lead directory so the assistant can answer
 // content-specific questions and (in agentic mode) reference leads by phone.
-async function buildAnalytics(days = 14, opts: { includeContent?: boolean } = {}) {
+async function buildAnalytics(
+  days = 14,
+  opts: { includeContent?: boolean; contentQuery?: string | null } = {},
+) {
+
   const db = await admin();
   const since = new Date();
   since.setUTCDate(since.getUTCDate() - days);
@@ -337,6 +341,66 @@ async function buildAnalytics(days = 14, opts: { includeContent?: boolean } = {}
     }));
   }
 
+  // Evidence gathering: when the manager asks about a topic, pull the matching
+  // messages plus a slice of each surrounding thread so the AI can quote real
+  // conversation evidence rather than guessing from aggregates.
+  let threadEvidence:
+    | Array<{
+        phone: string;
+        lead_name: string | null;
+        stage: string | null;
+        matches: number;
+        thread: Array<{ sender: string; at: string; text: string }>;
+      }>
+    | undefined;
+  const terms = String(opts.contentQuery ?? "")
+    .split(/[,\s]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3)
+    .slice(0, 6);
+  if (terms.length > 0) {
+    const { data: hits } = await db
+      .from("whatsapp_messages")
+      .select("phone_number, sender, received_at, message_content")
+      .or(terms.map((t) => `message_content.ilike.%${t.replace(/[%,()]/g, "")}%`).join(","))
+      .order("received_at", { ascending: false })
+      .limit(200);
+    const rows = (hits ?? []) as Array<{
+      phone_number: string;
+      sender: string;
+      received_at: string;
+      message_content: string;
+    }>;
+    const counts = new Map<string, number>();
+    for (const r of rows) counts.set(r.phone_number, (counts.get(r.phone_number) ?? 0) + 1);
+    const phones = Array.from(counts.keys()).slice(0, 8);
+    threadEvidence = [];
+    for (const phone of phones) {
+      const { data: thread } = await db
+        .from("whatsapp_messages")
+        .select("sender, received_at, message_content")
+        .eq("phone_number", phone)
+        .order("received_at", { ascending: false })
+        .limit(40);
+      const lead = leadRows.find((l) => l.phone_number === phone);
+      threadEvidence.push({
+        phone,
+        lead_name: lead?.lead_name ?? null,
+        stage: lead?.qualification_status ?? null,
+        matches: counts.get(phone) ?? 0,
+        thread: ((thread ?? []) as Array<{ sender: string; received_at: string; message_content: string }>)
+          .reverse()
+          .map((m) => ({
+            sender: m.sender,
+            at: m.received_at,
+            text: String(m.message_content ?? "").slice(0, 400),
+          })),
+      });
+    }
+  }
+
+
+
   return {
     rangeDays: days,
     totals: {
@@ -356,6 +420,8 @@ async function buildAnalytics(days = 14, opts: { includeContent?: boolean } = {}
     topCountries,
     ...(messageLog ? { messageLog } : {}),
     ...(leadDirectory ? { leadDirectory } : {}),
+    ...(threadEvidence && threadEvidence.length > 0 ? { threadEvidence } : {}),
+
   };
 }
 
@@ -529,11 +595,30 @@ export const generateChatReply = createServerFn({ method: "POST" })
     const target = await resolveAiTarget(data.model);
     if ("error" in target) return { reply: "", error: target.error };
 
-    const analytics = await buildAnalytics(data.days ?? 30, { includeContent: data.deepContent ?? true });
+    // Use the manager's latest question as the evidence query so the snapshot
+    // carries the actual conversation threads that mention what they asked about.
+    const lastUserMessage = [...data.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+    const stop = new Set([
+      "what","which","when","where","about","from","this","that","they","them","with","have","been","show","give","tell","list","many","much","leads","lead","messages","message","please","report","find","were","their","there","said","asked","into","over","last","week","month","days",
+    ]);
+    const evidenceQuery = lastUserMessage
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !stop.has(w))
+      .slice(0, 6)
+      .join(" ");
+
+    const analytics = await buildAnalytics(data.days ?? 30, {
+      includeContent: data.deepContent ?? true,
+      contentQuery: evidenceQuery || null,
+    });
 
     const system = `You are a senior revenue & growth analyst for an international education admissions company, having an ongoing conversation with an admissions manager.
 You are given a JSON snapshot of the platform's live analytics. Answer using ONLY this data and the conversation so far.
-The snapshot may include a "messageLog" (recent WhatsApp message contents with timestamps and the lead's phone) and a "leadDirectory" (recent leads with phone, name, stage and interests) — use these to answer questions about specific message contents, timing, or particular leads.
+The snapshot may include a "messageLog" (recent WhatsApp message contents with timestamps and the lead's phone), a "leadDirectory" (recent leads with phone, name, stage and interests) and "threadEvidence" (full conversation excerpts from the threads that match the manager's question) — use these to answer questions about specific message contents, timing, or particular leads.
+When "threadEvidence" is present, quote short verbatim excerpts (with the lead's name/phone and timestamp) as evidence for your conclusions.
+
 Guidelines:
 - Respond conversationally and directly to the latest question, referencing earlier turns when relevant.
 - By default keep replies short, conversational and skimmable. Do NOT produce a long formal document/report unless the user explicitly asks for a report, document, write-up, or download on a specific topic. When they do, structure it as a full report with clear headings and sections.

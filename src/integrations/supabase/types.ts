@@ -162,7 +162,9 @@ export type Database = {
         Row: {
           appointment_date: string | null
           appointment_type: string
+          calendar_id: string | null
           created_at: string
+          duration_minutes: number
           id: string
           lead_name: string | null
           notes: string | null
@@ -174,7 +176,9 @@ export type Database = {
         Insert: {
           appointment_date?: string | null
           appointment_type?: string
+          calendar_id?: string | null
           created_at?: string
+          duration_minutes?: number
           id?: string
           lead_name?: string | null
           notes?: string | null
@@ -186,7 +190,9 @@ export type Database = {
         Update: {
           appointment_date?: string | null
           appointment_type?: string
+          calendar_id?: string | null
           created_at?: string
+          duration_minutes?: number
           id?: string
           lead_name?: string | null
           notes?: string | null
@@ -196,6 +202,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "appointments_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "calendars"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "appointments_space_id_fkey"
             columns: ["space_id"]
@@ -242,6 +255,167 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "audit_logs_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calendar_availability: {
+        Row: {
+          calendar_id: string
+          created_at: string
+          end_time: string
+          id: string
+          space_id: string | null
+          start_time: string
+          updated_at: string
+          weekday: number
+        }
+        Insert: {
+          calendar_id: string
+          created_at?: string
+          end_time?: string
+          id?: string
+          space_id?: string | null
+          start_time?: string
+          updated_at?: string
+          weekday: number
+        }
+        Update: {
+          calendar_id?: string
+          created_at?: string
+          end_time?: string
+          id?: string
+          space_id?: string | null
+          start_time?: string
+          updated_at?: string
+          weekday?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_availability_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "calendars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_availability_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calendar_exceptions: {
+        Row: {
+          calendar_id: string
+          closed: boolean
+          created_at: string
+          end_time: string | null
+          exception_date: string
+          id: string
+          note: string | null
+          space_id: string | null
+          start_time: string | null
+          updated_at: string
+        }
+        Insert: {
+          calendar_id: string
+          closed?: boolean
+          created_at?: string
+          end_time?: string | null
+          exception_date: string
+          id?: string
+          note?: string | null
+          space_id?: string | null
+          start_time?: string | null
+          updated_at?: string
+        }
+        Update: {
+          calendar_id?: string
+          closed?: boolean
+          created_at?: string
+          end_time?: string | null
+          exception_date?: string
+          id?: string
+          note?: string | null
+          space_id?: string | null
+          start_time?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_exceptions_calendar_id_fkey"
+            columns: ["calendar_id"]
+            isOneToOne: false
+            referencedRelation: "calendars"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_exceptions_space_id_fkey"
+            columns: ["space_id"]
+            isOneToOne: false
+            referencedRelation: "spaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calendars: {
+        Row: {
+          active: boolean
+          buffer_minutes: number
+          color: string
+          created_at: string
+          description: string | null
+          id: string
+          is_default: boolean
+          max_days_ahead: number
+          min_notice_minutes: number
+          name: string
+          slot_duration_minutes: number
+          space_id: string | null
+          timezone: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          buffer_minutes?: number
+          color?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_default?: boolean
+          max_days_ahead?: number
+          min_notice_minutes?: number
+          name: string
+          slot_duration_minutes?: number
+          space_id?: string | null
+          timezone?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          buffer_minutes?: number
+          color?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_default?: boolean
+          max_days_ahead?: number
+          min_notice_minutes?: number
+          name?: string
+          slot_duration_minutes?: number
+          space_id?: string | null
+          timezone?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendars_space_id_fkey"
             columns: ["space_id"]
             isOneToOne: false
             referencedRelation: "spaces"

@@ -46,7 +46,17 @@ export const TENANT_TABLES = new Set<string>([
   "ring_groups",
   "ring_group_members",
   "inbound_routes",
+  "tickets",
+  "ticket_events",
+  "ticket_queues",
+  "tags",
+  "notifications",
+  "calendars",
+  "calendar_availability",
+  "calendar_exceptions",
 ]);
+
+
 
 // A space id that matches nothing — used as a safe fallback so reads return
 // empty and writes fail cleanly instead of leaking across tenants.

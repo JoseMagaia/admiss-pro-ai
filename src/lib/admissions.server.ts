@@ -7,6 +7,8 @@ import {
   type LeadRecord,
   type QualificationDecision,
 } from "./ai-engine.server";
+import { addDays, computeSlots, dateKeyInZone, isSlotAvailable } from "./calendar-slots";
+
 
 type AdminClient = Awaited<
   typeof import("@/integrations/supabase/client.server")
@@ -310,16 +312,105 @@ async function runHttpActions(stage: string, lead: LeadRecord) {
 
 const BOOKING_STATUSES = ["pending", "confirmed", "completed", "cancelled"];
 
-// Create or update a lead's "booking" appointment, writing the agreed time and
-// preserving its status (defaults to pending/confirmation).
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** Load the space's booking calendar (default, else first active one). */
+async function loadBookingCalendar(db: any): Promise<{
+  calendar: import("./calendar-slots").CalendarConfig | null;
+  rules: import("./calendar-slots").AvailabilityRule[];
+  exceptions: import("./calendar-slots").CalendarException[];
+  busy: Array<{ start: string; durationMinutes: number }>;
+}> {
+  const empty = { calendar: null, rules: [], exceptions: [], busy: [] };
+  try {
+    const { data: cals } = await db
+      .from("calendars")
+      .select("*")
+      .eq("active", true)
+      .order("is_default", { ascending: false })
+      .order("created_at", { ascending: true })
+      .limit(1);
+    const calendar = (cals ?? [])[0];
+    if (!calendar) return empty;
+    const [{ data: rules }, { data: exceptions }, { data: booked }] = await Promise.all([
+      db.from("calendar_availability").select("*").eq("calendar_id", calendar.id),
+      db.from("calendar_exceptions").select("*").eq("calendar_id", calendar.id),
+      db
+        .from("appointments")
+        .select("appointment_date, duration_minutes, status")
+        .eq("calendar_id", calendar.id)
+        .not("appointment_date", "is", null),
+    ]);
+    return {
+      calendar,
+      rules: rules ?? [],
+      exceptions: exceptions ?? [],
+      busy: (booked ?? [])
+        .filter((b: any) => b.status !== "cancelled")
+        .map((b: any) => ({ start: b.appointment_date, durationMinutes: b.duration_minutes ?? 30 })),
+    };
+  } catch {
+    return empty;
+  }
+}
+
+/**
+ * A compact list of genuinely free slots, handed to the AI so it only ever
+ * offers times the calendar can actually honour.
+ */
+export async function buildAvailabilityBrief(db: any, maxSlots = 12): Promise<string | null> {
+  const { calendar, rules, exceptions, busy } = await loadBookingCalendar(db);
+  if (!calendar) return null;
+  const today = dateKeyInZone(new Date(), calendar.timezone || "UTC");
+  const slots = computeSlots({
+    calendar,
+    rules,
+    exceptions,
+    busy,
+    fromDate: today,
+    toDate: addDays(today, 14),
+    maxSlots,
+  });
+  if (slots.length === 0) return null;
+  const byDate = new Map<string, string[]>();
+  for (const s of slots) {
+    if (!byDate.has(s.date)) byDate.set(s.date, []);
+    byDate.get(s.date)!.push(`${s.label} (${s.start})`);
+  }
+  return Array.from(byDate.entries())
+    .map(([d, times]) => `- ${d}: ${times.join(", ")}`)
+    .join("\n");
+}
+
+// Create or update a lead's "booking" appointment, writing the agreed time and
+// preserving its status (defaults to pending/confirmation). When a booking
+// calendar exists the time is validated against it, so a slot that is closed
+// or already taken is stored as pending instead of being silently confirmed.
 async function upsertLeadBooking(
   db: any,
   params: { phone: string; leadName: string | null; date: string | null; status: string; notes?: string },
 ): Promise<void> {
-  const status = BOOKING_STATUSES.includes((params.status ?? "").toLowerCase())
+  let status = BOOKING_STATUSES.includes((params.status ?? "").toLowerCase())
     ? params.status.toLowerCase()
     : "pending";
+
+  let calendarId: string | null = null;
+  let durationMinutes = 30;
+  let notes = params.notes ?? "Set by AI.";
+
+  if (params.date) {
+    const { calendar, rules, exceptions, busy } = await loadBookingCalendar(db);
+    if (calendar) {
+      calendarId = calendar.id;
+      durationMinutes = calendar.slot_duration_minutes ?? 30;
+      const free = isSlotAvailable({ calendar, rules, exceptions, busy, when: params.date });
+      if (!free) {
+        status = "pending";
+        notes = `${notes} (Requested time is outside availability or already booked — needs review.)`;
+      }
+    }
+  }
+
   const { data: existing } = await db
     .from("appointments")
     .select("id")
@@ -334,16 +425,23 @@ async function upsertLeadBooking(
       appointment_type: "booking",
       status,
       appointment_date: params.date,
-      notes: params.notes ?? "Set by AI.",
+      calendar_id: calendarId,
+      duration_minutes: durationMinutes,
+      notes,
     });
   } else {
     const update: Record<string, unknown> = { status };
     // Only overwrite the date when the AI actually captured one.
-    if (params.date) update.appointment_date = params.date;
+    if (params.date) {
+      update.appointment_date = params.date;
+      update.duration_minutes = durationMinutes;
+      if (calendarId) update.calendar_id = calendarId;
+    }
     await db.from("appointments").update(update as never).eq("id", existing.id);
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
 
 // Parse an optional [[BOOKING: <iso> | <status>]] directive out of a responder
 // agent's reply. Returns the cleaned message plus any captured booking details.
@@ -867,18 +965,45 @@ export async function sendWhatsAppCloudButtons(
 
 /* -------------------- CHATWOOT MEDIA (fallback) -------------------- */
 
-// Chatwoot's message endpoint supports multipart uploads. For simplicity we
-// post the public/signed URL as the message text with the file link — Chatwoot
-// renders it as a link preview, which is enough for the shared timeline; the
-// WhatsApp side gets the actual media through its own provider path.
+// Chatwoot's message endpoint accepts multipart uploads. We download the file
+// from its URL and forward the real bytes as an attachment so the contact sees
+// a normal media bubble in WhatsApp instead of a long link. If the upload
+// fails for any reason we fall back to posting the link as text.
 export async function sendChatwootMedia(
   creds: ChatwootCreds | null,
   conversationId: string | null | undefined,
   media: OutboundAttachment,
 ): Promise<SendResult> {
+  if (!creds) return { ok: false, error: "Chatwoot isn't set up for this inbox yet." };
+  if (!conversationId) return { ok: false, error: "No active Chatwoot conversation for this contact yet." };
+
+  try {
+    const fileRes = await fetch(media.url);
+    if (!fileRes.ok) throw new Error(`fetch ${fileRes.status}`);
+    const blob = await fileRes.blob();
+    const filename = media.filename ?? media.url.split("/").pop()?.split("?")[0] ?? "attachment";
+
+    const form = new FormData();
+    form.append("message_type", "outgoing");
+    if (media.caption) form.append("content", media.caption);
+    form.append("attachments[]", new File([blob], filename, { type: media.mime ?? blob.type }));
+
+    const base = String(creds.url).replace(/\/$/, "");
+    const res = await fetch(
+      `${base}/api/v1/accounts/${creds.accountId}/conversations/${conversationId}/messages`,
+      { method: "POST", headers: { api_access_token: creds.apiToken }, body: form },
+    );
+    if (res.ok) return { ok: true };
+    console.error("Chatwoot media upload failed:", res.status, (await res.text().catch(() => "")).slice(0, 200));
+  } catch (e) {
+    console.error("Chatwoot media upload failed:", e);
+  }
+
+  // Last resort so the message still reaches the contact.
   const label = media.caption ? `${media.caption}\n${media.url}` : media.url;
   return sendChatwootReply(creds, conversationId, label);
 }
+
 
 /* -------------------- ROUTER -------------------- */
 
@@ -967,7 +1092,64 @@ export interface ProcessResult {
   error?: string;
 }
 
+/**
+ * Make sure the conversation with this lead is represented by an open ticket.
+ *
+ * A ticket is the conversation, not an internal note: it is created
+ * automatically on the first (or first-after-close) inbound message, and can
+ * then be transferred to a queue or to another user/role for handling.
+ * Returns the ticket id (existing or newly created).
+ */
+export async function ensureConversationTicket(params: {
+  phone: string;
+  leadId?: string | null;
+  leadName?: string | null;
+  conversationId?: string | null;
+  firstMessage?: string | null;
+}): Promise<string | null> {
+  const db = await admin();
+  try {
+    const { data: existing } = await db
+      .from("tickets")
+      .select("id")
+      .eq("phone_number", params.phone)
+      .neq("status", "closed")
+      .limit(1);
+    const found = ((existing ?? []) as Array<{ id: string }>)[0];
+    if (found) return found.id;
+
+    const { data: created } = await db
+      .from("tickets")
+      .insert({
+        subject: `Conversation — ${params.leadName ?? params.phone}`,
+        phone_number: params.phone,
+        lead_id: params.leadId ?? null,
+        conversation_id: params.conversationId ?? null,
+        status: "open",
+        priority: "normal",
+        created_by_kind: "system",
+        notes: params.firstMessage ? params.firstMessage.slice(0, 500) : null,
+      } as never)
+      .select("id")
+      .maybeSingle();
+    const id = (created as { id?: string } | null)?.id ?? null;
+    if (id) {
+      await db.from("ticket_events").insert({
+        ticket_id: id,
+        actor_label: "System",
+        kind: "created",
+        detail: "Conversation started",
+      } as never);
+    }
+    return id;
+  } catch (e) {
+    console.error("Failed to ensure conversation ticket:", e);
+    return null;
+  }
+}
+
 export async function processInboundMessage(params: {
+
   phone: string;
   message: string;
   chatwootConversationId?: string | null;
@@ -1088,6 +1270,20 @@ export async function processInboundMessage(params: {
     await db.from("conversations").update({ workspace_id: workspace.id } as never).eq("phone_number", phone);
   }
 
+  // A ticket represents the conversation itself, so every lead thread gets one
+  // automatically. Agents then transfer it to a queue or a colleague. Reopened
+  // threads (a new message after the previous ticket was closed) get a fresh
+  // ticket so the handling history stays auditable.
+  await ensureConversationTicket({
+    phone,
+    leadId: (lead as { id?: string } | null)?.id ?? null,
+    leadName: (lead as { lead_name?: string | null } | null)?.lead_name ?? null,
+    conversationId: (conv as { id?: string } | null)?.id ?? null,
+    firstMessage: message,
+  });
+
+
+
   // Human takeover detection.
   if (!humanTakeover && detectHumanTakeover(message)) {
     humanTakeover = true;
@@ -1096,41 +1292,43 @@ export async function processInboundMessage(params: {
       .update({ human_takeover: true, status: "pending", assigned_agent: "Admissions Team" })
       .eq("phone_number", phone);
 
-    // The AI asked for a human: raise a ticket (unless one is already open)
-    // and notify the space so an agent picks it up.
+    // The lead asked for a human: escalate the conversation's ticket and
+    // notify the space so an agent picks it up.
     try {
-      const { data: existing } = await db
-        .from("tickets")
-        .select("id")
-        .eq("phone_number", phone)
-        .neq("status", "closed")
-        .limit(1);
-      if (!existing || existing.length === 0) {
-        const { data: created } = await db
+      const ticketId = await ensureConversationTicket({
+        phone,
+        leadId: lead.id ?? null,
+        leadName: lead.lead_name ?? null,
+        firstMessage: message,
+      });
+      if (ticketId) {
+        await db
           .from("tickets")
-          .insert({
-            subject: `Human requested — ${lead.lead_name ?? phone}`,
-            phone_number: phone,
-            lead_id: lead.id ?? null,
-            status: "open",
+          .update({
             priority: "high",
-            created_by_kind: "ai",
-            notes: message.slice(0, 500),
+            status: "open",
+            subject: `Human requested — ${lead.lead_name ?? phone}`,
           } as never)
-          .select("id")
-          .maybeSingle();
-        await db.from("notifications").insert({
-          user_id: null,
-          title: `AI requested a human for ${lead.lead_name ?? phone}`,
-          body: message.slice(0, 300),
-          kind: "ticket",
-          ticket_id: (created as { id?: string } | null)?.id ?? null,
-          link_phone: phone,
+          .eq("id", ticketId);
+        await db.from("ticket_events").insert({
+          ticket_id: ticketId,
+          actor_label: "AI Agent",
+          kind: "escalated",
+          detail: message.slice(0, 300),
         } as never);
       }
+      await db.from("notifications").insert({
+        user_id: null,
+        title: `AI requested a human for ${lead.lead_name ?? phone}`,
+        body: message.slice(0, 300),
+        kind: "ticket",
+        ticket_id: ticketId,
+        link_phone: phone,
+      } as never);
     } catch (e) {
       console.error("Failed to raise handoff ticket:", e);
     }
+
   }
 
   if (humanTakeover) {
@@ -1347,7 +1545,17 @@ export async function deliverHumanMessage(params: {
     conv = createdConv;
   }
 
+  // Agent-started threads are conversations too — make sure they carry a ticket.
+  await ensureConversationTicket({
+    phone,
+    leadId: (lead as { id?: string } | null)?.id ?? null,
+    leadName: null,
+    conversationId: (conv as { id?: string } | null)?.id ?? null,
+    firstMessage: message,
+  });
+
   const currentWorkspaceId =
+
     ((conv as Record<string, unknown> | null)?.workspace_id as string | null) ??
     ((lead as Record<string, unknown> | null)?.workspace_id as string | null) ??
     null;
@@ -2182,7 +2390,9 @@ async function tryWorkflowResponder(params: {
       history,
       userMessage: params.message,
       provider: ctx.provider,
+      availability: await buildAvailabilityBrief(db),
     });
+
 
     if (error || !reply) {
       // Let the qualification engine handle it rather than going silent.

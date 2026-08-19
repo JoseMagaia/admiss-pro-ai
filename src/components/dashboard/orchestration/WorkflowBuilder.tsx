@@ -906,7 +906,7 @@ export function WorkflowBuilder({
                               }
                               const base64 = typeof btoa === "function" ? btoa(binary) : "";
                               const res = (await uploadFn({
-                                data: { filename: file.name, mime: file.type || "application/octet-stream", base64 },
+                                data: { filename: file.name, mime: file.type || "application/octet-stream", base64, origin: window.location.origin },
                               })) as { ok: boolean; url?: string; mime?: string; filename?: string; error?: string };
                               if (!res.ok || !res.url) {
                                 toast.error(res.error ?? "Upload failed");

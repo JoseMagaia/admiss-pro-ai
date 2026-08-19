@@ -509,7 +509,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     try {
       const base64 = await blobToBase64(blob);
       const res = (await uploadFn({
-        data: { filename, mime: blob.type || "application/octet-stream", base64 },
+        data: { filename, mime: blob.type || "application/octet-stream", base64, origin: window.location.origin },
       })) as { ok: boolean; url?: string; mime?: string; filename?: string; error?: string };
       if (!res.ok || !res.url || !res.mime) {
         toast.error(res.error ?? "Upload failed");
