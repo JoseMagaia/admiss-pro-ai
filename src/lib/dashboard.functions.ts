@@ -451,10 +451,18 @@ const settingsSchema = z.object({
   logo_light_url: z.string().max(3_000_000).nullable().optional(),
   logo_dark_url: z.string().max(3_000_000).nullable().optional(),
   logo_scale: z.coerce.number().int().min(50).max(300).nullable().optional(),
+  // Audio delivery format (super admin only)
+  audio_delivery_format: z.enum(["mp3_document", "mp3_audio", "ogg_voice", "m4a_audio"]).optional(),
 });
 
 // Chatwoot fields are super-admin only; company/program fields allow admin too.
-const CHATWOOT_FIELDS = ["chatwoot_url", "chatwoot_account_id", "chatwoot_inbox_id", "chatwoot_api_token"];
+const CHATWOOT_FIELDS = [
+  "chatwoot_url",
+  "chatwoot_account_id",
+  "chatwoot_inbox_id",
+  "chatwoot_api_token",
+  "audio_delivery_format",
+];
 
 export const updateSettings = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => settingsSchema.parse(d))

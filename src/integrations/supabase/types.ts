@@ -893,6 +893,7 @@ export type Database = {
         Row: {
           active_destinations: string | null
           active_programs: string | null
+          audio_delivery_format: string
           brand_name: string | null
           brand_tagline: string | null
           chatwoot_account_id: string | null
@@ -916,6 +917,7 @@ export type Database = {
         Insert: {
           active_destinations?: string | null
           active_programs?: string | null
+          audio_delivery_format?: string
           brand_name?: string | null
           brand_tagline?: string | null
           chatwoot_account_id?: string | null
@@ -939,6 +941,7 @@ export type Database = {
         Update: {
           active_destinations?: string | null
           active_programs?: string | null
+          audio_delivery_format?: string
           brand_name?: string | null
           brand_tagline?: string | null
           chatwoot_account_id?: string | null

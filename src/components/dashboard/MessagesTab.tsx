@@ -28,6 +28,7 @@ import {
   PanelRightClose,
 } from "lucide-react";
 import { toast } from "sonner";
+import { resolveAudioFormat } from "@/lib/audio/formats";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -63,6 +64,7 @@ import {
   listWorkspaces,
   startConversation,
   uploadMessageAttachment,
+  getSettings,
 } from "@/lib/dashboard.functions";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
 import { ConversationTickets } from "./tickets/ConversationTickets";
@@ -163,6 +165,14 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const workspacesFn = useServerFn(listWorkspaces);
   const startFn = useServerFn(startConversation);
   const syncFn = useServerFn(syncInbox);
+
+  // Audio format enabled by the super admin (Settings → Audio).
+  const settingsFn = useServerFn(getSettings);
+  const { data: settingsData } = useQuery({ queryKey: ["settings"], queryFn: () => settingsFn() });
+  const audioFormat = resolveAudioFormat(
+    (settingsData?.settings as { audio_delivery_format?: string } | null)?.audio_delivery_format,
+  );
+
 
   // Pull history from the connected Chatwoot inbox(es) into the timeline.
   const syncMutation = useMutation({
@@ -564,6 +574,16 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
         const type = (rec.mimeType || mimeType || "audio/webm").split(";")[0];
         let blob = new Blob(recordChunksRef.current, { type });
         let ext = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "m4a" : type.includes("mpeg") ? "mp3" : "webm";
+
+        // Convert the recording into the format the super admin enabled.
+        if (audioFormat.ext === "mp3") {
+          const { encodeMp3 } = await import("@/lib/audio/encode-mp3");
+          const mp3 = await encodeMp3(blob);
+          if (mp3) {
+            blob = mp3;
+            ext = "mp3";
+          }
+        }
         if (ext === "webm") {
           // Chrome records WebM/Opus; WhatsApp only plays Ogg/Opus, so repackage
           // the same Opus frames into an Ogg container before uploading.

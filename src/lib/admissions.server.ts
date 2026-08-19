@@ -731,7 +731,17 @@ export async function sendEvolutionMedia(
   const number = toEvolutionNumber(phone);
   if (!number) return { ok: false, error: "The contact's phone number is invalid." };
 
-  const isAudio = media.kind === "audio";
+  // Audio can either go out as a native voice note or as a downloadable file,
+  // depending on the format the super admin enabled in Settings → Audio.
+  let isAudio = media.kind === "audio";
+  if (isAudio) {
+    const fmt = await loadAudioFormat();
+    media = { ...media, filename: audioFilename(media.filename, fmt.ext) };
+    if (fmt.asDocument) {
+      isAudio = false;
+      media = { ...media, kind: "document" };
+    }
+  }
   const url = isAudio
     ? `${base}/message/sendWhatsAppAudio/${encodeURIComponent(instance)}`
     : `${base}/message/sendMedia/${encodeURIComponent(instance)}`;
@@ -916,6 +926,26 @@ const WA_CLOUD_MIME: Record<string, string[]> = {
   sticker: ["image/webp"],
 };
 
+// Audio delivery format chosen by the super admin (Settings → Audio). When the
+// format is a "document" one, audio is delivered as a downloadable file so the
+// contact opens it in their local player instead of an inline voice bubble.
+export async function loadAudioFormat() {
+  const { resolveAudioFormat } = await import("./audio/formats");
+  try {
+    const db = await admin();
+    const { data } = await db.from("education_settings").select("audio_delivery_format").limit(1).maybeSingle();
+    return resolveAudioFormat((data as { audio_delivery_format?: string } | null)?.audio_delivery_format);
+  } catch {
+    return resolveAudioFormat(undefined);
+  }
+}
+
+/** Filename with the extension matching the active audio format. */
+function audioFilename(name: string | null | undefined, ext: string): string {
+  const base = (name ?? `audio-${Date.now()}`).replace(/\.[a-z0-9]+$/i, "");
+  return `${base}.${ext}`;
+}
+
 // Send a media message (image/video/audio/document) via WhatsApp Cloud API.
 export async function sendWhatsAppCloudMedia(
   workspace: WorkspaceRow | null,
@@ -929,6 +959,12 @@ export async function sendWhatsAppCloudMedia(
   const baseMime = (media.mime ?? "").split(";")[0]!.trim().toLowerCase();
   const allowed = WA_CLOUD_MIME[kind];
   if (allowed && baseMime && !allowed.includes(baseMime)) kind = "document";
+  // Honour the configured audio delivery format: file attachment vs voice bubble.
+  if (media.kind === "audio") {
+    const fmt = await loadAudioFormat();
+    if (fmt.asDocument) kind = "document";
+    media = { ...media, filename: audioFilename(media.filename, fmt.ext) };
+  }
   const phoneId = String(workspace.wa_phone_number_id ?? "").trim();
   const token = String(workspace.wa_access_token ?? "").trim();
   if (!phoneId || !token) return { ok: false, error: "WhatsApp Cloud API isn't fully configured." };
