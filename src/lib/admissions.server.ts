@@ -1109,6 +1109,7 @@ export async function processInboundMessage(params: {
     processed: true,
     wamid: aiSent.wamid ?? null,
     delivery_status: aiSent.ok ? "sent" : "failed",
+    delivery_error: aiSent.ok ? null : (aiSent.error ?? null),
   } as never);
 
   return {
@@ -1297,6 +1298,7 @@ export async function deliverHumanMessage(params: {
     attachment_kind: attachment?.kind ?? null,
     wamid: sent.wamid ?? null,
     delivery_status: sent.ok ? "sent" : "failed",
+    delivery_error: sent.ok ? null : (sent.error ?? null),
   } as never);
 
   await db
@@ -1691,6 +1693,7 @@ async function sendWorkflowMessage(
     attachment_kind: extras?.media?.kind ?? null,
     wamid: sent.wamid ?? null,
     delivery_status: sent.ok ? "sent" : "failed",
+    delivery_error: sent.ok ? null : (sent.error ?? null),
   } as never);
   return sent;
 }
@@ -2039,6 +2042,7 @@ async function tryWorkflowResponder(params: {
       processed: true,
       wamid: agentSent.wamid ?? null,
       delivery_status: agentSent.ok ? "sent" : "failed",
+    delivery_error: agentSent.ok ? null : (agentSent.error ?? null),
     } as never);
     return cleanReply;
   }
@@ -2639,6 +2643,7 @@ export async function deliverCampaignMessage(params: {
     attachment_kind: params.attachment?.kind ?? null,
     wamid: sent.wamid ?? null,
     delivery_status: sent.ok ? "sent" : "failed",
+    delivery_error: sent.ok ? null : (sent.error ?? null),
     campaign_id: params.campaignId ?? null,
   } as never);
 
