@@ -157,6 +157,27 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const pauseFn = useServerFn(pauseLeadWorkflow);
   const workspacesFn = useServerFn(listWorkspaces);
   const startFn = useServerFn(startConversation);
+  const syncFn = useServerFn(syncInbox);
+
+  // Pull history from the connected Chatwoot inbox(es) into the timeline.
+  const syncMutation = useMutation({
+    mutationFn: () => syncFn({ data: {} }),
+    onSuccess: (res) => {
+      const r = res as { imported?: number; error?: string | null; reports?: Array<{ error?: string; skipped?: string }> };
+      if (r.error) {
+        toast.error(r.error);
+        return;
+      }
+      const failed = (r.reports ?? []).filter((x) => x.error);
+      if (failed.length > 0) toast.warning(failed[0].error ?? "Some inboxes could not be synced");
+      else if ((r.imported ?? 0) > 0) toast.success(`Synced ${r.imported} message(s) from the connected inbox`);
+      else toast.info("Inbox is already up to date");
+      qc.invalidateQueries({ queryKey: ["message-threads"] });
+      qc.invalidateQueries({ queryKey: ["conversation-messages"] });
+    },
+    onError: () => toast.error("Inbox sync failed"),
+  });
+
 
   const [search, setSearch] = useState("");
   const [active, setActive] = useState<string | null>(null);
