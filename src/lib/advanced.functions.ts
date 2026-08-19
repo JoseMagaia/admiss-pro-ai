@@ -202,7 +202,11 @@ function bucketByHour(timestamps: string[]): { hour: number; count: number }[] {
 // When opts.includeContent is true it also attaches a bounded sample of recent
 // message contents/timestamps and a lead directory so the assistant can answer
 // content-specific questions and (in agentic mode) reference leads by phone.
-async function buildAnalytics(days = 14, opts: { includeContent?: boolean } = {}) {
+async function buildAnalytics(
+  days = 14,
+  opts: { includeContent?: boolean; contentQuery?: string | null } = {},
+) {
+
   const db = await admin();
   const since = new Date();
   since.setUTCDate(since.getUTCDate() - days);
