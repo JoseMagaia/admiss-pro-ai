@@ -310,16 +310,105 @@ async function runHttpActions(stage: string, lead: LeadRecord) {
 
 const BOOKING_STATUSES = ["pending", "confirmed", "completed", "cancelled"];
 
-// Create or update a lead's "booking" appointment, writing the agreed time and
-// preserving its status (defaults to pending/confirmation).
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** Load the space's booking calendar (default, else first active one). */
+async function loadBookingCalendar(db: any): Promise<{
+  calendar: import("./calendar-slots").CalendarConfig | null;
+  rules: import("./calendar-slots").AvailabilityRule[];
+  exceptions: import("./calendar-slots").CalendarException[];
+  busy: Array<{ start: string; durationMinutes: number }>;
+}> {
+  const empty = { calendar: null, rules: [], exceptions: [], busy: [] };
+  try {
+    const { data: cals } = await db
+      .from("calendars")
+      .select("*")
+      .eq("active", true)
+      .order("is_default", { ascending: false })
+      .order("created_at", { ascending: true })
+      .limit(1);
+    const calendar = (cals ?? [])[0];
+    if (!calendar) return empty;
+    const [{ data: rules }, { data: exceptions }, { data: booked }] = await Promise.all([
+      db.from("calendar_availability").select("*").eq("calendar_id", calendar.id),
+      db.from("calendar_exceptions").select("*").eq("calendar_id", calendar.id),
+      db
+        .from("appointments")
+        .select("appointment_date, duration_minutes, status")
+        .eq("calendar_id", calendar.id)
+        .not("appointment_date", "is", null),
+    ]);
+    return {
+      calendar,
+      rules: rules ?? [],
+      exceptions: exceptions ?? [],
+      busy: (booked ?? [])
+        .filter((b: any) => b.status !== "cancelled")
+        .map((b: any) => ({ start: b.appointment_date, durationMinutes: b.duration_minutes ?? 30 })),
+    };
+  } catch {
+    return empty;
+  }
+}
+
+/**
+ * A compact list of genuinely free slots, handed to the AI so it only ever
+ * offers times the calendar can actually honour.
+ */
+export async function buildAvailabilityBrief(db: any, maxSlots = 12): Promise<string | null> {
+  const { calendar, rules, exceptions, busy } = await loadBookingCalendar(db);
+  if (!calendar) return null;
+  const today = dateKeyInZone(new Date(), calendar.timezone || "UTC");
+  const slots = computeSlots({
+    calendar,
+    rules,
+    exceptions,
+    busy,
+    fromDate: today,
+    toDate: addDays(today, 14),
+    maxSlots,
+  });
+  if (slots.length === 0) return null;
+  const byDate = new Map<string, string[]>();
+  for (const s of slots) {
+    if (!byDate.has(s.date)) byDate.set(s.date, []);
+    byDate.get(s.date)!.push(`${s.label} (${s.start})`);
+  }
+  return Array.from(byDate.entries())
+    .map(([d, times]) => `- ${d}: ${times.join(", ")}`)
+    .join("\n");
+}
+
+// Create or update a lead's "booking" appointment, writing the agreed time and
+// preserving its status (defaults to pending/confirmation). When a booking
+// calendar exists the time is validated against it, so a slot that is closed
+// or already taken is stored as pending instead of being silently confirmed.
 async function upsertLeadBooking(
   db: any,
   params: { phone: string; leadName: string | null; date: string | null; status: string; notes?: string },
 ): Promise<void> {
-  const status = BOOKING_STATUSES.includes((params.status ?? "").toLowerCase())
+  let status = BOOKING_STATUSES.includes((params.status ?? "").toLowerCase())
     ? params.status.toLowerCase()
     : "pending";
+
+  let calendarId: string | null = null;
+  let durationMinutes = 30;
+  let notes = params.notes ?? "Set by AI.";
+
+  if (params.date) {
+    const { calendar, rules, exceptions, busy } = await loadBookingCalendar(db);
+    if (calendar) {
+      calendarId = calendar.id;
+      durationMinutes = calendar.slot_duration_minutes ?? 30;
+      const free = isSlotAvailable({ calendar, rules, exceptions, busy, when: params.date });
+      if (!free) {
+        status = "pending";
+        notes = `${notes} (Requested time is outside availability or already booked — needs review.)`;
+      }
+    }
+  }
+
   const { data: existing } = await db
     .from("appointments")
     .select("id")
@@ -334,16 +423,23 @@ async function upsertLeadBooking(
       appointment_type: "booking",
       status,
       appointment_date: params.date,
-      notes: params.notes ?? "Set by AI.",
+      calendar_id: calendarId,
+      duration_minutes: durationMinutes,
+      notes,
     });
   } else {
     const update: Record<string, unknown> = { status };
     // Only overwrite the date when the AI actually captured one.
-    if (params.date) update.appointment_date = params.date;
+    if (params.date) {
+      update.appointment_date = params.date;
+      update.duration_minutes = durationMinutes;
+      if (calendarId) update.calendar_id = calendarId;
+    }
     await db.from("appointments").update(update as never).eq("id", existing.id);
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
 
 // Parse an optional [[BOOKING: <iso> | <status>]] directive out of a responder
 // agent's reply. Returns the cleaned message plus any captured booking details.
