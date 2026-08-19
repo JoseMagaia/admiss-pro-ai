@@ -64,6 +64,10 @@ export interface WorkspaceRow {
   /** Verification token echoed to Meta during webhook setup. */
   wa_verify_token: string | null;
   wa_app_secret: string | null;
+  /** Approved template used when the 24-hour free-form window is closed. */
+  wa_default_template?: string | null;
+  wa_template_language?: string | null;
+
   enabled: boolean;
   is_default: boolean;
   use_shared_ai: boolean;
