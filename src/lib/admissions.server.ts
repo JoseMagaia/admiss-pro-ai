@@ -1447,7 +1447,17 @@ export async function deliverHumanMessage(params: {
     conv = createdConv;
   }
 
+  // Agent-started threads are conversations too — make sure they carry a ticket.
+  await ensureConversationTicket({
+    phone,
+    leadId: (lead as { id?: string } | null)?.id ?? null,
+    leadName: null,
+    conversationId: (conv as { id?: string } | null)?.id ?? null,
+    firstMessage: message,
+  });
+
   const currentWorkspaceId =
+
     ((conv as Record<string, unknown> | null)?.workspace_id as string | null) ??
     ((lead as Record<string, unknown> | null)?.workspace_id as string | null) ??
     null;
