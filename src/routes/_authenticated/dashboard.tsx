@@ -33,6 +33,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { canAccessTab, canAccessAdvanced, ROLE_LABELS } from "@/lib/roles";
 import { DashboardNavProvider } from "@/lib/dashboard-nav";
 import { SpaceSwitcher } from "@/components/dashboard/SpaceSwitcher";
+import { NotificationBell } from "@/components/dashboard/tickets/NotificationBell";
 import { useBranding } from "@/lib/useBranding";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -137,6 +138,7 @@ function Dashboard() {
 
         <div className="mt-4 space-y-2 border-t border-sidebar-border/50 pt-4">
           <SpaceSwitcher />
+          <NotificationBell />
           <div className="px-2">
             <p className="truncate text-sm font-medium">{profile.full_name ?? profile.email}</p>
             <p className="text-xs text-sidebar-foreground/60">{role ? ROLE_LABELS[role] : "No role"}</p>

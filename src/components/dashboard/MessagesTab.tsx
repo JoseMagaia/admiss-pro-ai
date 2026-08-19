@@ -62,6 +62,7 @@ import {
   uploadMessageAttachment,
 } from "@/lib/dashboard.functions";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
+import { ConversationTickets } from "./tickets/ConversationTickets";
 import { cn } from "@/lib/utils";
 
 /** Compare phone numbers by their digits only, ignoring +, spaces, dashes, etc. */
@@ -568,7 +569,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
 
   return (
-    <div className="grid h-[82vh] grid-cols-1 gap-4 md:h-[80vh] md:grid-cols-[300px_1fr]">
+    <div className="-mx-4 grid h-[calc(100vh-9rem)] grid-cols-1 gap-3 px-2 sm:-mx-6 sm:px-3 md:h-[calc(100vh-10rem)] md:grid-cols-[minmax(240px,280px)_1fr]">
       {/* List */}
       <div
         className={cn(
@@ -729,6 +730,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                   />
                 </label>
               </div>
+              {activePhone && <ConversationTickets phone={activePhone} />}
               {/* Workflow controls — own row so they stay reachable on small screens. */}
               {canPause && activePhone && (
                 <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-0.5">
