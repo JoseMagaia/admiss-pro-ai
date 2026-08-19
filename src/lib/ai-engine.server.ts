@@ -582,6 +582,13 @@ ${leadBlock}
 ${historyBlock || "(no prior messages)"}
 
 === BOOKING CAPABILITY ===
+${
+  args.availability
+    ? `These are the ONLY times currently free on our booking calendar (times shown in the calendar's own time zone):
+${args.availability}
+Offer times from this list only. If the lead asks for something outside it, say it is taken and propose the closest free options above.`
+    : "No calendar availability is configured, so agree a time that fits our stated working hours."
+}
 If the lead agrees to a specific date and time for their consultation/booking call, append on a NEW LINE at the very END of your message a directive in EXACTLY this format:
 [[BOOKING: <ISO8601 datetime> | <status>]]
 where <status> is one of: pending, confirmed (use "pending" unless the lead explicitly confirms). Example: [[BOOKING: 2026-06-20T15:00:00Z | pending]]
@@ -598,7 +605,9 @@ export async function runResponderAgent(args: RunResponderArgs): Promise<RunResp
     settings: args.settings,
     lead: args.lead,
     history: args.history,
+    availability: args.availability ?? null,
   });
+
 
   const temperature = args.temperature ?? 0.7;
   const provider = args.provider;
