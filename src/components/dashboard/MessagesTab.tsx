@@ -103,6 +103,7 @@ interface Message {
   delivery_status?: string | null;
   delivered_at?: string | null;
   read_at?: string | null;
+  delivery_error?: string | null;
 }
 
 interface Conversation {
@@ -806,7 +807,12 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                           // WhatsApp-style ticks: one grey ✓ = sent, two grey ✓✓ = delivered,
                           // two blue ✓✓ = read, red ! = failed.
                           const st = (m.delivery_status ?? "").toLowerCase();
-                          if (st === "failed") return <AlertCircle className="h-3 w-3 text-destructive" aria-label="Failed" />;
+                          if (st === "failed")
+                            return (
+                              <span title={m.delivery_error ?? "Failed to deliver"}>
+                                <AlertCircle className="h-3 w-3 text-destructive" aria-label="Failed" />
+                              </span>
+                            );
                           if (st === "read") return <CheckCheck className="h-3 w-3 text-sky-400" aria-label="Read" />;
                           if (st === "delivered") return <CheckCheck className="h-3 w-3" aria-label="Delivered" />;
                           if (st === "sent" || st === "") return <Check className="h-3 w-3" aria-label="Sent" />;

@@ -129,6 +129,8 @@ type MessageRow = {
   delivery_status?: string | null;
   delivered_at?: string | null;
   read_at?: string | null;
+  /** Provider reason when delivery failed (shown on the failed tick). */
+  delivery_error?: string | null;
 };
 
 type ConversationRow = {
