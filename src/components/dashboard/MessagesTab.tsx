@@ -564,6 +564,16 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
         const type = (rec.mimeType || mimeType || "audio/webm").split(";")[0];
         let blob = new Blob(recordChunksRef.current, { type });
         let ext = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "m4a" : type.includes("mpeg") ? "mp3" : "webm";
+
+        // Convert the recording into the format the super admin enabled.
+        if (audioFormat.ext === "mp3") {
+          const { encodeMp3 } = await import("@/lib/audio/encode-mp3");
+          const mp3 = await encodeMp3(blob);
+          if (mp3) {
+            blob = mp3;
+            ext = "mp3";
+          }
+        }
         if (ext === "webm") {
           // Chrome records WebM/Opus; WhatsApp only plays Ogg/Opus, so repackage
           // the same Opus frames into an Ogg container before uploading.
