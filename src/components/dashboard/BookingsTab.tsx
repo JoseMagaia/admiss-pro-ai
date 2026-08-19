@@ -215,7 +215,12 @@ export function BookingsTab() {
         </div>
       </div>
 
-      {view === "list" ? (
+      {view === "manage" ? (
+        <CalendarManager />
+      ) : view === "slots" ? (
+        <SlotPicker />
+      ) : view === "list" ? (
+
         <div className="overflow-x-auto rounded-2xl border bg-card shadow-card">
           <table className="w-full text-sm">
             <thead>
