@@ -62,6 +62,7 @@ import {
   uploadMessageAttachment,
 } from "@/lib/dashboard.functions";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
+import { ConversationTickets } from "./tickets/ConversationTickets";
 import { cn } from "@/lib/utils";
 
 /** Compare phone numbers by their digits only, ignoring +, spaces, dashes, etc. */
@@ -541,15 +542,20 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      // WhatsApp only accepts ogg/opus, mp4/aac, mpeg or amr audio — pick the
+      // first container the browser can record that WhatsApp will play.
+      const preferred = ["audio/ogg;codecs=opus", "audio/mp4", "audio/mpeg", "audio/webm;codecs=opus"];
+      const mimeType = preferred.find((m) => MediaRecorder.isTypeSupported?.(m));
+      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       recordChunksRef.current = [];
       rec.ondataavailable = (ev) => {
         if (ev.data.size > 0) recordChunksRef.current.push(ev.data);
       };
       rec.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(recordChunksRef.current, { type: rec.mimeType || "audio/webm" });
-        const ext = blob.type.includes("mp4") ? "m4a" : "webm";
+        const type = (rec.mimeType || mimeType || "audio/webm").split(";")[0];
+        const blob = new Blob(recordChunksRef.current, { type });
+        const ext = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "m4a" : type.includes("mpeg") ? "mp3" : "webm";
         await uploadBlob(blob, `voice-${Date.now()}.${ext}`);
       };
       rec.start();
@@ -568,7 +574,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
 
 
   return (
-    <div className="grid h-[82vh] grid-cols-1 gap-4 md:h-[80vh] md:grid-cols-[300px_1fr]">
+    <div className="-mx-4 grid h-[calc(100vh-9rem)] grid-cols-1 gap-3 px-2 sm:-mx-6 sm:px-3 md:h-[calc(100vh-10rem)] md:grid-cols-[minmax(240px,280px)_1fr]">
       {/* List */}
       <div
         className={cn(
@@ -729,6 +735,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                   />
                 </label>
               </div>
+              {activePhone && <ConversationTickets phone={activePhone} />}
               {/* Workflow controls — own row so they stay reachable on small screens. */}
               {canPause && activePhone && (
                 <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-0.5">

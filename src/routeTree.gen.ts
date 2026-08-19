@@ -26,8 +26,6 @@ import { Route as ApiPublicEvolutionWebhookRouteImport } from './routes/api/publ
 import { Route as ApiPublicChatwootWebhookRouteImport } from './routes/api/public/chatwoot-webhook'
 import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
-import { Route as ApiPublicVoipTwimlRouteImport } from './routes/api/public/voip/twiml'
-import { Route as ApiPublicVoipInboundRouteImport } from './routes/api/public/voip/inbound'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -122,16 +120,6 @@ const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
   path: '/.lovable/oauth/consent',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicVoipTwimlRoute = ApiPublicVoipTwimlRouteImport.update({
-  id: '/api/public/voip/twiml',
-  path: '/api/public/voip/twiml',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicVoipInboundRoute = ApiPublicVoipInboundRouteImport.update({
-  id: '/api/public/voip/inbound',
-  path: '/api/public/voip/inbound',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -150,8 +138,6 @@ export interface FileRoutesByFullPath {
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
   '/api/public/whatsapp-webhook': typeof ApiPublicWhatsappWebhookRoute
-  '/api/public/voip/inbound': typeof ApiPublicVoipInboundRoute
-  '/api/public/voip/twiml': typeof ApiPublicVoipTwimlRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -170,8 +156,6 @@ export interface FileRoutesByTo {
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
   '/api/public/whatsapp-webhook': typeof ApiPublicWhatsappWebhookRoute
-  '/api/public/voip/inbound': typeof ApiPublicVoipInboundRoute
-  '/api/public/voip/twiml': typeof ApiPublicVoipTwimlRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -192,8 +176,6 @@ export interface FileRoutesById {
   '/api/public/process-scheduled-messages': typeof ApiPublicProcessScheduledMessagesRoute
   '/api/public/process-workflows': typeof ApiPublicProcessWorkflowsRoute
   '/api/public/whatsapp-webhook': typeof ApiPublicWhatsappWebhookRoute
-  '/api/public/voip/inbound': typeof ApiPublicVoipInboundRoute
-  '/api/public/voip/twiml': typeof ApiPublicVoipTwimlRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -214,8 +196,6 @@ export interface FileRouteTypes {
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
     | '/api/public/whatsapp-webhook'
-    | '/api/public/voip/inbound'
-    | '/api/public/voip/twiml'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -234,8 +214,6 @@ export interface FileRouteTypes {
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
     | '/api/public/whatsapp-webhook'
-    | '/api/public/voip/inbound'
-    | '/api/public/voip/twiml'
   id:
     | '__root__'
     | '/'
@@ -255,8 +233,6 @@ export interface FileRouteTypes {
     | '/api/public/process-scheduled-messages'
     | '/api/public/process-workflows'
     | '/api/public/whatsapp-webhook'
-    | '/api/public/voip/inbound'
-    | '/api/public/voip/twiml'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -276,8 +252,6 @@ export interface RootRouteChildren {
   ApiPublicProcessScheduledMessagesRoute: typeof ApiPublicProcessScheduledMessagesRoute
   ApiPublicProcessWorkflowsRoute: typeof ApiPublicProcessWorkflowsRoute
   ApiPublicWhatsappWebhookRoute: typeof ApiPublicWhatsappWebhookRoute
-  ApiPublicVoipInboundRoute: typeof ApiPublicVoipInboundRoute
-  ApiPublicVoipTwimlRoute: typeof ApiPublicVoipTwimlRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -401,20 +375,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DotlovableOauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/voip/twiml': {
-      id: '/api/public/voip/twiml'
-      path: '/api/public/voip/twiml'
-      fullPath: '/api/public/voip/twiml'
-      preLoaderRoute: typeof ApiPublicVoipTwimlRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/voip/inbound': {
-      id: '/api/public/voip/inbound'
-      path: '/api/public/voip/inbound'
-      fullPath: '/api/public/voip/inbound'
-      preLoaderRoute: typeof ApiPublicVoipInboundRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -448,8 +408,6 @@ const rootRouteChildren: RootRouteChildren = {
     ApiPublicProcessScheduledMessagesRoute,
   ApiPublicProcessWorkflowsRoute: ApiPublicProcessWorkflowsRoute,
   ApiPublicWhatsappWebhookRoute: ApiPublicWhatsappWebhookRoute,
-  ApiPublicVoipInboundRoute: ApiPublicVoipInboundRoute,
-  ApiPublicVoipTwimlRoute: ApiPublicVoipTwimlRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

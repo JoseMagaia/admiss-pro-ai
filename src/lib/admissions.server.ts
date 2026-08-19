@@ -799,6 +799,16 @@ export async function sendWhatsAppCloudReply(
 }
 
 
+// Mime types WhatsApp Cloud accepts for each media type. Anything else is
+// delivered as a document so the message still reaches the contact instead of
+// failing silently (e.g. browser-recorded audio/webm).
+const WA_CLOUD_MIME: Record<string, string[]> = {
+  image: ["image/jpeg", "image/png"],
+  audio: ["audio/aac", "audio/amr", "audio/mpeg", "audio/mp4", "audio/ogg"],
+  video: ["video/mp4", "video/3gp", "video/3gpp"],
+  sticker: ["image/webp"],
+};
+
 // Send a media message (image/video/audio/document) via WhatsApp Cloud API.
 export async function sendWhatsAppCloudMedia(
   workspace: WorkspaceRow | null,
@@ -808,9 +818,12 @@ export async function sendWhatsAppCloudMedia(
   if (!workspace) return { ok: false, error: "No WhatsApp Cloud workspace resolved." };
   const to = toWhatsAppCloudNumber(phone);
   if (!to) return { ok: false, error: "The contact's phone number is invalid." };
-  const kind = media.kind === "sticker" ? "sticker" : media.kind;
+  let kind = media.kind === "sticker" ? "sticker" : media.kind;
+  const baseMime = (media.mime ?? "").split(";")[0]!.trim().toLowerCase();
+  const allowed = WA_CLOUD_MIME[kind];
+  if (allowed && baseMime && !allowed.includes(baseMime)) kind = "document";
   const mediaObj: Record<string, unknown> = { link: media.url };
-  if (media.filename && kind === "document") mediaObj.filename = media.filename;
+  if (kind === "document") mediaObj.filename = media.filename ?? "attachment";
   if (media.caption && (kind === "image" || kind === "video" || kind === "document")) {
     mediaObj.caption = media.caption;
   }
@@ -1082,6 +1095,42 @@ export async function processInboundMessage(params: {
       .from("conversations")
       .update({ human_takeover: true, status: "pending", assigned_agent: "Admissions Team" })
       .eq("phone_number", phone);
+
+    // The AI asked for a human: raise a ticket (unless one is already open)
+    // and notify the space so an agent picks it up.
+    try {
+      const { data: existing } = await db
+        .from("tickets")
+        .select("id")
+        .eq("phone_number", phone)
+        .neq("status", "closed")
+        .limit(1);
+      if (!existing || existing.length === 0) {
+        const { data: created } = await db
+          .from("tickets")
+          .insert({
+            subject: `Human requested — ${lead.lead_name ?? phone}`,
+            phone_number: phone,
+            lead_id: lead.id ?? null,
+            status: "open",
+            priority: "high",
+            created_by_kind: "ai",
+            notes: message.slice(0, 500),
+          } as never)
+          .select("id")
+          .maybeSingle();
+        await db.from("notifications").insert({
+          user_id: null,
+          title: `AI requested a human for ${lead.lead_name ?? phone}`,
+          body: message.slice(0, 300),
+          kind: "ticket",
+          ticket_id: (created as { id?: string } | null)?.id ?? null,
+          link_phone: phone,
+        } as never);
+      }
+    } catch (e) {
+      console.error("Failed to raise handoff ticket:", e);
+    }
   }
 
   if (humanTakeover) {
