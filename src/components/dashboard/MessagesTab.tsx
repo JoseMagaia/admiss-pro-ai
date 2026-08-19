@@ -210,6 +210,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   // Pending attachment for the next outbound message.
   type PendingAttachment = {
     url: string;
+    path?: string | null;
     mime: string;
     filename: string;
     kind: "image" | "audio" | "video" | "document";
