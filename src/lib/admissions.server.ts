@@ -867,18 +867,45 @@ export async function sendWhatsAppCloudButtons(
 
 /* -------------------- CHATWOOT MEDIA (fallback) -------------------- */
 
-// Chatwoot's message endpoint supports multipart uploads. For simplicity we
-// post the public/signed URL as the message text with the file link — Chatwoot
-// renders it as a link preview, which is enough for the shared timeline; the
-// WhatsApp side gets the actual media through its own provider path.
+// Chatwoot's message endpoint accepts multipart uploads. We download the file
+// from its URL and forward the real bytes as an attachment so the contact sees
+// a normal media bubble in WhatsApp instead of a long link. If the upload
+// fails for any reason we fall back to posting the link as text.
 export async function sendChatwootMedia(
   creds: ChatwootCreds | null,
   conversationId: string | null | undefined,
   media: OutboundAttachment,
 ): Promise<SendResult> {
+  if (!creds) return { ok: false, error: "Chatwoot isn't set up for this inbox yet." };
+  if (!conversationId) return { ok: false, error: "No active Chatwoot conversation for this contact yet." };
+
+  try {
+    const fileRes = await fetch(media.url);
+    if (!fileRes.ok) throw new Error(`fetch ${fileRes.status}`);
+    const blob = await fileRes.blob();
+    const filename = media.filename ?? media.url.split("/").pop()?.split("?")[0] ?? "attachment";
+
+    const form = new FormData();
+    form.append("message_type", "outgoing");
+    if (media.caption) form.append("content", media.caption);
+    form.append("attachments[]", new File([blob], filename, { type: media.mime ?? blob.type }));
+
+    const base = String(creds.url).replace(/\/$/, "");
+    const res = await fetch(
+      `${base}/api/v1/accounts/${creds.accountId}/conversations/${conversationId}/messages`,
+      { method: "POST", headers: { api_access_token: creds.apiToken }, body: form },
+    );
+    if (res.ok) return { ok: true };
+    console.error("Chatwoot media upload failed:", res.status, (await res.text().catch(() => "")).slice(0, 200));
+  } catch (e) {
+    console.error("Chatwoot media upload failed:", e);
+  }
+
+  // Last resort so the message still reaches the contact.
   const label = media.caption ? `${media.caption}\n${media.url}` : media.url;
   return sendChatwootReply(creds, conversationId, label);
 }
+
 
 /* -------------------- ROUTER -------------------- */
 
