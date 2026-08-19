@@ -5,6 +5,21 @@ import { scopedDb, activeSpaceId, guard, isAuthed, ANY_ROLE } from "./dashboard-
 /** Digits-only comparison helper for phone matching. */
 const digits = (p: string) => (p ?? "").replace(/\D/g, "");
 
+/** Serializable row shapes returned to the client. */
+type Row = Record<string, string | number | boolean | null>;
+const plain = (o: unknown): Row => {
+  const out: Row = {};
+  for (const [k, v] of Object.entries((o ?? {}) as Record<string, unknown>)) {
+    out[k] =
+      v === null || v === undefined
+        ? null
+        : typeof v === "string" || typeof v === "number" || typeof v === "boolean"
+          ? v
+          : JSON.stringify(v);
+  }
+  return out;
+};
+
 async function findLead(phone: string) {
   const db = await scopedDb();
   const { data } = await db.from("leads").select("*").limit(500);
@@ -17,7 +32,8 @@ async function findLead(phone: string) {
 export const getLeadPanel = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ phone: z.string().min(3).max(60) }).parse(d))
   .handler(async ({ data }) => {
-    if (!(await isAuthed())) return { lead: null, notes: [], history: [] };
+    if (!(await isAuthed()))
+      return { lead: null as Row | null, notes: [] as Row[], history: [] as Entry[], tickets: [] as Row[] };
     const db = await scopedDb();
     const lead = await findLead(data.phone);
     const leadId = (lead?.id as string | undefined) ?? null;
@@ -45,7 +61,6 @@ export const getLeadPanel = createServerFn({ method: "POST" })
       ? await db.from("ticket_events").select("*").in("ticket_id", ticketIds).limit(200)
       : { data: [] as Array<Record<string, unknown>> };
 
-    type Entry = { at: string; kind: string; title: string; detail?: string | null };
     const history: Entry[] = [];
 
     if (lead?.created_at) {
@@ -94,7 +109,12 @@ export const getLeadPanel = createServerFn({ method: "POST" })
 
     history.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
-    return { lead: lead ?? null, notes, history: history.slice(0, 200), tickets };
+    return {
+      lead: lead ? plain(lead) : null,
+      notes: notes.map(plain),
+      history: history.slice(0, 200),
+      tickets: tickets.map(plain),
+    };
   });
 
 export const addLeadNote = createServerFn({ method: "POST" })
