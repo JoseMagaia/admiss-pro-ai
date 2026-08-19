@@ -595,11 +595,30 @@ export const generateChatReply = createServerFn({ method: "POST" })
     const target = await resolveAiTarget(data.model);
     if ("error" in target) return { reply: "", error: target.error };
 
-    const analytics = await buildAnalytics(data.days ?? 30, { includeContent: data.deepContent ?? true });
+    // Use the manager's latest question as the evidence query so the snapshot
+    // carries the actual conversation threads that mention what they asked about.
+    const lastUserMessage = [...data.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+    const stop = new Set([
+      "what","which","when","where","about","from","this","that","they","them","with","have","been","show","give","tell","list","many","much","leads","lead","messages","message","please","report","find","were","their","there","said","asked","into","over","last","week","month","days",
+    ]);
+    const evidenceQuery = lastUserMessage
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !stop.has(w))
+      .slice(0, 6)
+      .join(" ");
+
+    const analytics = await buildAnalytics(data.days ?? 30, {
+      includeContent: data.deepContent ?? true,
+      contentQuery: evidenceQuery || null,
+    });
 
     const system = `You are a senior revenue & growth analyst for an international education admissions company, having an ongoing conversation with an admissions manager.
 You are given a JSON snapshot of the platform's live analytics. Answer using ONLY this data and the conversation so far.
-The snapshot may include a "messageLog" (recent WhatsApp message contents with timestamps and the lead's phone) and a "leadDirectory" (recent leads with phone, name, stage and interests) — use these to answer questions about specific message contents, timing, or particular leads.
+The snapshot may include a "messageLog" (recent WhatsApp message contents with timestamps and the lead's phone), a "leadDirectory" (recent leads with phone, name, stage and interests) and "threadEvidence" (full conversation excerpts from the threads that match the manager's question) — use these to answer questions about specific message contents, timing, or particular leads.
+When "threadEvidence" is present, quote short verbatim excerpts (with the lead's name/phone and timestamp) as evidence for your conclusions.
+
 Guidelines:
 - Respond conversationally and directly to the latest question, referencing earlier turns when relevant.
 - By default keep replies short, conversational and skimmable. Do NOT produce a long formal document/report unless the user explicitly asks for a report, document, write-up, or download on a specific topic. When they do, structure it as a full report with clear headings and sections.
