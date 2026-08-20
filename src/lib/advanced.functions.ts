@@ -505,6 +505,111 @@ async function resolveAiTarget(cfg?: ModelConfig): Promise<AiTarget | { error: s
   };
 }
 
+/* ============ PERSISTED MODEL SETTINGS (per user) ============ */
+
+type StoredModelRow = {
+  mode: string | null;
+  provider: string | null;
+  base_url: string | null;
+  model: string | null;
+  api_key: string | null;
+};
+
+async function loadStoredModel(userId: string): Promise<StoredModelRow | null> {
+  const db = await admin();
+  const { data } = await db
+    .from("report_ai_settings")
+    .select("mode, provider, base_url, model, api_key")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return (data as StoredModelRow | null) ?? null;
+}
+
+// Resolve the AI target for a user: an explicit per-request config wins, but
+// when it is absent (the normal case now) we use the saved settings so the
+// chosen provider/model/API key stays active until the user changes it.
+async function resolveTargetForUser(userId: string, cfg?: ModelConfig) {
+  if (cfg && cfg.mode) {
+    if (cfg.mode === "custom" && !cfg.apiKey) {
+      const stored = await loadStoredModel(userId);
+      if (stored?.api_key) return resolveAiTarget({ ...cfg, apiKey: stored.api_key });
+    }
+    return resolveAiTarget(cfg);
+  }
+  const stored = await loadStoredModel(userId);
+  if (!stored) return resolveAiTarget(undefined);
+  return resolveAiTarget({
+    mode: (stored.mode as "built_in" | "ai_settings" | "custom") ?? "built_in",
+    provider: stored.provider,
+    baseUrl: stored.base_url,
+    model: stored.model,
+    apiKey: stored.api_key,
+  });
+}
+
+export const getReportModelSettings = createServerFn({ method: "GET" }).handler(async () => {
+  let user;
+  try {
+    user = await guardAdvanced();
+  } catch (e) {
+    return { settings: null, error: (e as Error).message };
+  }
+  const stored = await loadStoredModel(user.userId);
+  return {
+    settings: {
+      mode: (stored?.mode as "built_in" | "ai_settings" | "custom") ?? "built_in",
+      provider: stored?.provider ?? "",
+      baseUrl: stored?.base_url ?? "",
+      model: stored?.model ?? "",
+      hasApiKey: Boolean(stored?.api_key),
+    },
+    error: null,
+  };
+});
+
+export const saveReportModelSettings = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        mode: z.enum(["built_in", "ai_settings", "custom"]),
+        provider: z.string().max(40).nullable().optional(),
+        baseUrl: z.string().max(500).nullable().optional(),
+        model: z.string().max(160).nullable().optional(),
+        apiKey: z.string().max(2000).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    let user;
+    try {
+      user = await guardAdvanced();
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const stored = await loadStoredModel(user.userId);
+    // Blank API key keeps the previously saved secret.
+    const apiKey = data.apiKey && data.apiKey.length > 0 ? data.apiKey : stored?.api_key ?? null;
+    if (data.mode === "custom" && (!data.baseUrl || !data.model || !apiKey)) {
+      return { ok: false, error: "Custom provider needs a base URL, model and API key." };
+    }
+    const db = await admin();
+    const { error } = await db.from("report_ai_settings").upsert(
+      {
+        user_id: user.userId,
+        mode: data.mode,
+        provider: data.provider ?? null,
+        base_url: data.baseUrl ?? null,
+        model: data.model ?? null,
+        api_key: apiKey,
+        updated_at: new Date().toISOString(),
+      } as never,
+      { onConflict: "user_id" },
+    );
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+
+
 
 
 
@@ -586,13 +691,14 @@ export const generateChatReply = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    let user;
     try {
-      await guardAdvanced();
+      user = await guardAdvanced();
     } catch (e) {
       return { reply: "", error: (e as Error).message };
     }
 
-    const target = await resolveAiTarget(data.model);
+    const target = await resolveTargetForUser(user.userId, data.model);
     if ("error" in target) return { reply: "", error: target.error };
 
     // Use the manager's latest question as the evidence query so the snapshot
@@ -970,13 +1076,14 @@ export const generateAgentReply = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    let user;
     try {
-      await guardAdvanced();
+      user = await guardAdvanced();
     } catch (e) {
       return { reply: "", actions: [], error: (e as Error).message };
     }
 
-    const target = await resolveAiTarget(data.model);
+    const target = await resolveTargetForUser(user.userId, data.model);
     if ("error" in target) return { reply: "", actions: [], error: target.error };
 
     const analytics = await buildAnalytics(data.days ?? 30, { includeContent: true });
@@ -1431,5 +1538,185 @@ export const executeAgentAction = createServerFn({ method: "POST" })
       return { ok: false, error: "Unknown action." };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "Action failed" };
+    }
+  });
+
+/* ===================== PNL MODE (NEUROLINGUISTIC ANALYSIS) ===================== */
+
+// Scrape whole conversation threads (not just aggregates) so the model can study
+// the actual language used by leads and agents. Bounded by thread count and by
+// messages per thread to stay inside token limits.
+async function buildPnlCorpus(opts: { threads: number; query?: string | null; days?: number }) {
+  const db = await scopedAdmin();
+  const threadLimit = Math.min(Math.max(opts.threads || 50, 5), 100);
+  const since = new Date(Date.now() - (opts.days ?? 90) * 86400000).toISOString();
+
+  const terms = String(opts.query ?? "")
+    .split(/[,\s]+/)
+    .map((t) => t.trim().replace(/[%,()]/g, ""))
+    .filter((t) => t.length >= 4)
+    .slice(0, 6);
+
+  // Pick which conversations to scrape: matching ones first, then most recent.
+  const phones: string[] = [];
+  if (terms.length > 0) {
+    const { data: hits } = await db
+      .from("whatsapp_messages")
+      .select("phone_number, received_at")
+      .or(terms.map((t) => `message_content.ilike.%${t}%`).join(","))
+      .order("received_at", { ascending: false })
+      .limit(1500);
+    for (const r of (hits ?? []) as Array<{ phone_number: string }>) {
+      if (r.phone_number && !phones.includes(r.phone_number)) phones.push(r.phone_number);
+      if (phones.length >= threadLimit) break;
+    }
+  }
+  if (phones.length < threadLimit) {
+    const { data: recent } = await db
+      .from("whatsapp_messages")
+      .select("phone_number, received_at")
+      .gte("received_at", since)
+      .order("received_at", { ascending: false })
+      .limit(3000);
+    for (const r of (recent ?? []) as Array<{ phone_number: string }>) {
+      if (r.phone_number && !phones.includes(r.phone_number)) phones.push(r.phone_number);
+      if (phones.length >= threadLimit) break;
+    }
+  }
+
+  const { data: leadRows } = await db
+    .from("leads")
+    .select("phone_number, lead_name, qualification_status, course_interest, country_interest")
+    .limit(2000);
+  const leads = new Map(
+    ((leadRows ?? []) as Array<{
+      phone_number: string;
+      lead_name: string | null;
+      qualification_status: string;
+      course_interest: string | null;
+      country_interest: string | null;
+    }>).map((l) => [l.phone_number, l]),
+  );
+
+  const threads: Array<{
+    phone: string;
+    lead_name: string | null;
+    stage: string | null;
+    course: string | null;
+    country: string | null;
+    messages: Array<{ sender: string; at: string; text: string }>;
+  }> = [];
+
+  for (const phone of phones) {
+    const { data: msgs } = await db
+      .from("whatsapp_messages")
+      .select("sender, received_at, message_content")
+      .eq("phone_number", phone)
+      .order("received_at", { ascending: true })
+      .limit(200);
+    const rows = (msgs ?? []) as Array<{ sender: string; received_at: string; message_content: string }>;
+    if (rows.length === 0) continue;
+    const lead = leads.get(phone);
+    threads.push({
+      phone,
+      lead_name: lead?.lead_name ?? null,
+      stage: lead?.qualification_status ?? null,
+      course: lead?.course_interest ?? null,
+      country: lead?.country_interest ?? null,
+      messages: rows.map((m) => ({
+        sender: m.sender,
+        at: m.received_at,
+        text: String(m.message_content ?? "").slice(0, 600),
+      })),
+    });
+  }
+
+  return {
+    threadCount: threads.length,
+    messageCount: threads.reduce((n, t) => n + t.messages.length, 0),
+    query: terms.join(" ") || null,
+    threads,
+  };
+}
+
+export const generatePnlReply = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        messages: z.array(chatMessageSchema).min(1).max(40),
+        days: z.number().int().min(1).max(365).optional(),
+        threads: z.number().int().min(5).max(100).optional(),
+        model: modelConfigSchema,
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    let user;
+    try {
+      user = await guardAdvanced();
+    } catch (e) {
+      return { reply: "", error: (e as Error).message, scanned: null };
+    }
+
+    const target = await resolveTargetForUser(user.userId, data.model);
+    if ("error" in target) return { reply: "", error: target.error, scanned: null };
+
+    const lastUserMessage = [...data.messages].reverse().find((m) => m.role === "user")?.content ?? "";
+    const corpus = await buildPnlCorpus({
+      threads: data.threads ?? 50,
+      query: lastUserMessage,
+      days: data.days ?? 90,
+    });
+
+    if (corpus.threadCount === 0) {
+      return { reply: "", error: "No conversations found to analyse in this timeframe.", scanned: null };
+    }
+
+    const system = `You are a Neurolinguistic Programming (NLP/PNL) analyst and communication coach studying real WhatsApp conversations between admissions agents (and an AI assistant) and prospective students.
+You are given a corpus of full conversation threads: every message, with sender, timestamp, the lead's name, pipeline stage and interests.
+
+Analyse the ACTUAL LANGUAGE. Ground everything in the corpus and quote short verbatim excerpts (with lead name/phone and timestamp) as evidence.
+
+Focus areas (choose what the question calls for):
+- Representational systems: visual / auditory / kinesthetic / auditory-digital predicates used by each lead, and how well the agent matched them.
+- Meta-model violations: deletions, distortions, generalisations — and the precision questions that could have unpacked them.
+- Milton-model / hypnotic language, presuppositions, embedded commands and how they landed.
+- Rapport: pacing & leading, mirroring of vocabulary, tempo and tone; where rapport broke.
+- Anchors, reframes, objection patterns, motivation direction (towards / away-from), chunk size, time orientation, and decision strategies.
+- Sentiment and emotional trajectory across the thread, and the exact turns where interest rose or collapsed.
+
+Output rules:
+- GitHub-flavored Markdown: headings, bullets and tables. No code blocks, no raw JSON.
+- Always include a short "## What to say instead" section with rewritten, NLP-calibrated message scripts the team can reuse.
+- Be specific and practical. Never invent conversations that are not in the corpus.
+
+Corpus: ${corpus.threadCount} threads, ${corpus.messageCount} messages${corpus.query ? `, focused on "${corpus.query}"` : ""}.
+${JSON.stringify(corpus.threads)}`;
+
+    try {
+      const res = await fetch(target.url, {
+        method: "POST",
+        headers: target.headers,
+        body: JSON.stringify({
+          model: target.model,
+          temperature: 0.5,
+          messages: [{ role: "system", content: system }, ...data.messages],
+        }),
+      });
+      if (!res.ok) {
+        let msg = `AI error ${res.status}`;
+        if (res.status === 429) msg = "Rate limit reached. Please retry shortly.";
+        if (res.status === 402) msg = "AI credits exhausted. Add credits in workspace settings.";
+        return { reply: "", error: msg, scanned: null };
+      }
+      const json = await res.json();
+      const reply = json?.choices?.[0]?.message?.content ?? "";
+      return {
+        reply,
+        error: reply ? null : "Empty response from AI.",
+        scanned: { threads: corpus.threadCount, messages: corpus.messageCount },
+      };
+    } catch (e) {
+      return { reply: "", error: e instanceof Error ? e.message : "AI request failed", scanned: null };
     }
   });

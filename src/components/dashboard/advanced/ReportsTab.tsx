@@ -30,6 +30,8 @@ import {
   X,
   Settings2,
   Zap,
+  Brain,
+  Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -40,6 +42,9 @@ import {
   getReportDashboard,
   generateChatReply,
   generateAgentReply,
+  generatePnlReply,
+  getReportModelSettings,
+  saveReportModelSettings,
   executeAgentAction,
   listConversations,
   saveConversation,
@@ -68,7 +73,7 @@ type SavedConversation = { id: string; title: string; messages: ChatMsg[]; updat
 
 type ProposedAction = { id: string; name: string; args: Record<string, unknown> };
 type ActionResult = { ok: boolean; msg: string };
-type AiMode = "insights" | "agentic";
+type AiMode = "insights" | "agentic" | "pnl";
 type ModelMode = "built_in" | "ai_settings" | "custom";
 
 const ACTION_LABELS: Record<string, string> = {
@@ -137,6 +142,13 @@ const BUILD_PROMPT_SUGGESTIONS = [
   "Which courses and destinations drive the most qualified leads?",
 ];
 
+const PNL_PROMPT_SUGGESTIONS = [
+  "Analyse the representational systems leads use and how well agents matched them.",
+  "Where does rapport break down in our conversations? Quote the exact turns.",
+  "Find the objection language patterns and reframe them with NLP scripts.",
+  "Which motivation direction (towards / away-from) do our best converters show?",
+];
+
 const AGENT_PROMPT_SUGGESTIONS = [
   "Move every qualified lead with no booking into onboarding.",
   "Assign the re-engagement workflow to leads inactive over a week.",
@@ -201,6 +213,9 @@ export function ReportsTab() {
   const dashFn = useServerFn(getReportDashboard);
   const chatFn = useServerFn(generateChatReply);
   const agentFn = useServerFn(generateAgentReply);
+  const pnlFn = useServerFn(generatePnlReply);
+  const getModelFn = useServerFn(getReportModelSettings);
+  const saveModelFn = useServerFn(saveReportModelSettings);
   const execFn = useServerFn(executeAgentAction);
   const listFn = useServerFn(listConversations);
   const saveFn = useServerFn(saveConversation);
@@ -235,21 +250,62 @@ export function ReportsTab() {
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customModel, setCustomModel] = useState("");
   const [customApiKey, setCustomApiKey] = useState("");
+  const [pnlThreads, setPnlThreads] = useState(50);
 
-  const buildModelConfig = () => {
-    if (modelMode === "custom")
-      return {
-        mode: "custom" as const,
-        provider: customProvider || null,
-        baseUrl: customBaseUrl || null,
-        model: customModel || null,
-        apiKey: customApiKey || null,
-      };
-    if (modelMode === "ai_settings") return { mode: "ai_settings" as const };
-    return { mode: "built_in" as const, model: builtInModel || null };
-  };
+  const [hasSavedKey, setHasSavedKey] = useState(false);
 
-  const promptSuggestions = mode === "agentic" ? AGENT_PROMPT_SUGGESTIONS : BUILD_PROMPT_SUGGESTIONS;
+  // Persisted model settings — loaded once and reused for every request until
+  // the user saves a different provider/model/key.
+  const { data: modelData } = useQuery({
+    queryKey: ["report-model-settings"],
+    queryFn: () => getModelFn(),
+  });
+
+  useEffect(() => {
+    const st = (modelData as { settings: null | { mode: ModelMode; provider: string; baseUrl: string; model: string; hasApiKey: boolean } } | undefined)?.settings;
+    if (!st) return;
+    setModelMode(st.mode);
+    if (st.mode === "built_in" && st.model) setBuiltInModel(st.model);
+    if (st.mode === "custom") {
+      setCustomProvider(st.provider ?? "");
+      setCustomBaseUrl(st.baseUrl ?? "");
+      setCustomModel(st.model ?? "");
+    }
+    setHasSavedKey(st.hasApiKey);
+  }, [modelData]);
+
+  const saveModel = useMutation({
+    mutationFn: () =>
+      saveModelFn({
+        data:
+          modelMode === "custom"
+            ? {
+                mode: "custom" as const,
+                provider: customProvider || null,
+                baseUrl: customBaseUrl || null,
+                model: customModel || null,
+                apiKey: customApiKey || null,
+              }
+            : modelMode === "ai_settings"
+              ? { mode: "ai_settings" as const }
+              : { mode: "built_in" as const, model: builtInModel || null },
+      }),
+    onSuccess: (r) => {
+      const res = r as { ok: boolean; error: string | null };
+      if (!res.ok) {
+        toast.error(res.error ?? "Could not save model settings");
+        return;
+      }
+      if (customApiKey) setHasSavedKey(true);
+      setCustomApiKey("");
+      queryClient.invalidateQueries({ queryKey: ["report-model-settings"] });
+      toast.success("Model settings saved — they stay active until you change them.");
+    },
+    onError: () => toast.error("Could not save model settings"),
+  });
+
+  const promptSuggestions =
+    mode === "agentic" ? AGENT_PROMPT_SUGGESTIONS : mode === "pnl" ? PNL_PROMPT_SUGGESTIONS : BUILD_PROMPT_SUGGESTIONS;
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
@@ -270,17 +326,23 @@ export function ReportsTab() {
 
   const chat = useMutation({
     mutationFn: (msgs: ChatMsg[]) => {
-      const model = buildModelConfig();
-      return mode === "agentic"
-        ? agentFn({ data: { messages: msgs, days, model } })
-        : chatFn({ data: { messages: msgs, days, model } });
+      // Model settings are persisted server-side and stay active until changed.
+      if (mode === "agentic") return agentFn({ data: { messages: msgs, days } });
+      if (mode === "pnl") return pnlFn({ data: { messages: msgs, days, threads: pnlThreads } });
+      return chatFn({ data: { messages: msgs, days } });
     },
     onSuccess: async (r, variables) => {
-      const res = r as { reply: string; error: string | null; actions?: ProposedAction[] };
+      const res = r as {
+        reply: string;
+        error: string | null;
+        actions?: ProposedAction[];
+        scanned?: { threads: number; messages: number } | null;
+      };
       if (res.error) {
         toast.error(res.error);
         return;
       }
+      if (res.scanned) toast.success(`Analysed ${res.scanned.threads} threads · ${res.scanned.messages} messages`);
       const actions = res.actions ?? [];
       if (!res.reply && actions.length === 0) {
         toast.error("No response generated");
@@ -456,6 +518,8 @@ export function ReportsTab() {
               <div className="flex items-center gap-2">
                 {mode === "agentic" ? (
                   <Wand2 className="h-5 w-5 text-accent-foreground" />
+                ) : mode === "pnl" ? (
+                  <Brain className="h-5 w-5 text-emerald-500" />
                 ) : (
                   <Sparkles className="h-5 w-5 text-primary" />
                 )}
@@ -464,7 +528,9 @@ export function ReportsTab() {
                   <p className="text-xs text-muted-foreground">
                     {mode === "agentic"
                       ? "Ask the assistant to act on leads, pipeline & workflows — every action needs your approval."
-                      : "Chat with your live analytics — saved to history automatically. Ask for a report to download it."}
+                      : mode === "pnl"
+                        ? "Neurolinguistic programming analysis of real chat threads — patterns, rapport and better scripts."
+                        : "Chat with your live analytics — saved to history automatically. Ask for a report to download it."}
                   </p>
                 </div>
               </div>
@@ -518,7 +584,38 @@ export function ReportsTab() {
               >
                 <Zap className="h-3.5 w-3.5" /> Agentic
               </button>
+              <button
+                onClick={() => setMode("pnl")}
+                className={`flex items-center gap-1 rounded-md px-3 py-1.5 font-medium transition-colors ${
+                  mode === "pnl"
+                    ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-sm"
+                    : "text-muted-foreground"
+                }`}
+              >
+                <Brain className="h-3.5 w-3.5" /> PNL
+              </button>
             </div>
+
+            {mode === "pnl" && (
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/30 p-3 text-xs">
+                <span className="text-muted-foreground">
+                  Reads full chat threads (every message) for neurolinguistic analysis.
+                </span>
+                <label className="ml-auto flex items-center gap-1.5">
+                  Conversations to scan
+                  <select
+                    value={pnlThreads}
+                    onChange={(e) => setPnlThreads(Number(e.target.value))}
+                    className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={75}>75</option>
+                    <option value={100}>100</option>
+                  </select>
+                </label>
+              </div>
+            )}
 
             {/* Model config */}
             {showModelCfg && (
@@ -575,11 +672,22 @@ export function ReportsTab() {
                       type="password"
                       value={customApiKey}
                       onChange={(e) => setCustomApiKey(e.target.value)}
-                      placeholder="API key"
+                      placeholder={hasSavedKey ? "•••••••••• (saved — leave blank to keep)" : "API key"}
                       className="h-8 text-xs sm:col-span-2"
                     />
                   </div>
                 )}
+                <div className="flex items-center gap-2 pt-1">
+                  <Button size="sm" className="h-8 text-xs" onClick={() => saveModel.mutate()} disabled={saveModel.isPending}>
+                    {saveModel.isPending ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Save className="mr-1 h-3.5 w-3.5" />
+                    )}
+                    Save model settings
+                  </Button>
+                  <span className="text-[11px] text-muted-foreground">Saved settings stay active until changed.</span>
+                </div>
               </div>
             )}
           </div>
@@ -592,7 +700,9 @@ export function ReportsTab() {
                 <p className="mb-3 text-sm text-muted-foreground">
                   {mode === "agentic"
                     ? "Ask the assistant to take action — it proposes each change for you to approve. Try one of these:"
-                    : "Start a conversation about your platform data. Try one of these:"}
+                    : mode === "pnl"
+                      ? "Study the language in your conversations with NLP. Try one of these:"
+                      : "Start a conversation about your platform data. Try one of these:"}
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {promptSuggestions.map((s) => (
@@ -632,7 +742,7 @@ export function ReportsTab() {
                           downloadReportAsWord(title, conversationToMarkdown(title, [messages[idx - 1], m]));
                         }}
                       >
-                        <FileText className="mr-1 h-3.5 w-3.5" /> Word
+                        <FileText className="mr-1 h-3.5 w-3.5" /> Word (.docx)
                       </Button>
                       <Button
                         size="sm"
@@ -709,7 +819,11 @@ export function ReportsTab() {
             {chat.isPending && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
-                {mode === "agentic" ? "Thinking and preparing actions…" : "Analysing your data…"}
+                {mode === "agentic"
+                  ? "Thinking and preparing actions…"
+                  : mode === "pnl"
+                    ? `Reading up to ${pnlThreads} conversation threads…`
+                    : "Analysing your data…"}
               </div>
             )}
           </div>
