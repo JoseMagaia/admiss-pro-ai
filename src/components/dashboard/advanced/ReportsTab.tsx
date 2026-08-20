@@ -30,6 +30,8 @@ import {
   X,
   Settings2,
   Zap,
+  Brain,
+  Save,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -40,6 +42,9 @@ import {
   getReportDashboard,
   generateChatReply,
   generateAgentReply,
+  generatePnlReply,
+  getReportModelSettings,
+  saveReportModelSettings,
   executeAgentAction,
   listConversations,
   saveConversation,
@@ -68,7 +73,7 @@ type SavedConversation = { id: string; title: string; messages: ChatMsg[]; updat
 
 type ProposedAction = { id: string; name: string; args: Record<string, unknown> };
 type ActionResult = { ok: boolean; msg: string };
-type AiMode = "insights" | "agentic";
+type AiMode = "insights" | "agentic" | "pnl";
 type ModelMode = "built_in" | "ai_settings" | "custom";
 
 const ACTION_LABELS: Record<string, string> = {
@@ -137,6 +142,13 @@ const BUILD_PROMPT_SUGGESTIONS = [
   "Which courses and destinations drive the most qualified leads?",
 ];
 
+const PNL_PROMPT_SUGGESTIONS = [
+  "Analyse the representational systems leads use and how well agents matched them.",
+  "Where does rapport break down in our conversations? Quote the exact turns.",
+  "Find the objection language patterns and reframe them with NLP scripts.",
+  "Which motivation direction (towards / away-from) do our best converters show?",
+];
+
 const AGENT_PROMPT_SUGGESTIONS = [
   "Move every qualified lead with no booking into onboarding.",
   "Assign the re-engagement workflow to leads inactive over a week.",
@@ -201,6 +213,9 @@ export function ReportsTab() {
   const dashFn = useServerFn(getReportDashboard);
   const chatFn = useServerFn(generateChatReply);
   const agentFn = useServerFn(generateAgentReply);
+  const pnlFn = useServerFn(generatePnlReply);
+  const getModelFn = useServerFn(getReportModelSettings);
+  const saveModelFn = useServerFn(saveReportModelSettings);
   const execFn = useServerFn(executeAgentAction);
   const listFn = useServerFn(listConversations);
   const saveFn = useServerFn(saveConversation);
@@ -235,6 +250,7 @@ export function ReportsTab() {
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customModel, setCustomModel] = useState("");
   const [customApiKey, setCustomApiKey] = useState("");
+  const [pnlThreads, setPnlThreads] = useState(50);
 
   const buildModelConfig = () => {
     if (modelMode === "custom")
@@ -249,7 +265,8 @@ export function ReportsTab() {
     return { mode: "built_in" as const, model: builtInModel || null };
   };
 
-  const promptSuggestions = mode === "agentic" ? AGENT_PROMPT_SUGGESTIONS : BUILD_PROMPT_SUGGESTIONS;
+  const promptSuggestions =
+    mode === "agentic" ? AGENT_PROMPT_SUGGESTIONS : mode === "pnl" ? PNL_PROMPT_SUGGESTIONS : BUILD_PROMPT_SUGGESTIONS;
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const threadRef = useRef<HTMLDivElement>(null);
@@ -270,10 +287,10 @@ export function ReportsTab() {
 
   const chat = useMutation({
     mutationFn: (msgs: ChatMsg[]) => {
-      const model = buildModelConfig();
-      return mode === "agentic"
-        ? agentFn({ data: { messages: msgs, days, model } })
-        : chatFn({ data: { messages: msgs, days, model } });
+      // Model settings are persisted server-side and stay active until changed.
+      if (mode === "agentic") return agentFn({ data: { messages: msgs, days } });
+      if (mode === "pnl") return pnlFn({ data: { messages: msgs, days, threads: pnlThreads } });
+      return chatFn({ data: { messages: msgs, days } });
     },
     onSuccess: async (r, variables) => {
       const res = r as { reply: string; error: string | null; actions?: ProposedAction[] };
