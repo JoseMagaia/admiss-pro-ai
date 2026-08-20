@@ -135,16 +135,233 @@ function reportDocument(title: string, bodyHtml: string): string {
 <body><h1>${title}</h1><div class="report-meta">Generated ${date}</div>${bodyHtml}</body></html>`;
 }
 
-export function downloadReportAsWord(title: string, markdown: string) {
-  const html = reportDocument(title, markdownToHtml(markdown));
-  const blob = new Blob([html], { type: "application/msword" });
+// ---------------------------------------------------------------------------
+// Word export — real Office Open XML (.docx), generated in the browser.
+// ---------------------------------------------------------------------------
+
+type Docx = typeof import("docx");
+
+// Split a markdown line into docx TextRuns honouring **bold**, *italic* and `code`.
+function runsFromInline(d: Docx, text: string, base?: { bold?: boolean; size?: number }) {
+  const runs: InstanceType<Docx["TextRun"]>[] = [];
+  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\((?:https?:[^)]+)\))/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  const push = (t: string, extra: { bold?: boolean; italics?: boolean; font?: string } = {}) => {
+    if (!t) return;
+    runs.push(new d.TextRun({ text: t, font: "Calibri", size: base?.size ?? 22, bold: base?.bold, ...extra }));
+  };
+  while ((m = re.exec(text))) {
+    push(text.slice(last, m.index));
+    const tok = m[0];
+    if (tok.startsWith("**")) push(tok.slice(2, -2), { bold: true });
+    else if (tok.startsWith("`")) push(tok.slice(1, -1), { font: "Consolas" });
+    else if (tok.startsWith("[")) push(tok.slice(1, tok.indexOf("]")));
+    else push(tok.slice(1, -1), { italics: true });
+    last = m.index + tok.length;
+  }
+  push(text.slice(last));
+  if (runs.length === 0) push(" ");
+  return runs;
+}
+
+function docxBlocks(d: Docx, md: string) {
+  const lines = (md ?? "").replace(/\r\n/g, "\n").split("\n");
+  const blocks: (InstanceType<Docx["Paragraph"]> | InstanceType<Docx["Table"]>)[] = [];
+  const HEADING_SIZES = [32, 28, 26, 24, 22, 22];
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      i++;
+      continue;
+    }
+
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+      blocks.push(
+        new d.Paragraph({
+          text: "",
+          border: { bottom: { style: d.BorderStyle.SINGLE, size: 6, color: "D9D9D9", space: 1 } },
+        }),
+      );
+      i++;
+      continue;
+    }
+
+    const h = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      const level = h[1].length;
+      blocks.push(
+        new d.Paragraph({
+          spacing: { before: 240, after: 120 },
+          children: runsFromInline(d, h[2], { bold: true, size: HEADING_SIZES[level - 1] }),
+        }),
+      );
+      i++;
+      continue;
+    }
+
+    // table
+    if (
+      trimmed.startsWith("|") &&
+      i + 1 < lines.length &&
+      /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) &&
+      lines[i + 1].includes("-")
+    ) {
+      const splitRow = (r: string) =>
+        r.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+      const headers = splitRow(trimmed);
+      i += 2;
+      const bodyRows: string[][] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        bodyRows.push(splitRow(lines[i].trim()));
+        i++;
+      }
+      const cols = Math.max(headers.length, ...bodyRows.map((r) => r.length), 1);
+      const tableWidth = 9360;
+      const colWidth = Math.floor(tableWidth / cols);
+      const columnWidths = Array.from({ length: cols }, () => colWidth);
+      const border = { style: d.BorderStyle.SINGLE, size: 1, color: "CCCCCC" };
+      const borders = { top: border, bottom: border, left: border, right: border };
+      const makeRow = (cells: string[], head: boolean) =>
+        new d.TableRow({
+          children: Array.from({ length: cols }, (_, c) => {
+            return new d.TableCell({
+              borders,
+              width: { size: colWidth, type: d.WidthType.DXA },
+              margins: { top: 80, bottom: 80, left: 120, right: 120 },
+              ...(head ? { shading: { fill: "EFF6FF", type: d.ShadingType.CLEAR, color: "auto" } } : {}),
+              children: [
+                new d.Paragraph({ children: runsFromInline(d, cells[c] ?? "", { bold: head, size: 20 }) }),
+              ],
+            });
+          }),
+        });
+      blocks.push(
+        new d.Table({
+          width: { size: tableWidth, type: d.WidthType.DXA },
+          columnWidths,
+          rows: [makeRow(headers, true), ...bodyRows.map((r) => makeRow(r, false))],
+        }),
+      );
+      continue;
+    }
+
+    // unordered list
+    if (/^[-*+]\s+/.test(trimmed)) {
+      while (i < lines.length && /^[-*+]\s+/.test(lines[i].trim())) {
+        blocks.push(
+          new d.Paragraph({
+            numbering: { reference: "report-bullets", level: 0 },
+            children: runsFromInline(d, lines[i].trim().replace(/^[-*+]\s+/, "")),
+          }),
+        );
+        i++;
+      }
+      continue;
+    }
+
+    // ordered list
+    if (/^\d+\.\s+/.test(trimmed)) {
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i].trim())) {
+        blocks.push(
+          new d.Paragraph({
+            numbering: { reference: "report-numbers", level: 0 },
+            children: runsFromInline(d, lines[i].trim().replace(/^\d+\.\s+/, "")),
+          }),
+        );
+        i++;
+      }
+      continue;
+    }
+
+    // paragraph (collect consecutive text lines)
+    const para: string[] = [];
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|[-*+]\s|\d+\.\s|\|)/.test(lines[i].trim())) {
+      para.push(lines[i].trim());
+      i++;
+    }
+    blocks.push(
+      new d.Paragraph({ spacing: { after: 120 }, children: runsFromInline(d, para.join(" ")) }),
+    );
+  }
+
+  return blocks;
+}
+
+export async function downloadReportAsWord(title: string, markdown: string) {
+  const d = await import("docx");
+  const doc = new d.Document({
+    numbering: {
+      config: [
+        {
+          reference: "report-bullets",
+          levels: [
+            {
+              level: 0,
+              format: d.LevelFormat.BULLET,
+              text: "\u2022",
+              alignment: d.AlignmentType.LEFT,
+              style: { paragraph: { indent: { left: 720, hanging: 360 } } },
+            },
+          ],
+        },
+        {
+          reference: "report-numbers",
+          levels: [
+            {
+              level: 0,
+              format: d.LevelFormat.DECIMAL,
+              text: "%1.",
+              alignment: d.AlignmentType.LEFT,
+              style: { paragraph: { indent: { left: 720, hanging: 360 } } },
+            },
+          ],
+        },
+      ],
+    },
+    sections: [
+      {
+        properties: {
+          page: {
+            size: { width: 12240, height: 15840 },
+            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          },
+        },
+        children: [
+          new d.Paragraph({
+            spacing: { after: 80 },
+            children: [new d.TextRun({ text: title, bold: true, size: 36, font: "Calibri" })],
+          }),
+          new d.Paragraph({
+            spacing: { after: 240 },
+            children: [
+              new d.TextRun({
+                text: `Generated ${new Date().toLocaleString()}`,
+                size: 18,
+                color: "64748B",
+                font: "Calibri",
+              }),
+            ],
+          }),
+          ...docxBlocks(d, markdown),
+        ],
+      },
+    ],
+  });
+
+  const blob = await d.Packer.toBlob(doc);
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.doc`;
+  a.download = `${title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.docx`;
   a.click();
   URL.revokeObjectURL(url);
 }
+
 
 export function downloadReportAsPdf(title: string, markdown: string) {
   const html = reportDocument(title, markdownToHtml(markdown));
