@@ -691,13 +691,14 @@ export const generateChatReply = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    let user;
     try {
-      await guardAdvanced();
+      user = await guardAdvanced();
     } catch (e) {
       return { reply: "", error: (e as Error).message };
     }
 
-    const target = await resolveAiTarget(data.model);
+    const target = await resolveTargetForUser(user.userId, data.model);
     if ("error" in target) return { reply: "", error: target.error };
 
     // Use the manager's latest question as the evidence query so the snapshot
@@ -1075,13 +1076,14 @@ export const generateAgentReply = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data }) => {
+    let user;
     try {
-      await guardAdvanced();
+      user = await guardAdvanced();
     } catch (e) {
       return { reply: "", actions: [], error: (e as Error).message };
     }
 
-    const target = await resolveAiTarget(data.model);
+    const target = await resolveTargetForUser(user.userId, data.model);
     if ("error" in target) return { reply: "", actions: [], error: target.error };
 
     const analytics = await buildAnalytics(data.days ?? 30, { includeContent: true });
