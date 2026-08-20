@@ -505,6 +505,111 @@ async function resolveAiTarget(cfg?: ModelConfig): Promise<AiTarget | { error: s
   };
 }
 
+/* ============ PERSISTED MODEL SETTINGS (per user) ============ */
+
+type StoredModelRow = {
+  mode: string | null;
+  provider: string | null;
+  base_url: string | null;
+  model: string | null;
+  api_key: string | null;
+};
+
+async function loadStoredModel(userId: string): Promise<StoredModelRow | null> {
+  const db = await admin();
+  const { data } = await db
+    .from("report_ai_settings")
+    .select("mode, provider, base_url, model, api_key")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return (data as StoredModelRow | null) ?? null;
+}
+
+// Resolve the AI target for a user: an explicit per-request config wins, but
+// when it is absent (the normal case now) we use the saved settings so the
+// chosen provider/model/API key stays active until the user changes it.
+async function resolveTargetForUser(userId: string, cfg?: ModelConfig) {
+  if (cfg && cfg.mode) {
+    if (cfg.mode === "custom" && !cfg.apiKey) {
+      const stored = await loadStoredModel(userId);
+      if (stored?.api_key) return resolveAiTarget({ ...cfg, apiKey: stored.api_key });
+    }
+    return resolveAiTarget(cfg);
+  }
+  const stored = await loadStoredModel(userId);
+  if (!stored) return resolveAiTarget(undefined);
+  return resolveAiTarget({
+    mode: (stored.mode as "built_in" | "ai_settings" | "custom") ?? "built_in",
+    provider: stored.provider,
+    baseUrl: stored.base_url,
+    model: stored.model,
+    apiKey: stored.api_key,
+  });
+}
+
+export const getReportModelSettings = createServerFn({ method: "GET" }).handler(async () => {
+  let user;
+  try {
+    user = await guardAdvanced();
+  } catch (e) {
+    return { settings: null, error: (e as Error).message };
+  }
+  const stored = await loadStoredModel(user.userId);
+  return {
+    settings: {
+      mode: (stored?.mode as "built_in" | "ai_settings" | "custom") ?? "built_in",
+      provider: stored?.provider ?? "",
+      baseUrl: stored?.base_url ?? "",
+      model: stored?.model ?? "",
+      hasApiKey: Boolean(stored?.api_key),
+    },
+    error: null,
+  };
+});
+
+export const saveReportModelSettings = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        mode: z.enum(["built_in", "ai_settings", "custom"]),
+        provider: z.string().max(40).nullable().optional(),
+        baseUrl: z.string().max(500).nullable().optional(),
+        model: z.string().max(160).nullable().optional(),
+        apiKey: z.string().max(2000).nullable().optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    let user;
+    try {
+      user = await guardAdvanced();
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+    const stored = await loadStoredModel(user.userId);
+    // Blank API key keeps the previously saved secret.
+    const apiKey = data.apiKey && data.apiKey.length > 0 ? data.apiKey : stored?.api_key ?? null;
+    if (data.mode === "custom" && (!data.baseUrl || !data.model || !apiKey)) {
+      return { ok: false, error: "Custom provider needs a base URL, model and API key." };
+    }
+    const db = await admin();
+    const { error } = await db.from("report_ai_settings").upsert(
+      {
+        user_id: user.userId,
+        mode: data.mode,
+        provider: data.provider ?? null,
+        base_url: data.baseUrl ?? null,
+        model: data.model ?? null,
+        api_key: apiKey,
+        updated_at: new Date().toISOString(),
+      } as never,
+      { onConflict: "user_id" },
+    );
+    return { ok: !error, error: error?.message ?? null };
+  });
+
+
+
 
 
 
