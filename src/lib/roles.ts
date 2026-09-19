@@ -36,6 +36,7 @@ export const SETTINGS_ACCESS: Record<string, AppRole[]> = {
   spaces: ["super_admin"], // Spaces (multi-tenant sub-accounts)
   ticketing: ["super_admin", "admin"], // Ticket queues, tags and broadcasts
   audio: ["super_admin"], // Audio delivery format (mp3 file, voice note…)
+  calcom: ["super_admin"], // Cal.com scheduling (AI books and confirms meetings)
   mcp: ["super_admin"], // Remote MCP server documentation & endpoints
 };
 
