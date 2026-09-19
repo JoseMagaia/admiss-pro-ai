@@ -165,8 +165,11 @@ export type Database = {
           calendar_id: string | null
           created_at: string
           duration_minutes: number
+          external_booking_uid: string | null
+          external_provider: string | null
           id: string
           lead_name: string | null
+          meeting_url: string | null
           notes: string | null
           phone_number: string | null
           space_id: string | null
@@ -179,8 +182,11 @@ export type Database = {
           calendar_id?: string | null
           created_at?: string
           duration_minutes?: number
+          external_booking_uid?: string | null
+          external_provider?: string | null
           id?: string
           lead_name?: string | null
+          meeting_url?: string | null
           notes?: string | null
           phone_number?: string | null
           space_id?: string | null
@@ -193,8 +199,11 @@ export type Database = {
           calendar_id?: string | null
           created_at?: string
           duration_minutes?: number
+          external_booking_uid?: string | null
+          external_provider?: string | null
           id?: string
           lead_name?: string | null
+          meeting_url?: string | null
           notes?: string | null
           phone_number?: string | null
           space_id?: string | null
@@ -896,6 +905,11 @@ export type Database = {
           audio_delivery_format: string
           brand_name: string | null
           brand_tagline: string | null
+          calcom_api_key: string | null
+          calcom_enabled: boolean
+          calcom_event_type_id: string | null
+          calcom_notify_queue_id: string | null
+          calcom_timezone: string | null
           chatwoot_account_id: string | null
           chatwoot_api_token: string | null
           chatwoot_inbox_id: string | null
@@ -920,6 +934,11 @@ export type Database = {
           audio_delivery_format?: string
           brand_name?: string | null
           brand_tagline?: string | null
+          calcom_api_key?: string | null
+          calcom_enabled?: boolean
+          calcom_event_type_id?: string | null
+          calcom_notify_queue_id?: string | null
+          calcom_timezone?: string | null
           chatwoot_account_id?: string | null
           chatwoot_api_token?: string | null
           chatwoot_inbox_id?: string | null
@@ -944,6 +963,11 @@ export type Database = {
           audio_delivery_format?: string
           brand_name?: string | null
           brand_tagline?: string | null
+          calcom_api_key?: string | null
+          calcom_enabled?: boolean
+          calcom_event_type_id?: string | null
+          calcom_notify_queue_id?: string | null
+          calcom_timezone?: string | null
           chatwoot_account_id?: string | null
           chatwoot_api_token?: string | null
           chatwoot_inbox_id?: string | null
