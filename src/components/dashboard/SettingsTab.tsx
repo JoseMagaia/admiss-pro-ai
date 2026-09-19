@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes, Ticket, Server, Volume2 } from "lucide-react";
+import { Building2, BookOpen, Bot, Variable, Webhook, FlaskConical, Plug, Cpu, UserCog, Network, Boxes, Ticket, Server, Volume2, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CompanySettingsForm, ProgramSettingsForm, ChatwootSettingsForm } from "./settings/SettingsForms";
 import { AiPromptEditor } from "./settings/AiPromptEditor";
@@ -13,6 +13,7 @@ import { SpacesManager } from "./settings/SpacesManager";
 import { TicketSettings } from "./settings/TicketSettings";
 import { McpServerDocs } from "./settings/McpServerDocs";
 import { AudioDeliverySettings } from "./settings/AudioDeliverySettings";
+import { CalcomSettings } from "./settings/CalcomSettings";
 import { canAccessSettingsSection, type AppRole } from "@/lib/roles";
 
 const SECTIONS = [
@@ -26,6 +27,7 @@ const SECTIONS = [
   { id: "actions", label: "HTTP Actions", icon: Webhook },
   { id: "ticketing", label: "Ticketing", icon: Ticket },
   { id: "audio", label: "Audio", icon: Volume2 },
+  { id: "calcom", label: "Cal.com", icon: CalendarClock },
   { id: "lab", label: "Prompt Lab", icon: FlaskConical },
   { id: "users", label: "Users", icon: UserCog },
   { id: "spaces", label: "Spaces", icon: Boxes },
@@ -75,6 +77,7 @@ export function SettingsTab({ role }: { role: AppRole | null }) {
         {activeSection === "actions" && <HttpActionsManager />}
         {activeSection === "ticketing" && <TicketSettings />}
         {activeSection === "audio" && <AudioDeliverySettings />}
+        {activeSection === "calcom" && <CalcomSettings />}
         {activeSection === "lab" && <PromptTestingLab />}
         {activeSection === "users" && <UserManagement />}
         {activeSection === "spaces" && <SpacesManager />}

@@ -356,9 +356,27 @@ async function loadBookingCalendar(db: any): Promise<{
 
 /**
  * A compact list of genuinely free slots, handed to the AI so it only ever
- * offers times the calendar can actually honour.
+ * offers times the calendar can actually honour. When Cal.com is connected its
+ * live availability wins over the in-app calendar.
  */
 export async function buildAvailabilityBrief(db: any, maxSlots = 12): Promise<string | null> {
+  const { loadCalcomConfig, fetchCalcomSlots } = await import("./calcom.server");
+  const cfg = await loadCalcomConfig(db);
+  if (cfg) {
+    const today = dateKeyInZone(new Date(), cfg.timezone);
+    const calSlots = await fetchCalcomSlots(cfg, today, addDays(today, 14), maxSlots);
+    if (calSlots.length > 0) {
+      const grouped = new Map<string, string[]>();
+      for (const s of calSlots) {
+        if (!grouped.has(s.date)) grouped.set(s.date, []);
+        grouped.get(s.date)!.push(`${s.label} (${s.start})`);
+      }
+      return Array.from(grouped.entries())
+        .map(([d, times]) => `- ${d}: ${times.join(", ")}`)
+        .join("\n");
+    }
+  }
+
   const { calendar, rules, exceptions, busy } = await loadBookingCalendar(db);
   if (!calendar) return null;
   const today = dateKeyInZone(new Date(), calendar.timezone || "UTC");
@@ -382,10 +400,87 @@ export async function buildAvailabilityBrief(db: any, maxSlots = 12): Promise<st
     .join("\n");
 }
 
+/**
+ * A meeting is confirmed: hand the conversation to the team by escalating its
+ * ticket to the configured queue and notifying whoever staffs it.
+ */
+async function forwardBookingToTeam(
+  db: any,
+  params: {
+    phone: string;
+    leadName: string | null;
+    whenIso: string;
+    meetingUrl?: string | null;
+    queueId?: string | null;
+  },
+): Promise<void> {
+  try {
+    const ticketId = await ensureConversationTicket({
+      phone: params.phone,
+      leadName: params.leadName,
+      firstMessage: `Meeting booked for ${params.whenIso}`,
+    });
+
+    const { data: queueRows } = await db
+      .from("ticket_queues")
+      .select("id, name, is_ai_default")
+      .order("position", { ascending: true });
+    const queues = (queueRows ?? []) as Array<{ id: string; name: string; is_ai_default: boolean | null }>;
+    const routed =
+      (params.queueId ? queues.find((q) => q.id === params.queueId) : null) ??
+      queues.find((q) => q.is_ai_default) ??
+      null;
+
+    let members: string[] = [];
+    if (routed) {
+      const { data: rows } = await db.from("ticket_queue_members").select("user_id").eq("queue_id", routed.id);
+      members = ((rows ?? []) as Array<{ user_id: string }>).map((m) => m.user_id);
+    }
+
+    const body = `Meeting confirmed for ${params.whenIso}${params.meetingUrl ? ` — ${params.meetingUrl}` : ""}`;
+
+    if (ticketId) {
+      await db
+        .from("tickets")
+        .update({
+          status: "open",
+          priority: "high",
+          subject: `Meeting booked — ${params.leadName ?? params.phone}`,
+          ...(routed ? { queue_id: routed.id } : {}),
+          ...(members[0] ? { assigned_user_id: members[0] } : {}),
+        } as never)
+        .eq("id", ticketId);
+      await db.from("ticket_events").insert({
+        ticket_id: ticketId,
+        actor_label: "AI Agent",
+        kind: "escalated",
+        detail: routed ? `Booked and routed to ${routed.name}. ${body}` : body,
+      } as never);
+    }
+
+    const title = `Meeting booked with ${params.leadName ?? params.phone}`;
+    const rows =
+      members.length > 0
+        ? members.map((user_id) => ({
+            user_id,
+            title,
+            body,
+            kind: "ticket",
+            ticket_id: ticketId,
+            link_phone: params.phone,
+          }))
+        : [{ user_id: null, title, body, kind: "ticket", ticket_id: ticketId, link_phone: params.phone }];
+    await db.from("notifications").insert(rows as never);
+  } catch (e) {
+    console.error("Failed to forward booking to the team:", e);
+  }
+}
+
 // Create or update a lead's "booking" appointment, writing the agreed time and
-// preserving its status (defaults to pending/confirmation). When a booking
-// calendar exists the time is validated against it, so a slot that is closed
-// or already taken is stored as pending instead of being silently confirmed.
+// preserving its status (defaults to pending/confirmation). When Cal.com is
+// connected the slot is booked there for real; otherwise the time is validated
+// against the in-app calendar, so a slot that is closed or already taken is
+// stored as pending instead of being silently confirmed.
 async function upsertLeadBooking(
   db: any,
   params: { phone: string; leadName: string | null; date: string | null; status: string; notes?: string },
@@ -397,8 +492,41 @@ async function upsertLeadBooking(
   let calendarId: string | null = null;
   let durationMinutes = 30;
   let notes = params.notes ?? "Set by AI.";
+  let externalProvider: string | null = null;
+  let externalUid: string | null = null;
+  let meetingUrl: string | null = null;
+  let calcomQueueId: string | null = null;
+  let bookedNow = false;
 
-  if (params.date) {
+  const { loadCalcomConfig, isCalcomSlotFree, createCalcomBooking } = await import("./calcom.server");
+  const calcom = params.date ? await loadCalcomConfig(db) : null;
+
+  if (params.date && calcom) {
+    calcomQueueId = calcom.notifyQueueId;
+    const free = await isCalcomSlotFree(calcom, params.date);
+    if (!free) {
+      status = "pending";
+      notes = `${notes} (That time is no longer free on Cal.com — needs review.)`;
+    } else {
+      const booking = await createCalcomBooking(calcom, {
+        startIso: params.date,
+        name: params.leadName ?? "Lead",
+        phone: params.phone,
+        notes: params.notes ?? null,
+      });
+      if (booking.ok) {
+        status = "confirmed";
+        externalProvider = "calcom";
+        externalUid = booking.uid ?? null;
+        meetingUrl = booking.meetingUrl ?? null;
+        bookedNow = true;
+        notes = `${notes} (Booked on Cal.com.)`;
+      } else {
+        status = "pending";
+        notes = `${notes} (Cal.com booking failed — needs review.)`;
+      }
+    }
+  } else if (params.date) {
     const { calendar, rules, exceptions, busy } = await loadBookingCalendar(db);
     if (calendar) {
       calendarId = calendar.id;
@@ -428,16 +556,34 @@ async function upsertLeadBooking(
       calendar_id: calendarId,
       duration_minutes: durationMinutes,
       notes,
+      external_provider: externalProvider,
+      external_booking_uid: externalUid,
+      meeting_url: meetingUrl,
     });
   } else {
-    const update: Record<string, unknown> = { status };
+    const update: Record<string, unknown> = { status, notes };
     // Only overwrite the date when the AI actually captured one.
     if (params.date) {
       update.appointment_date = params.date;
       update.duration_minutes = durationMinutes;
       if (calendarId) update.calendar_id = calendarId;
+      if (externalProvider) {
+        update.external_provider = externalProvider;
+        update.external_booking_uid = externalUid;
+        update.meeting_url = meetingUrl;
+      }
     }
     await db.from("appointments").update(update as never).eq("id", existing.id);
+  }
+
+  if (bookedNow && params.date) {
+    await forwardBookingToTeam(db, {
+      phone: params.phone,
+      leadName: params.leadName,
+      whenIso: params.date,
+      meetingUrl,
+      queueId: calcomQueueId,
+    });
   }
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
