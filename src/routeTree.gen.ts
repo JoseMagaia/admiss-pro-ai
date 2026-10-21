@@ -9,38 +9,32 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
-import { Route as McpRouteImport } from './routes/mcp'
-import { Route as FeaturesRouteImport } from './routes/features'
-import { Route as AuthRouteImport } from './routes/auth'
-import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
-import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as FeaturesRouteImport } from './routes/features'
+import { Route as McpRouteImport } from './routes/mcp'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as Char91DotmcpChar93ListToolsRouteImport } from './routes/[.mcp]/list-tools'
-import { Route as ApiPublicWhatsappWebhookRouteImport } from './routes/api/public/whatsapp-webhook'
-import { Route as ApiPublicProcessWorkflowsRouteImport } from './routes/api/public/process-workflows'
-import { Route as ApiPublicProcessScheduledMessagesRouteImport } from './routes/api/public/process-scheduled-messages'
-import { Route as ApiPublicProcessCampaignsRouteImport } from './routes/api/public/process-campaigns'
-import { Route as ApiPublicEvolutionWebhookRouteImport } from './routes/api/public/evolution-webhook'
-import { Route as ApiPublicChatwootWebhookRouteImport } from './routes/api/public/chatwoot-webhook'
-import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
+import { Route as Char91DotwellKnownChar93OauthProtectedResourceRouteImport } from './routes/[.well-known]/oauth-protected-resource'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as DotlovableOauthConsentRouteImport } from './routes/[.]lovable.oauth.consent'
+import { Route as Char91DotmcpChar93InvokeToolToolRouteImport } from './routes/[.mcp]/invoke-tool/$tool'
+import { Route as ApiPublicChatwootWebhookRouteImport } from './routes/api/public/chatwoot-webhook'
+import { Route as ApiPublicEvolutionWebhookRouteImport } from './routes/api/public/evolution-webhook'
+import { Route as ApiPublicProcessCampaignsRouteImport } from './routes/api/public/process-campaigns'
+import { Route as ApiPublicProcessScheduledMessagesRouteImport } from './routes/api/public/process-scheduled-messages'
+import { Route as ApiPublicProcessWorkflowsRouteImport } from './routes/api/public/process-workflows'
+import { Route as ApiPublicWhatsappWebhookRouteImport } from './routes/api/public/whatsapp-webhook'
 import { Route as ApiPublicMediaSplatRouteImport } from './routes/api/public/media/$'
 
-const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
-  id: '/sitemap.xml',
-  path: '/sitemap.xml',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const McpRoute = McpRouteImport.update({
-  id: '/mcp',
-  path: '/mcp',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const FeaturesRoute = FeaturesRouteImport.update({
-  id: '/features',
-  path: '/features',
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -48,60 +42,47 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
-  id: '/_authenticated',
+const FeaturesRoute = FeaturesRouteImport.update({
+  id: '/features',
+  path: '/features',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => AuthenticatedRouteRoute,
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
 } as any)
-const Char91DotwellKnownChar93OauthProtectedResourceRoute =
-  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
-    id: '/.well-known/oauth-protected-resource',
-    path: '/.well-known/oauth-protected-resource',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const Char91DotmcpChar93ListToolsRoute =
   Char91DotmcpChar93ListToolsRouteImport.update({
     id: '/.mcp/list-tools',
     path: '/.mcp/list-tools',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicWhatsappWebhookRoute =
-  ApiPublicWhatsappWebhookRouteImport.update({
-    id: '/api/public/whatsapp-webhook',
-    path: '/api/public/whatsapp-webhook',
+const Char91DotwellKnownChar93OauthProtectedResourceRoute =
+  Char91DotwellKnownChar93OauthProtectedResourceRouteImport.update({
+    id: '/.well-known/oauth-protected-resource',
+    path: '/.well-known/oauth-protected-resource',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicProcessWorkflowsRoute =
-  ApiPublicProcessWorkflowsRouteImport.update({
-    id: '/api/public/process-workflows',
-    path: '/api/public/process-workflows',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicProcessScheduledMessagesRoute =
-  ApiPublicProcessScheduledMessagesRouteImport.update({
-    id: '/api/public/process-scheduled-messages',
-    path: '/api/public/process-scheduled-messages',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicProcessCampaignsRoute =
-  ApiPublicProcessCampaignsRouteImport.update({
-    id: '/api/public/process-campaigns',
-    path: '/api/public/process-campaigns',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicEvolutionWebhookRoute =
-  ApiPublicEvolutionWebhookRouteImport.update({
-    id: '/api/public/evolution-webhook',
-    path: '/api/public/evolution-webhook',
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
+  id: '/.lovable/oauth/consent',
+  path: '/.lovable/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Char91DotmcpChar93InvokeToolToolRoute =
+  Char91DotmcpChar93InvokeToolToolRouteImport.update({
+    id: '/.mcp/invoke-tool/$tool',
+    path: '/.mcp/invoke-tool/$tool',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiPublicChatwootWebhookRoute =
@@ -110,17 +91,36 @@ const ApiPublicChatwootWebhookRoute =
     path: '/api/public/chatwoot-webhook',
     getParentRoute: () => rootRouteImport,
   } as any)
-const Char91DotmcpChar93InvokeToolToolRoute =
-  Char91DotmcpChar93InvokeToolToolRouteImport.update({
-    id: '/.mcp/invoke-tool/$tool',
-    path: '/.mcp/invoke-tool/$tool',
+const ApiPublicEvolutionWebhookRoute =
+  ApiPublicEvolutionWebhookRouteImport.update({
+    id: '/api/public/evolution-webhook',
+    path: '/api/public/evolution-webhook',
     getParentRoute: () => rootRouteImport,
   } as any)
-const DotlovableOauthConsentRoute = DotlovableOauthConsentRouteImport.update({
-  id: '/.lovable/oauth/consent',
-  path: '/.lovable/oauth/consent',
-  getParentRoute: () => rootRouteImport,
-} as any)
+const ApiPublicProcessCampaignsRoute =
+  ApiPublicProcessCampaignsRouteImport.update({
+    id: '/api/public/process-campaigns',
+    path: '/api/public/process-campaigns',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicProcessScheduledMessagesRoute =
+  ApiPublicProcessScheduledMessagesRouteImport.update({
+    id: '/api/public/process-scheduled-messages',
+    path: '/api/public/process-scheduled-messages',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicProcessWorkflowsRoute =
+  ApiPublicProcessWorkflowsRouteImport.update({
+    id: '/api/public/process-workflows',
+    path: '/api/public/process-workflows',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicWhatsappWebhookRoute =
+  ApiPublicWhatsappWebhookRouteImport.update({
+    id: '/api/public/whatsapp-webhook',
+    path: '/api/public/whatsapp-webhook',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicMediaSplatRoute = ApiPublicMediaSplatRouteImport.update({
   id: '/api/public/media/$',
   path: '/api/public/media/$',
@@ -269,32 +269,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/sitemap.xml': {
-      id: '/sitemap.xml'
-      path: '/sitemap.xml'
-      fullPath: '/sitemap.xml'
-      preLoaderRoute: typeof SitemapDotxmlRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/mcp': {
-      id: '/mcp'
-      path: '/mcp'
-      fullPath: '/mcp'
-      preLoaderRoute: typeof McpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/features': {
-      id: '/features'
-      path: '/features'
-      fullPath: '/features'
-      preLoaderRoute: typeof FeaturesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated': {
@@ -304,25 +283,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/dashboard': {
-      id: '/_authenticated/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
+    '/features': {
+      id: '/features'
+      path: '/features'
+      fullPath: '/features'
+      preLoaderRoute: typeof FeaturesRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/.well-known/oauth-protected-resource': {
-      id: '/.well-known/oauth-protected-resource'
-      path: '/.well-known/oauth-protected-resource'
-      fullPath: '/.well-known/oauth-protected-resource'
-      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.mcp/list-tools': {
@@ -332,46 +318,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotmcpChar93ListToolsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/whatsapp-webhook': {
-      id: '/api/public/whatsapp-webhook'
-      path: '/api/public/whatsapp-webhook'
-      fullPath: '/api/public/whatsapp-webhook'
-      preLoaderRoute: typeof ApiPublicWhatsappWebhookRouteImport
+    '/.well-known/oauth-protected-resource': {
+      id: '/.well-known/oauth-protected-resource'
+      path: '/.well-known/oauth-protected-resource'
+      fullPath: '/.well-known/oauth-protected-resource'
+      preLoaderRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/process-workflows': {
-      id: '/api/public/process-workflows'
-      path: '/api/public/process-workflows'
-      fullPath: '/api/public/process-workflows'
-      preLoaderRoute: typeof ApiPublicProcessWorkflowsRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/api/public/process-scheduled-messages': {
-      id: '/api/public/process-scheduled-messages'
-      path: '/api/public/process-scheduled-messages'
-      fullPath: '/api/public/process-scheduled-messages'
-      preLoaderRoute: typeof ApiPublicProcessScheduledMessagesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/process-campaigns': {
-      id: '/api/public/process-campaigns'
-      path: '/api/public/process-campaigns'
-      fullPath: '/api/public/process-campaigns'
-      preLoaderRoute: typeof ApiPublicProcessCampaignsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/evolution-webhook': {
-      id: '/api/public/evolution-webhook'
-      path: '/api/public/evolution-webhook'
-      fullPath: '/api/public/evolution-webhook'
-      preLoaderRoute: typeof ApiPublicEvolutionWebhookRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/chatwoot-webhook': {
-      id: '/api/public/chatwoot-webhook'
-      path: '/api/public/chatwoot-webhook'
-      fullPath: '/api/public/chatwoot-webhook'
-      preLoaderRoute: typeof ApiPublicChatwootWebhookRouteImport
+    '/.lovable/oauth/consent': {
+      id: '/.lovable/oauth/consent'
+      path: '/.lovable/oauth/consent'
+      fullPath: '/.lovable/oauth/consent'
+      preLoaderRoute: typeof DotlovableOauthConsentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.mcp/invoke-tool/$tool': {
@@ -381,11 +346,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof Char91DotmcpChar93InvokeToolToolRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/.lovable/oauth/consent': {
-      id: '/.lovable/oauth/consent'
-      path: '/.lovable/oauth/consent'
-      fullPath: '/.lovable/oauth/consent'
-      preLoaderRoute: typeof DotlovableOauthConsentRouteImport
+    '/api/public/chatwoot-webhook': {
+      id: '/api/public/chatwoot-webhook'
+      path: '/api/public/chatwoot-webhook'
+      fullPath: '/api/public/chatwoot-webhook'
+      preLoaderRoute: typeof ApiPublicChatwootWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/evolution-webhook': {
+      id: '/api/public/evolution-webhook'
+      path: '/api/public/evolution-webhook'
+      fullPath: '/api/public/evolution-webhook'
+      preLoaderRoute: typeof ApiPublicEvolutionWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/process-campaigns': {
+      id: '/api/public/process-campaigns'
+      path: '/api/public/process-campaigns'
+      fullPath: '/api/public/process-campaigns'
+      preLoaderRoute: typeof ApiPublicProcessCampaignsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/process-scheduled-messages': {
+      id: '/api/public/process-scheduled-messages'
+      path: '/api/public/process-scheduled-messages'
+      fullPath: '/api/public/process-scheduled-messages'
+      preLoaderRoute: typeof ApiPublicProcessScheduledMessagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/process-workflows': {
+      id: '/api/public/process-workflows'
+      path: '/api/public/process-workflows'
+      fullPath: '/api/public/process-workflows'
+      preLoaderRoute: typeof ApiPublicProcessWorkflowsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/whatsapp-webhook': {
+      id: '/api/public/whatsapp-webhook'
+      path: '/api/public/whatsapp-webhook'
+      fullPath: '/api/public/whatsapp-webhook'
+      preLoaderRoute: typeof ApiPublicWhatsappWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/media/$': {
