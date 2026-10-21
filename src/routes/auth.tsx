@@ -42,10 +42,26 @@ function AuthPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    let signInError: { message?: string; status?: number; code?: string } | null = null;
+    try {
+      const res = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+      signInError = res.error;
+    } catch (err) {
+      signInError = { message: err instanceof Error ? err.message : String(err), status: 0 };
+    }
     setLoading(false);
     if (signInError) {
-      setError("Invalid email or password.");
+      const status = signInError.status ?? 0;
+      const msg = (signInError.message ?? "").toLowerCase();
+      if (status === 0 || status >= 500 || msg.includes("fetch") || msg.includes("network")) {
+        setError("The sign-in service is temporarily unavailable. Please try again in a few minutes.");
+      } else if (signInError.code === "email_not_confirmed" || msg.includes("not confirmed")) {
+        setError("This account's email has not been confirmed yet.");
+      } else if (status === 429) {
+        setError("Too many attempts. Please wait a moment and try again.");
+      } else {
+        setError("Invalid email or password.");
+      }
       return;
     }
     if (next) window.location.replace(next);
