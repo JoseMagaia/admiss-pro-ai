@@ -3361,7 +3361,10 @@ function withinSendSchedule(c: Record<string, unknown>): boolean {
 // the next batch of pending recipients for each running campaign (respecting
 // batch size, inter-message delay, and start/end windows), and marks campaigns
 // completed when no recipients remain. Called every minute by the cron route.
-export async function processCampaigns(): Promise<{ campaigns: number; sent: number }> {
+export async function processCampaigns(
+  opts: { campaignId?: string; immediate?: boolean } = {},
+): Promise<{ campaigns: number; sent: number }> {
+  const immediate = Boolean(opts.immediate && opts.campaignId);
   const db = await rawAdmin();
   const { getDefaultSpaceId } = await import("./space-context.server");
   const fallbackSpace = await getDefaultSpaceId();
@@ -3370,10 +3373,11 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
   const startBudget = Date.now();
   const TIME_BUDGET_MS = 50_000;
 
-  const { data: camps } = await db
-    .from("campaigns")
-    .select("*")
-    .in("status", ["scheduled", "running"])
+  let campQuery = db.from("campaigns").select("*");
+  campQuery = immediate
+    ? campQuery.eq("id", opts.campaignId as string)
+    : campQuery.in("status", ["scheduled", "running"]);
+  const { data: camps } = await campQuery
     .order("last_batch_at", { ascending: true, nullsFirst: true })
     .limit(20);
 
@@ -3389,29 +3393,29 @@ export async function processCampaigns(): Promise<{ campaigns: number; sent: num
     const endAt = c.end_at ? new Date(String(c.end_at)).getTime() : null;
 
     // End window passed → finish the campaign.
-    if (endAt !== null && now > endAt) {
+    if (!immediate && endAt !== null && now > endAt) {
       await db.from("campaigns").update({ status: "completed" } as never).eq("id", id);
       continue;
     }
     // Not yet started.
-    if (startAt !== null && now < startAt) continue;
+    if (!immediate && startAt !== null && now < startAt) continue;
     // Outside the allowed weekday / time-of-day window → wait for next slot.
-    if (!withinSendSchedule(c)) continue;
+    if (!immediate && !withinSendSchedule(c)) continue;
 
     // Respect the configured break between batches (drip pacing).
     const batchBreakSeconds = Math.min(Math.max(0, Number(c.batch_break_seconds) || 0), 86400);
     const lastBatchAt = c.last_batch_at ? new Date(String(c.last_batch_at)).getTime() : null;
-    if (batchBreakSeconds > 0 && lastBatchAt !== null && now - lastBatchAt < batchBreakSeconds * 1000) {
+    if (!immediate && batchBreakSeconds > 0 && lastBatchAt !== null && now - lastBatchAt < batchBreakSeconds * 1000) {
       continue;
     }
 
     // Flip scheduled → running once the window opens.
-    if (c.status === "scheduled") {
+    if (c.status === "scheduled" || (immediate && c.status !== "running")) {
       await db.from("campaigns").update({ status: "running" } as never).eq("id", id);
     }
 
-    const batchSize = Math.min(Math.max(1, Number(c.batch_size) || 25), 100);
-    const delaySeconds = Math.min(Math.max(0, Number(c.delay_seconds) || 0), 5);
+    const batchSize = immediate ? 1000 : Math.min(Math.max(1, Number(c.batch_size) || 25), 100);
+    const delaySeconds = immediate ? 0 : Math.min(Math.max(0, Number(c.delay_seconds) || 0), 5);
     const workspaceId = (c.workspace_id as string | null) ?? null;
     const template = String(c.message_template ?? "");
     // Rotate evenly between the main template and any variations to reduce spam flags.

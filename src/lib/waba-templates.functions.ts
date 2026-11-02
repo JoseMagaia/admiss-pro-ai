@@ -51,7 +51,7 @@ export const saveWabaTemplate = createServerFn({ method: "POST" })
         name: z.string().trim().regex(/^[a-z0-9_]+$/).max(512),
         language: z.string().trim().min(2).max(20),
         category: z.enum(["MARKETING", "UTILITY", "AUTHENTICATION"]),
-        components: z.array(z.record(z.string(), z.unknown())).min(1).max(4),
+        components: z.array(z.record(z.string(), z.unknown())).min(1).max(10),
       })
       .parse(input),
   )
@@ -65,6 +65,7 @@ export const saveWabaTemplate = createServerFn({ method: "POST" })
     const db = makeScopedClient(supabaseAdmin, context?.spaceId ?? NO_SPACE);
     const payload = {
       workspace_id: data.workspaceId,
+      space_id: context?.spaceId ?? NO_SPACE,
       name: data.name,
       language: data.language,
       category: data.category,
@@ -153,6 +154,7 @@ export const syncWabaTemplates = createServerFn({ method: "POST" })
       await db.from("waba_templates").upsert(
         {
           workspace_id: data.workspaceId,
+          space_id: context?.spaceId ?? NO_SPACE,
           meta_template_id: item.id ? String(item.id) : null,
           name,
           language,
