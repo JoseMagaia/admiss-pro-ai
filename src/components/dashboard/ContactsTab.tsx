@@ -1,3 +1,4 @@
+import { usePersistentState } from "@/hooks/usePersistentState";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -56,9 +57,9 @@ function withinRange(iso: string | null | undefined, range: string): boolean {
 export function ContactsTab() {
   const fn = useServerFn(listContacts);
   const exportFn = useServerFn(exportContactsCsv);
-  const [search, setSearch] = useState("");
-  const [timeFilter, setTimeFilter] = useState("all");
-  const [sort, setSort] = useState("recent");
+  const [search, setSearch] = usePersistentState("contacts.search", "");
+  const [timeFilter, setTimeFilter] = usePersistentState("contacts.time", "all");
+  const [sort, setSort] = usePersistentState("contacts.sort", "recent");
   const [exporting, setExporting] = useState(false);
   const { openConversation } = useDashboardNav();
 

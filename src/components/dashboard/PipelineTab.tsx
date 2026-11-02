@@ -1,3 +1,4 @@
+import { usePersistentState } from "@/hooks/usePersistentState";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -33,6 +34,7 @@ import { stageLabel } from "@/lib/pipeline";
 import { useDashboardNav } from "@/lib/dashboard-nav";
 import { useAuth } from "@/hooks/useAuth";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
+import { EditableLeadName } from "./EditableLeadName";
 import { cn } from "@/lib/utils";
 
 interface Lead {
@@ -120,7 +122,7 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
   const [overCol, setOverCol] = useState<string | null>(null);
   const [showOpps, setShowOpps] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, StageDraft>>({});
-  const [selectedPid, setSelectedPid] = useState<string | null>(null);
+  const [selectedPid, setSelectedPid] = usePersistentState<string | null>("pipeline.selected", null);
 
   // Stage-editing state.
   const [editing, setEditing] = useState(false);
@@ -659,13 +661,15 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
                     draggable
                     onDragStart={() => setDragId(l.id)}
                     onDragEnd={() => setDragId(null)}
+                    onClick={() => openConversation(l.phone_number)}
+                    title="Click to open conversation"
                     className={cn(
-                      "group cursor-grab rounded-xl border bg-card p-3 shadow-card active:cursor-grabbing",
+                      "group cursor-pointer rounded-xl border bg-card p-3 shadow-card active:cursor-grabbing",
                       dragId === l.id && "opacity-50",
                     )}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-semibold">{l.lead_name ?? l.phone_number}</span>
+                      <EditableLeadName phone={l.phone_number} name={l.lead_name} className="text-sm font-semibold" />
                       <div className="flex shrink-0 items-center gap-1">
                         {canManage && (
                           <span
