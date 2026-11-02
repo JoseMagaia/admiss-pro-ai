@@ -24,6 +24,11 @@ import {
 } from "@/lib/dashboard.functions";
 import { APPOINTMENT_STATUSES } from "@/lib/pipeline";
 import { cn } from "@/lib/utils";
+import { usePersistentState } from "@/hooks/usePersistentState";
+import { useDashboardNav } from "@/lib/dashboard-nav";
+import { listLeadHistories } from "@/lib/lead-panel.functions";
+import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
+import { TouchpointButton, type HistNote } from "./bookings/TouchpointButton";
 
 interface Appointment {
   id: string;
@@ -69,17 +74,37 @@ export function BookingsTab() {
   const updateFn = useServerFn(updateAppointmentStatus);
   const workflowsFn = useServerFn(listActiveWorkflows);
   const triggerFn = useServerFn(triggerLeadWorkflow);
-  const [view, setView] = useState<"list" | "calendar" | "slots" | "manage">("list");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [timeFilter, setTimeFilter] = useState<string>("all");
-  const [sort, setSort] = useState<string>("date_desc");
-  const [pickedWorkflow, setPickedWorkflow] = useState<Record<string, string>>({});
-
   const { data } = useQuery({
     queryKey: ["appointments"],
     queryFn: () => fn(),
     refetchInterval: 5000,
   });
+  const [view, setView] = usePersistentState<"list" | "calendar" | "slots" | "manage">("bookings.view", "list");
+  const [statusFilter, setStatusFilter] = usePersistentState<string>("bookings.status", "all");
+  const [timeFilter, setTimeFilter] = usePersistentState<string>("bookings.time", "all");
+  const [sort, setSort] = usePersistentState<string>("bookings.sort", "date_desc");
+  const { openConversation } = useDashboardNav();
+  const historiesFn = useServerFn(listLeadHistories);
+  const phones = useMemo(
+    () => Array.from(new Set(((data?.appointments ?? []) as Appointment[]).map((a) => a.phone_number).filter(Boolean) as string[])),
+    [data],
+  );
+  const { data: histData } = useQuery({
+    queryKey: ["lead-histories", phones],
+    queryFn: () => historiesFn({ data: { phones } }),
+    enabled: phones.length > 0,
+  });
+  const historyByPhone = useMemo(() => {
+    const m = new Map<string, HistNote[]>();
+    for (const n of (histData?.notes ?? []) as unknown as HistNote[]) {
+      const k = n.phone_number ?? "";
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(n);
+    }
+    return m;
+  }, [histData]);
+  const [pickedWorkflow, setPickedWorkflow] = useState<Record<string, string>>({});
+
 
   const { data: workflowsData } = useQuery({
     queryKey: ["active-workflows"],
@@ -230,15 +255,41 @@ export function BookingsTab() {
                 <th className="px-4 py-3 font-semibold">Type</th>
                 <th className="px-4 py-3 font-semibold">Date</th>
                 <th className="px-4 py-3 font-semibold">Status</th>
+                <th className="px-4 py-3 font-semibold">Touchpoints</th>
                 <th className="px-4 py-3 font-semibold">Actions</th>
                 <th className="px-4 py-3 font-semibold">Workflow</th>
               </tr>
             </thead>
             <tbody>
-              {appointments.map((a) => (
-                <tr key={a.id} className="border-b last:border-0 hover:bg-muted/30">
+              {appointments.map((a) => {
+                const hist = historyByPhone.get(a.phone_number ?? "") ?? [];
+                const tpCount = hist.filter((n) => n.body.startsWith("[Touchpoint]")).length;
+                return (
+                <HoverCard key={a.id} openDelay={400} closeDelay={100}>
+                <HoverCardTrigger asChild>
+                <tr
+                  onClick={(e) => {
+                    if (!a.phone_number) return;
+                    if ((e.target as HTMLElement).closest("button,input,select,a,[role=combobox],[role=dialog]")) return;
+                    openConversation(a.phone_number);
+                  }}
+                  className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                >
                   <td className="px-4 py-3 font-medium">{a.lead_name ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{a.phone_number ?? "—"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {a.phone_number ? (
+                      <button
+                        type="button"
+                        onClick={() => openConversation(a.phone_number!)}
+                        className="hover:text-primary hover:underline"
+                        title="Open conversation"
+                      >
+                        {a.phone_number}
+                      </button>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                   <td className="px-4 py-3 capitalize">{a.appointment_type}</td>
                   <td className="px-4 py-3">
                     <Input
@@ -257,6 +308,9 @@ export function BookingsTab() {
                   </td>
                   <td className="px-4 py-3">
                     <StatusBadge status={a.status} />
+                  </td>
+                  <td className="px-4 py-3">
+                    {a.phone_number ? <TouchpointButton phone={a.phone_number} count={tpCount} /> : "—"}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">

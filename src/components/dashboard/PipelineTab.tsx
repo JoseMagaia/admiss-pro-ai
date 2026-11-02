@@ -1,3 +1,4 @@
+import { usePersistentState } from "@/hooks/usePersistentState";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -121,7 +122,7 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
   const [overCol, setOverCol] = useState<string | null>(null);
   const [showOpps, setShowOpps] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, StageDraft>>({});
-  const [selectedPid, setSelectedPid] = useState<string | null>(null);
+  const [selectedPid, setSelectedPid] = usePersistentState<string | null>("pipeline.selected", null);
 
   // Stage-editing state.
   const [editing, setEditing] = useState(false);
