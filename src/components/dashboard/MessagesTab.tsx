@@ -347,17 +347,20 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   // leads/contacts vs. the message records.
   useEffect(() => {
     if (!pendingConversation) return;
+    // Wait for the thread list so we can resolve the exact stored phone format.
+    if (threadQuery.isLoading) return;
     const target = digitsOnly(pendingConversation);
     const match = threads.find((c) => digitsOnly(c.phone_number) === target);
     setActive(match ? match.phone_number : pendingConversation);
     onPendingHandled?.();
-  }, [pendingConversation, threads, onPendingHandled]);
+  }, [pendingConversation, threads, onPendingHandled, threadQuery.isLoading]);
 
   useEffect(() => {
     // On desktop auto-open the most recent conversation. On mobile keep the list
-    // visible until the user taps a conversation.
+    // visible until the user taps a conversation. Never override a requested chat.
+    if (pendingConversation) return;
     if (!active && !isMobile && threads.length) setActive(threads[0].phone_number);
-  }, [threads, active, isMobile]);
+  }, [threads, active, isMobile, pendingConversation]);
 
   const activeMsgs = ((activeData as { messages?: Message[] } | undefined)?.messages ?? []) as Message[];
   const activeConv = (activeData as { conversation?: Conversation | null } | undefined)?.conversation ?? null;
