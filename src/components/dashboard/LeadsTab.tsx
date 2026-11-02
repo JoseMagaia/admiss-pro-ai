@@ -1,3 +1,4 @@
+import { usePersistentState } from "@/hooks/usePersistentState";
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -95,10 +96,10 @@ export function LeadsTab() {
   const deleteFn = useServerFn(deleteLead);
   const statesFn = useServerFn(listWorkflowStates);
   const pauseFn = useServerFn(pauseLeadWorkflow);
-  const [filter, setFilter] = useState("all");
-  const [search, setSearch] = useState("");
-  const [timeFilter, setTimeFilter] = useState("all");
-  const [sort, setSort] = useState("recent");
+  const [filter, setFilter] = usePersistentState("leads.filter", "all");
+  const [search, setSearch] = usePersistentState("leads.search", "");
+  const [timeFilter, setTimeFilter] = usePersistentState("leads.time", "all");
+  const [sort, setSort] = usePersistentState("leads.sort", "recent");
   const [pendingDelete, setPendingDelete] = useState<Lead | null>(null);
 
   const { data } = useQuery({
@@ -275,7 +276,14 @@ export function LeadsTab() {
             {filtered.map((l) => {
               const human = takeoverMap.get(l.phone_number) ?? false;
               return (
-                <tr key={l.id} className="border-b last:border-0 hover:bg-muted/30">
+                <tr
+                  key={l.id}
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("button,input,select,a,[role=combobox],[role=switch]")) return;
+                    openConversation(l.phone_number);
+                  }}
+                  className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                >
                   <td className="px-4 py-3 font-medium">
                     <button
                       type="button"

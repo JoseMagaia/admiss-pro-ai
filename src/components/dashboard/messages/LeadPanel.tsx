@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { EditableLeadName } from "@/components/dashboard/EditableLeadName";
 import { getLeadPanel, addLeadNote, deleteLeadNote } from "@/lib/lead-panel.functions";
 
 /** Right-hand context panel: lead profile, running notes and full activity history. */
@@ -67,7 +68,9 @@ export function LeadPanel({ phone }: { phone: string }) {
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-xl font-semibold text-primary">
           {(String(lead?.lead_name ?? phone) || "?").trim().charAt(0).toUpperCase()}
         </div>
-        <p className="text-sm font-semibold">{String(lead?.lead_name ?? "Unknown lead")}</p>
+        <div className="text-sm font-semibold">
+          {lead ? <EditableLeadName phone={phone} name={(lead.lead_name as string | null) ?? null} /> : "Unknown lead"}
+        </div>
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <Phone className="h-3 w-3" /> {phone}
         </p>

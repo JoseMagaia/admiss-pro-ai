@@ -33,6 +33,7 @@ import { stageLabel } from "@/lib/pipeline";
 import { useDashboardNav } from "@/lib/dashboard-nav";
 import { useAuth } from "@/hooks/useAuth";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
+import { EditableLeadName } from "./EditableLeadName";
 import { cn } from "@/lib/utils";
 
 interface Lead {
@@ -659,13 +660,15 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
                     draggable
                     onDragStart={() => setDragId(l.id)}
                     onDragEnd={() => setDragId(null)}
+                    onClick={() => openConversation(l.phone_number)}
+                    title="Click to open conversation"
                     className={cn(
-                      "group cursor-grab rounded-xl border bg-card p-3 shadow-card active:cursor-grabbing",
+                      "group cursor-pointer rounded-xl border bg-card p-3 shadow-card active:cursor-grabbing",
                       dragId === l.id && "opacity-50",
                     )}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-semibold">{l.lead_name ?? l.phone_number}</span>
+                      <EditableLeadName phone={l.phone_number} name={l.lead_name} className="text-sm font-semibold" />
                       <div className="flex shrink-0 items-center gap-1">
                         {canManage && (
                           <span
