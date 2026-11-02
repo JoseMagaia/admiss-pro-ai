@@ -372,10 +372,30 @@ export function BookingsTab() {
                     )}
                   </td>
                 </tr>
-              ))}
+                </HoverCardTrigger>
+                <HoverCardContent side="top" align="start" className="w-96 max-h-80 overflow-y-auto">
+                  <p className="mb-2 text-xs font-semibold">
+                    Lead history · {tpCount} touchpoint{tpCount === 1 ? "" : "s"}
+                  </p>
+                  {hist.length === 0 && <p className="text-xs text-muted-foreground">No history logged yet.</p>}
+                  <div className="space-y-2">
+                    {hist.slice(0, 30).map((n) => (
+                      <div key={n.id} className="rounded-md border bg-muted/30 p-2 text-xs">
+                        <div className="mb-0.5 flex justify-between gap-2 text-[10px] text-muted-foreground">
+                          <span>{n.author_label ?? "Agent"}</span>
+                          <span>{new Date(n.created_at).toLocaleString()}</span>
+                        </div>
+                        <p className="whitespace-pre-wrap">{n.body}</p>
+                      </div>
+                    ))}
+                  </div>
+                </HoverCardContent>
+                </HoverCard>
+                );
+              })}
               {appointments.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                     No bookings found.
                   </td>
                 </tr>
