@@ -33,6 +33,7 @@ import {
   createCampaign,
   updateCampaign,
   setCampaignStatus,
+  sendCampaignNow,
   deleteCampaign,
   getCampaignOptions,
   listCampaignRecipients,
@@ -126,6 +127,16 @@ export function CampaignManager() {
   const listFn = useServerFn(listCampaigns);
   const delFn = useServerFn(deleteCampaign);
   const statusFn = useServerFn(setCampaignStatus);
+  const sendNowFn = useServerFn(sendCampaignNow);
+  const sendNow = useMutation({
+    mutationFn: (id: string) => sendNowFn({ data: { id } }),
+    onSuccess: (res) => {
+      if (!res.ok) return toast.error(res.error ?? "Send failed");
+      toast.success(`Sent ${res.sent} messages`);
+      qc.invalidateQueries({ queryKey: ["campaigns"] });
+    },
+    onError: () => toast.error("Send failed"),
+  });
 
   const { data } = useQuery({ queryKey: ["campaigns"], queryFn: () => listFn(), refetchInterval: 8000 });
   const campaigns = (data?.campaigns ?? []) as CampaignRow[];
@@ -218,6 +229,24 @@ export function CampaignManager() {
               </div>
 
               <div className="flex shrink-0 flex-wrap gap-1">
+                {c.status !== "completed" && c.status !== "cancelled" && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={sendNow.isPending}
+                    onClick={() => {
+                      if (confirm(`Send "${c.name}" to all pending recipients now, skipping the schedule?`))
+                        sendNow.mutate(c.id);
+                    }}
+                  >
+                    {sendNow.isPending && sendNow.variables === c.id ? (
+                      <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Send className="mr-1 h-3.5 w-3.5" />
+                    )}
+                    Send all now
+                  </Button>
+                )}
                 {(c.status === "draft" || c.status === "scheduled") && (
                   <Button size="sm" onClick={() => changeStatus.mutate({ id: c.id, action: "start" })}>
                     <Play className="mr-1 h-3.5 w-3.5" /> Start
