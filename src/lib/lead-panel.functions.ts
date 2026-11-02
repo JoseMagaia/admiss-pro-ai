@@ -68,7 +68,8 @@ export const listLeadHistories = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => z.object({ phones: z.array(z.string().max(60)).max(1000) }).parse(d))
   .handler(async ({ data }) => {
     const { scopedDb, isAuthed } = await import("./dashboard-helpers");
-    if (!(await isAuthed()) || data.phones.length === 0) return { notes: [] as Array<Record<string, unknown>> };
+    type N = { id: string; phone_number: string | null; body: string; author_label: string | null; created_at: string };
+    if (!(await isAuthed()) || data.phones.length === 0) return { notes: [] as N[] };
     const db = await scopedDb();
     const { data: rows } = await db
       .from("lead_notes")
@@ -76,7 +77,7 @@ export const listLeadHistories = createServerFn({ method: "POST" })
       .in("phone_number", data.phones)
       .order("created_at", { ascending: false })
       .limit(5000);
-    return { notes: (rows ?? []) as Array<Record<string, unknown>> };
+    return { notes: (rows ?? []) as N[] };
   });
 
 export const logTouchpoint = createServerFn({ method: "POST" })
