@@ -56,6 +56,7 @@ export const TENANT_TABLES = new Set<string>([
   "calendar_exceptions",
   "lead_notes",
   "ticket_queue_members",
+  "waba_templates",
 ]);
 
 

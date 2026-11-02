@@ -617,3 +617,27 @@ export const exportContactsCsv = createServerFn({ method: "GET" }).handler(async
 });
 
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+// Send every pending recipient right now, ignoring drip pacing and schedule windows.
+export const sendCampaignNow = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      await guard(MANAGE_ROLES);
+    } catch (e) {
+      return { ok: false, sent: 0, error: (e as Error).message };
+    }
+    const db = await scopedDb();
+    const { data: camp } = await db
+      .from("campaigns")
+      .select("id, message_template, workspace_id")
+      .eq("id", data.id)
+      .maybeSingle();
+    const c = camp as any;
+    if (!c) return { ok: false, sent: 0, error: "Campaign not found." };
+    if (!c.workspace_id) return { ok: false, sent: 0, error: "Choose a sending workspace first." };
+    if (!String(c.message_template ?? "").trim()) return { ok: false, sent: 0, error: "Add a message first." };
+    const { processCampaigns } = await import("./admissions.server");
+    const result = await processCampaigns({ campaignId: data.id, immediate: true });
+    return { ok: true, sent: result.sent, error: null };
+  });
