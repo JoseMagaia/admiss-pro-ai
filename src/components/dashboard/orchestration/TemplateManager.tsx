@@ -20,6 +20,18 @@ import {
 } from "@/lib/waba-templates.functions";
 
 type Workspace = { id: string; name: string };
+type EditorButton = { type: "QUICK_REPLY" | "URL" | "PHONE_NUMBER"; text: string; value: string };
+
+// Shows length against Meta's recommended limit without blocking typing.
+function Counter({ value, limit }: { value: string; limit: number }) {
+  const over = value.length > limit;
+  return (
+    <p className={over ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+      {value.length}/{limit}
+      {over ? " — Meta may reject text longer than this" : ""}
+    </p>
+  );
+}
 
 function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
   if (status === "APPROVED") return "default";
@@ -149,7 +161,11 @@ function TemplateEditor({
       header: components.find((part) => part.type === "HEADER")?.text ?? "",
       body: components.find((part) => part.type === "BODY")?.text ?? "",
       footer: components.find((part) => part.type === "FOOTER")?.text ?? "",
-      buttons: components.find((part) => part.type === "BUTTONS")?.buttons?.map((button) => button.text) ?? [],
+      buttons: (components.find((part) => part.type === "BUTTONS")?.buttons ?? []).map((button) => ({
+        type: button.type ?? "QUICK_REPLY",
+        text: button.text ?? "",
+        value: button.url ?? button.phone_number ?? "",
+      })) as EditorButton[],
     };
   }, [initial]);
   const [workspaceId, setWorkspaceId] = useState(initial?.workspace_id ?? workspaces[0]?.id ?? "");
@@ -166,7 +182,18 @@ function TemplateEditor({
       if (header.trim()) components.push({ type: "HEADER", format: "TEXT", text: header.trim() });
       components.push({ type: "BODY", text: body.trim() });
       if (footer.trim()) components.push({ type: "FOOTER", text: footer.trim() });
-      if (buttons.length > 0) components.push({ type: "BUTTONS", buttons: buttons.map((text) => ({ type: "QUICK_REPLY", text })) });
+      const cleanButtons = buttons.filter((b) => b.text.trim());
+      if (cleanButtons.length > 0)
+        components.push({
+          type: "BUTTONS",
+          buttons: cleanButtons.map((b) =>
+            b.type === "URL"
+              ? { type: "URL", text: b.text.trim(), url: b.value.trim() }
+              : b.type === "PHONE_NUMBER"
+                ? { type: "PHONE_NUMBER", text: b.text.trim(), phone_number: b.value.trim() }
+                : { type: "QUICK_REPLY", text: b.text.trim() },
+          ),
+        });
       return saveFn({ data: { id: initial?.id, workspaceId, name, language, category, components } });
     },
     onSuccess: (result) => {
@@ -193,12 +220,30 @@ function TemplateEditor({
             <div className="space-y-1.5"><Label>Category</Label><Select value={category} onValueChange={(value) => setCategory(value as WabaTemplateRow["category"])}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="MARKETING">Marketing</SelectItem><SelectItem value="UTILITY">Utility</SelectItem><SelectItem value="AUTHENTICATION">Authentication</SelectItem></SelectContent></Select></div>
             <div className="space-y-1.5"><Label>Language</Label><Input value={language} onChange={(event) => setLanguage(event.target.value)} placeholder="en_US" /></div>
           </div>
-          <div className="space-y-1.5"><Label>Header</Label><Input value={header} onChange={(event) => setHeader(event.target.value)} maxLength={60} placeholder="Optional short heading" /></div>
-          <div className="space-y-1.5"><Label>Body</Label><Textarea value={body} onChange={(event) => setBody(event.target.value)} rows={8} placeholder="Hello {{1}}, your appointment is confirmed for {{2}}." /><p className="text-xs text-muted-foreground">Use numbered Meta variables such as {"{{1}}"} and {"{{2}}"}.</p></div>
-          <div className="space-y-1.5"><Label>Footer</Label><Input value={footer} onChange={(event) => setFooter(event.target.value)} maxLength={60} placeholder="Optional footer" /></div>
+          <div className="space-y-1.5"><Label>Header</Label><Input value={header} onChange={(event) => setHeader(event.target.value)} placeholder="Optional short heading" /><Counter value={header} limit={60} /></div>
+          <div className="space-y-1.5"><Label>Body</Label><Textarea value={body} onChange={(event) => setBody(event.target.value)} rows={8} placeholder="Hello {{1}}, your appointment is confirmed for {{2}}." /><Counter value={body} limit={1024} /><p className="text-xs text-muted-foreground">Use numbered Meta variables such as {"{{1}}"} and {"{{2}}"}.</p></div>
+          <div className="space-y-1.5"><Label>Footer</Label><Input value={footer} onChange={(event) => setFooter(event.target.value)} placeholder="Optional footer" /><Counter value={footer} limit={60} /></div>
           <div className="space-y-2">
-            <div className="flex items-center justify-between"><Label>Quick replies</Label><Button variant="outline" size="sm" onClick={() => setButtons((current) => [...current, ""].slice(0, 3))} disabled={buttons.length >= 3}><Plus className="mr-1 h-3.5 w-3.5" /> Add</Button></div>
-            {buttons.map((button, index) => <div key={index} className="flex gap-2"><Input value={button} maxLength={25} onChange={(event) => setButtons((current) => current.map((value, i) => i === index ? event.target.value : value))} placeholder={`Button ${index + 1}`} /><Button variant="ghost" size="icon" onClick={() => setButtons((current) => current.filter((_, i) => i !== index))}><Trash2 className="h-4 w-4" /></Button></div>)}
+            <div className="flex items-center justify-between"><Label>Buttons ({buttons.length}/10)</Label><Button variant="outline" size="sm" onClick={() => setButtons((current) => [...current, { type: "QUICK_REPLY" as const, text: "", value: "" }].slice(0, 10))} disabled={buttons.length >= 10}><Plus className="mr-1 h-3.5 w-3.5" /> Add</Button></div>
+            {buttons.map((button, index) => {
+              const update = (patch: Partial<EditorButton>) => setButtons((current) => current.map((value, i) => (i === index ? { ...value, ...patch } : value)));
+              return (
+                <div key={index} className="space-y-2 rounded-md border p-2">
+                  <div className="flex gap-2">
+                    <Select value={button.type} onValueChange={(value) => update({ type: value as EditorButton["type"] })}>
+                      <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="QUICK_REPLY">Quick reply</SelectItem><SelectItem value="URL">Website link</SelectItem><SelectItem value="PHONE_NUMBER">Call phone</SelectItem></SelectContent>
+                    </Select>
+                    <Input value={button.text} onChange={(event) => update({ text: event.target.value })} placeholder={`Button ${index + 1} text`} />
+                    <Button variant="ghost" size="icon" onClick={() => setButtons((current) => current.filter((_, i) => i !== index))}><Trash2 className="h-4 w-4" /></Button>
+                  </div>
+                  {button.type !== "QUICK_REPLY" ? (
+                    <Input value={button.value} onChange={(event) => update({ value: event.target.value })} placeholder={button.type === "URL" ? "https://cal.com/your-team/consultation" : "+258841234567"} />
+                  ) : null}
+                  <Counter value={button.text} limit={25} />
+                </div>
+              );
+            })}
           </div>
           <Button onClick={() => save.mutate()} disabled={!workspaceId || !name || !body.trim() || save.isPending}><CheckCircle2 className="mr-1.5 h-4 w-4" /> Save draft</Button>
         </div>
@@ -210,7 +255,7 @@ function TemplateEditor({
               <p className="mt-1 whitespace-pre-wrap text-sm">{body || "Your template message will appear here."}</p>
               {footer ? <p className="mt-2 text-xs text-muted-foreground">{footer}</p> : null}
               <p className="mt-1 text-right text-[10px] text-muted-foreground">12:30</p>
-              {buttons.filter(Boolean).map((button, index) => <div key={index} className="mt-2 border-t pt-2 text-center text-sm font-medium text-primary"><Send className="mr-1 inline h-3.5 w-3.5" />{button}</div>)}
+              {buttons.filter((b) => b.text).map((button, index) => <div key={index} className="mt-2 border-t pt-2 text-center text-sm font-medium text-primary"><Send className="mr-1 inline h-3.5 w-3.5" />{button.text}</div>)}
             </div>
           </div>
         </aside>
