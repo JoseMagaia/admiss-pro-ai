@@ -69,6 +69,7 @@ import {
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
 import { ConversationTickets } from "./tickets/ConversationTickets";
 import { cn } from "@/lib/utils";
+import { useDashboardNav } from "@/lib/dashboard-nav";
 
 /** Compare phone numbers by their digits only, ignoring +, spaces, dashes, etc. */
 const digitsOnly = (p: string) => (p ?? "").replace(/\D/g, "");
@@ -238,7 +239,8 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
   const [recording, setRecording] = useState(false);
 
 
-  const threadSearch = search.trim();
+  const { globalQuery = "" } = useDashboardNav();
+  const threadSearch = (globalQuery.trim() || search).trim();
   const threadPageSize = 30;
   const threadQuery = useInfiniteQuery({
     queryKey: ["message-threads", threadSearch],
@@ -702,7 +704,7 @@ export function MessagesTab({ pendingConversation, onPendingHandled }: MessagesT
                       <span className="mr-1 rounded bg-muted px-1 py-0.5 text-[9px] font-semibold uppercase">
                         {c.match_sender === "lead" ? "Student" : c.match_sender === "ai" ? "AI" : "Agent"}
                       </span>
-                      <MatchSnippet text={preview} term={search} />
+                      <MatchSnippet text={preview} term={threadSearch} />
                     </>
                   ) : (
                     preview

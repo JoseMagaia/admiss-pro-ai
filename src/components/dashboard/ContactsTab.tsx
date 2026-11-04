@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { listContacts } from "@/lib/dashboard.functions";
 import { exportContactsCsv } from "@/lib/campaigns.functions";
-import { useDashboardNav } from "@/lib/dashboard-nav";
+import { useDashboardNav, matchesQuery } from "@/lib/dashboard-nav";
 
 
 interface Contact {
@@ -61,7 +61,7 @@ export function ContactsTab() {
   const [timeFilter, setTimeFilter] = usePersistentState("contacts.time", "all");
   const [sort, setSort] = usePersistentState("contacts.sort", "recent");
   const [exporting, setExporting] = useState(false);
-  const { openConversation } = useDashboardNav();
+  const { openConversation, globalQuery = "" } = useDashboardNav();
 
   const handleExport = async () => {
     setExporting(true);
@@ -100,6 +100,7 @@ export function ContactsTab() {
     const q = search.toLowerCase();
     const rows = contacts.filter(
       (c) =>
+        matchesQuery(globalQuery, c.lead_name, c.phone_number) &&
         (!q ||
           c.lead_name?.toLowerCase().includes(q) ||
           c.phone_number.toLowerCase().includes(q) ||
@@ -114,7 +115,7 @@ export function ContactsTab() {
       return sort === "oldest" ? at - bt : bt - at;
     });
     return rows;
-  }, [contacts, search, timeFilter, sort]);
+  }, [contacts, search, timeFilter, sort, globalQuery]);
 
   return (
     <div className="space-y-4">

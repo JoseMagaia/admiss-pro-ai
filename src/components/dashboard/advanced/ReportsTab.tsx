@@ -34,6 +34,7 @@ import {
   Save,
 } from "lucide-react";
 import { toast } from "sonner";
+import { PeriodPicker, usePeriodRange } from "@/components/dashboard/PeriodPicker";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -221,9 +222,10 @@ export function ReportsTab() {
   const saveFn = useServerFn(saveConversation);
   const deleteFn = useServerFn(deleteConversation);
 
+  const periodState = usePeriodRange("reports.overview", "all");
   const { data: dashData } = useQuery({
-    queryKey: ["report-dashboard"],
-    queryFn: () => dashFn(),
+    queryKey: ["report-dashboard", periodState.range.from, periodState.range.to],
+    queryFn: () => dashFn({ data: periodState.range }),
     refetchInterval: 30000,
   });
   const analytics = (dashData?.analytics ?? null) as Analytics | null;
@@ -855,7 +857,10 @@ export function ReportsTab() {
 
       {/* Fixed analytics dashboard */}
       <div>
-        <h2 className="mb-3 font-display text-lg font-semibold">Analytics Overview</h2>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-display text-lg font-semibold">Analytics Overview</h2>
+          <PeriodPicker state={periodState} />
+        </div>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
           <Stat icon={Users} label="Total Leads" value={String(analytics?.totals.leads ?? "—")} tone="bg-primary/10 text-primary" />
           <Stat icon={TrendingUp} label="Qualified" value={String(analytics?.totals.qualified ?? "—")} tone="bg-success/15 text-success" />
@@ -876,7 +881,7 @@ export function ReportsTab() {
         </div>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <ChartCard title={`Leads per day (last ${analytics?.rangeDays ?? 14} days)`}>
+          <ChartCard title={`Leads per day (${analytics?.rangeDays ?? 14} days)`}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={analytics?.leadsByDay ?? []}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />

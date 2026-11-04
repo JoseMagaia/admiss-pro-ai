@@ -1,14 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Search, Loader2 } from "lucide-react";
+import { Search, Loader2, X } from "lucide-react";
 import { quickSearchLeads } from "@/lib/dashboard.functions";
 import { STAGE_LABELS } from "@/lib/pipeline";
 import { Input } from "@/components/ui/input";
 
-export function GlobalLeadSearch({ onOpen }: { onOpen: (phone: string) => void }) {
+export function GlobalLeadSearch({
+  onOpen,
+  value: q,
+  onChange: setQ,
+  filterLabel,
+}: {
+  onOpen: (phone: string) => void;
+  value: string;
+  onChange: (v: string) => void;
+  /** When set, the current page filters itself and no dropdown is shown. */
+  filterLabel?: string | null;
+}) {
   const fn = useServerFn(quickSearchLeads);
-  const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
   const [open, setOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -39,7 +49,7 @@ export function GlobalLeadSearch({ onOpen }: { onOpen: (phone: string) => void }
   const { data, isFetching } = useQuery({
     queryKey: ["quick-search", debounced],
     queryFn: () => fn({ data: { q: debounced } }),
-    enabled: debounced.length >= 2,
+    enabled: !filterLabel && debounced.length >= 2,
   });
   const results = data?.results ?? [];
 
@@ -50,11 +60,16 @@ export function GlobalLeadSearch({ onOpen }: { onOpen: (phone: string) => void }
         value={q}
         onChange={(e) => { setQ(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
-        placeholder="Search leads by name or number (Ctrl+K)"
-        className="h-9 pl-8 text-sm"
+        placeholder={filterLabel ? `Filter ${filterLabel} by name or number (Ctrl+K)` : "Search leads by name or number (Ctrl+K)"}
+        className="h-9 pl-8 pr-8 text-sm"
         aria-label="Search leads"
       />
-      {open && debounced.length >= 2 && (
+      {q && (
+        <button type="button" onClick={() => setQ("")} aria-label="Clear search" className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {!filterLabel && open && debounced.length >= 2 && (
         <div className="absolute right-0 z-50 mt-1 max-h-80 w-full overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg">
           {isFetching && results.length === 0 ? (
             <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 animate-spin" /> Searching…</div>

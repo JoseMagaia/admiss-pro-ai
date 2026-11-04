@@ -174,9 +174,9 @@ function dayKey(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-function bucketByDay(timestamps: string[], days: number): { date: string; count: number }[] {
+function bucketByDay(timestamps: string[], days: number, end?: Date): { date: string; count: number }[] {
   const buckets = new Map<string, number>();
-  const now = new Date();
+  const now = end ?? new Date();
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setUTCDate(now.getUTCDate() - i);
@@ -204,13 +204,33 @@ function bucketByHour(timestamps: string[]): { hour: number; count: number }[] {
 // content-specific questions and (in agentic mode) reference leads by phone.
 async function buildAnalytics(
   days = 14,
-  opts: { includeContent?: boolean; contentQuery?: string | null } = {},
+  opts: { includeContent?: boolean; contentQuery?: string | null; from?: string | null; to?: string | null } = {},
 ) {
 
   const db = await admin();
-  const since = new Date();
+  const ranged = !!(opts.from || opts.to);
+  const endDate = opts.to ? new Date(opts.to) : new Date();
+  let since = new Date();
   since.setUTCDate(since.getUTCDate() - days);
+  if (ranged) {
+    since = opts.from ? new Date(opts.from) : new Date("2000-01-01T00:00:00Z");
+    if (!opts.from) {
+      const { data: first } = await db.from("leads").select("created_at").order("created_at", { ascending: true }).limit(1);
+      if (first?.[0]?.created_at) since = new Date(first[0].created_at as string);
+    }
+    days = Math.max(1, Math.min(366, Math.ceil((endDate.getTime() - since.getTime()) / 86400000)));
+  }
   const sinceIso = since.toISOString();
+  const endIso = endDate.toISOString();
+  const leadsQ = db
+    .from("leads")
+    .select(
+      "id, phone_number, lead_name, qualification_status, created_at, updated_at, course_interest, country_interest",
+    )
+    .order("updated_at", { ascending: false })
+    .limit(5000);
+  const msgCountQ = db.from("whatsapp_messages").select("*", { count: "exact", head: true });
+  const bookCountQ = db.from("appointments").select("*", { count: "exact", head: true });
 
   const [
     { data: leads },
@@ -220,16 +240,10 @@ async function buildAnalytics(
     { data: opportunities },
     { data: offers },
   ] = await Promise.all([
-    db
-      .from("leads")
-      .select(
-        "id, phone_number, lead_name, qualification_status, created_at, updated_at, course_interest, country_interest",
-      )
-      .order("updated_at", { ascending: false })
-      .limit(5000),
-    db.from("whatsapp_messages").select("received_at, sender").gte("received_at", sinceIso).limit(20000),
-    db.from("whatsapp_messages").select("*", { count: "exact", head: true }),
-    db.from("appointments").select("*", { count: "exact", head: true }),
+    ranged ? leadsQ.gte("created_at", sinceIso).lte("created_at", endIso) : leadsQ,
+    db.from("whatsapp_messages").select("received_at, sender").gte("received_at", sinceIso).lte("received_at", endIso).limit(20000),
+    ranged ? msgCountQ.gte("received_at", sinceIso).lte("received_at", endIso) : msgCountQ,
+    ranged ? bookCountQ.gte("created_at", sinceIso).lte("created_at", endIso) : bookCountQ,
     db.from("lead_opportunities").select("lead_id, valuation, liquidity, offer_id").limit(5000),
     db.from("offers").select("id, name, stage").limit(500),
   ]);
@@ -265,16 +279,22 @@ async function buildAnalytics(
     liquidity: number;
     offer_id: string | null;
   }[];
+  if (ranged) {
+    const ids = new Set(leadRows.map((l) => l.id));
+    oppRows.splice(0, oppRows.length, ...oppRows.filter((o) => ids.has(o.lead_id)));
+  }
   const totalValuation = oppRows.reduce((s, o) => s + Number(o.valuation ?? 0), 0);
   const totalLiquidity = oppRows.reduce((s, o) => s + Number(o.liquidity ?? 0), 0);
 
   const leadsByDay = bucketByDay(
     leadRows.map((l) => l.created_at).filter(Boolean),
     days,
+    endDate,
   );
   const messagesByDay = bucketByDay(
     ((recentMessages ?? []) as { received_at: string }[]).map((m) => m.received_at),
     days,
+    endDate,
   );
   const messagesByHour = bucketByHour(
     ((recentMessages ?? []) as { received_at: string }[]).map((m) => m.received_at),
@@ -425,9 +445,13 @@ async function buildAnalytics(
   };
 }
 
-export const getReportDashboard = createServerFn({ method: "GET" }).handler(async () => {
+export const getReportDashboard = createServerFn({ method: "GET" })
+  .inputValidator((d: { from?: string | null; to?: string | null } | undefined) =>
+    z.object({ from: z.string().max(40).nullable().optional(), to: z.string().max(40).nullable().optional() }).parse(d ?? {}),
+  )
+  .handler(async ({ data }) => {
   if (!(await hasAdvanced())) return { analytics: null, error: "Forbidden" };
-  const analytics = await buildAnalytics(14);
+  const analytics = await buildAnalytics(14, { from: data.from ?? null, to: data.to ?? null });
   return { analytics, error: null };
 });
 

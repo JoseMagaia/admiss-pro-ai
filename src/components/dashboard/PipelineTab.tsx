@@ -31,7 +31,7 @@ import {
   savePipelineStages,
 } from "@/lib/pipelines.functions";
 import { stageLabel } from "@/lib/pipeline";
-import { useDashboardNav } from "@/lib/dashboard-nav";
+import { useDashboardNav, matchesQuery } from "@/lib/dashboard-nav";
 import { useAuth } from "@/hooks/useAuth";
 import { LeadWorkflowManager } from "./LeadWorkflowManager";
 import { EditableLeadName } from "./EditableLeadName";
@@ -116,7 +116,7 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
   const updatePipeFn = useServerFn(updatePipeline);
   const deletePipeFn = useServerFn(deletePipeline);
   const saveStagesFn = useServerFn(savePipelineStages);
-  const { openConversation } = useDashboardNav();
+  const { openConversation, globalQuery = "" } = useDashboardNav();
 
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
@@ -203,9 +203,9 @@ export function PipelineTab({ canAdvanced = false }: { canAdvanced?: boolean }) 
   const resolvedPid = (leadId: string) => leadPipeMap.get(leadId) ?? defaultPipeline?.id ?? "";
 
   const leads = useMemo(
-    () => allLeads.filter((l) => resolvedPid(l.id) === selectedPipeline?.id),
+    () => allLeads.filter((l) => resolvedPid(l.id) === selectedPipeline?.id && matchesQuery(globalQuery, l.lead_name, l.phone_number)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allLeads, leadPipeMap, selectedPipeline, defaultPipeline],
+    [allLeads, leadPipeMap, selectedPipeline, defaultPipeline, globalQuery],
   );
 
   // Find the column (stage) a lead belongs to within the selected pipeline.

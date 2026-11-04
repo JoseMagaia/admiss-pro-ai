@@ -63,9 +63,18 @@ const ALL_TABS = [
 
 type TabId = (typeof ALL_TABS)[number]["id"];
 
+const FILTERABLE_TABS: Record<string, string> = {
+  leads: "leads",
+  messages: "messages",
+  contacts: "contacts",
+  bookings: "bookings",
+  pipeline: "pipeline",
+};
+
 function Dashboard() {
   const { loading, profile, signOut } = useAuth();
   const [tab, setTab] = useState<TabId>("messages");
+  const [globalQuery, setGlobalQuery] = useState("");
   const [pendingConversation, setPendingConversation] = useState<string | null>(null);
   const brand = useBranding();
 
@@ -74,6 +83,7 @@ function Dashboard() {
 
   const openConversation = useCallback((phone: string) => {
     setPendingConversation(phone);
+    setGlobalQuery("");
     setTab("messages");
   }, []);
 
@@ -105,7 +115,7 @@ function Dashboard() {
 
 
   return (
-    <DashboardNavProvider value={{ openConversation }}>
+    <DashboardNavProvider value={{ openConversation, globalQuery }}>
     <div className="flex min-h-screen bg-background">
       {/* Sidebar */}
       <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col bg-sidebar px-4 py-6 text-sidebar-foreground lg:flex">
@@ -195,7 +205,14 @@ function Dashboard() {
               {brand.tagline}
             </p>
             </div>
-            {!suspended && <GlobalLeadSearch onOpen={openConversation} />}
+            {!suspended && (
+              <GlobalLeadSearch
+                onOpen={openConversation}
+                value={globalQuery}
+                onChange={setGlobalQuery}
+                filterLabel={FILTERABLE_TABS[activeTab] ?? null}
+              />
+            )}
           </header>
 
           {suspended ? (

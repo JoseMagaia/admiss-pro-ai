@@ -34,7 +34,7 @@ import {
 } from "@/lib/dashboard.functions";
 import { LEAD_FILTERS, columnForStage } from "@/lib/pipeline";
 import { useAuth } from "@/hooks/useAuth";
-import { useDashboardNav } from "@/lib/dashboard-nav";
+import { useDashboardNav, matchesQuery } from "@/lib/dashboard-nav";
 import { cn } from "@/lib/utils";
 
 interface Lead {
@@ -87,7 +87,7 @@ interface Conversation {
 export function LeadsTab() {
   const qc = useQueryClient();
   const { profile } = useAuth();
-  const { openConversation } = useDashboardNav();
+  const { openConversation, globalQuery = "" } = useDashboardNav();
   const canDelete = profile.role === "super_admin" || profile.role === "admin";
   const canPause = profile.role === "super_admin" || profile.role === "admin";
   const leadsFn = useServerFn(listLeads);
@@ -178,6 +178,7 @@ export function LeadsTab() {
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     const rows = leads.filter((l) => {
+      if (!matchesQuery(globalQuery, l.lead_name, l.phone_number)) return false;
       const matchFilter = filter === "all" || columnForStage(l.qualification_status).id === filter;
       const matchSearch =
         !q ||
@@ -196,7 +197,7 @@ export function LeadsTab() {
       return sort === "oldest" ? at - bt : bt - at;
     });
     return rows;
-  }, [leads, filter, search, timeFilter, sort]);
+  }, [leads, filter, search, timeFilter, sort, globalQuery]);
 
 
   return (

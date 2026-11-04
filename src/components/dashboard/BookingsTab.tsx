@@ -26,7 +26,7 @@ import {
 import { APPOINTMENT_STATUSES } from "@/lib/pipeline";
 import { cn } from "@/lib/utils";
 import { usePersistentState } from "@/hooks/usePersistentState";
-import { useDashboardNav } from "@/lib/dashboard-nav";
+import { useDashboardNav, matchesQuery } from "@/lib/dashboard-nav";
 import { listLeadHistories } from "@/lib/lead-panel.functions";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { TouchpointButton, type HistNote } from "./bookings/TouchpointButton";
@@ -84,7 +84,7 @@ export function BookingsTab() {
   const [statusFilter, setStatusFilter] = usePersistentState<string>("bookings.status", "all");
   const [timeFilter, setTimeFilter] = usePersistentState<string>("bookings.time", "all");
   const [sort, setSort] = usePersistentState<string>("bookings.sort", "date_desc");
-  const { openConversation } = useDashboardNav();
+  const { openConversation, globalQuery = "" } = useDashboardNav();
   const historiesFn = useServerFn(listLeadHistories);
   const phones = useMemo(
     () => Array.from(new Set(((data?.appointments ?? []) as Appointment[]).map((a) => a.phone_number).filter(Boolean) as string[])),
@@ -141,6 +141,7 @@ export function BookingsTab() {
 
   const appointments = useMemo(() => {
     const filtered = allAppointments.filter((a) => {
+      if (!matchesQuery(globalQuery, a.lead_name, a.phone_number)) return false;
       if (statusFilter !== "all" && a.status !== statusFilter) return false;
       if (!withinRange(a.appointment_date ?? a.created_at ?? null, timeFilter)) return false;
       return true;
@@ -154,7 +155,7 @@ export function BookingsTab() {
       return sort === "date_asc" ? at - bt : bt - at;
     });
     return sorted;
-  }, [allAppointments, statusFilter, timeFilter, sort]);
+  }, [allAppointments, statusFilter, timeFilter, sort, globalQuery]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, Appointment[]>();
