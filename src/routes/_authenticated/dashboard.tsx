@@ -29,6 +29,7 @@ import { OrchestrationTab } from "@/components/dashboard/OrchestrationTab";
 import { MeetingOutcomesTab } from "@/components/dashboard/MeetingOutcomesTab";
 import { SettingsTab } from "@/components/dashboard/SettingsTab";
 import { AdvancedTab } from "@/components/dashboard/advanced/AdvancedTab";
+import { GlobalLeadSearch } from "@/components/dashboard/GlobalLeadSearch";
 import { DashboardStats } from "@/components/dashboard/DashboardStats";
 import { useAuth } from "@/hooks/useAuth";
 import { canAccessTab, canAccessAdvanced, ROLE_LABELS } from "@/lib/roles";
@@ -187,11 +188,14 @@ function Dashboard() {
         </div>
 
         <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-          <header className="mb-6">
+          <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
+            <div>
             <h1 className="font-display text-2xl font-bold capitalize">{activeTab}</h1>
             <p className="text-sm text-muted-foreground">
               {brand.tagline}
             </p>
+            </div>
+            {!suspended && <GlobalLeadSearch onOpen={openConversation} />}
           </header>
 
           {suspended ? (

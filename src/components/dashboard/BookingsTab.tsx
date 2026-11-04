@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { StatusBadge } from "./StageBadge";
 import { CalendarManager } from "./bookings/CalendarManager";
 import { SlotPicker } from "./bookings/SlotPicker";
+import { BulkStageMover } from "./bookings/BulkStageMover";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -198,7 +199,7 @@ export function BookingsTab() {
         </Button>
 
         <div className={cn("ml-auto flex flex-wrap items-center gap-2", view !== "list" && view !== "calendar" && "hidden")}>
-
+          <BulkStageMover />
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="h-8 w-[130px] text-xs">
               <SelectValue placeholder="Status" />

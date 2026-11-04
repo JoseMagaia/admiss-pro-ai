@@ -1022,9 +1022,20 @@ export const testPrompt = createServerFn({ method: "POST" })
 
 /* --------------------------- DASHBOARD STATS --------------------- */
 
-export const getDashboardStats = createServerFn({ method: "GET" }).handler(async () => {
+export const getDashboardStats = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ from: z.string().nullable().optional(), to: z.string().nullable().optional() }).parse(d ?? {}),
+  )
+  .handler(async ({ data }) => {
   if (!(await isAuthed())) return { leads: 0, qualified: 0, bookings: 0, messages: 0, onboarding: 0, disqualified: 0 };
   const db = await scopedDb();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const q = (table: "leads" | "appointments" | "whatsapp_messages") => {
+    let x = db.from(table).select("*", { count: "exact", head: true });
+    if (data.from) x = x.gte("created_at", data.from);
+    if (data.to) x = x.lte("created_at", data.to);
+    return x;
+  };
   const [
     { count: leadsCount },
     { count: qualifiedCount },
@@ -1033,12 +1044,12 @@ export const getDashboardStats = createServerFn({ method: "GET" }).handler(async
     { count: onboardingCount },
     { count: disqualifiedCount },
   ] = await Promise.all([
-    db.from("leads").select("*", { count: "exact", head: true }),
-    db.from("leads").select("*", { count: "exact", head: true }).in("qualification_status", ["QUALIFIED", "BOOKING_REQUEST_CREATED"]),
-    db.from("appointments").select("*", { count: "exact", head: true }),
-    db.from("whatsapp_messages").select("*", { count: "exact", head: true }),
-    db.from("leads").select("*", { count: "exact", head: true }).eq("qualification_status", "ONBOARDING"),
-    db.from("leads").select("*", { count: "exact", head: true }).eq("qualification_status", "DISQUALIFIED"),
+    q("leads"),
+    q("leads").in("qualification_status", ["QUALIFIED", "BOOKING_REQUEST_CREATED"]),
+    q("appointments"),
+    q("whatsapp_messages"),
+    q("leads").eq("qualification_status", "ONBOARDING"),
+    q("leads").eq("qualification_status", "DISQUALIFIED"),
   ]);
   return {
     leads: leadsCount ?? 0,
@@ -1049,6 +1060,77 @@ export const getDashboardStats = createServerFn({ method: "GET" }).handler(async
     disqualified: disqualifiedCount ?? 0,
   };
 });
+
+/* ----------------------- BULK LEAD CLEANUP ---------------------- */
+
+const digits = (p: string | null | undefined) => (p ?? "").replace(/\D/g, "");
+
+// Move every lead that has a booking in a given status to a target pipeline stage.
+export const bulkMoveLeadsByBookingStatus = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ rules: z.array(z.object({ status: z.string().min(1), stage: z.string().min(1) })).min(1).max(20) }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    try {
+      await guard(["admin", "super_admin"] as AppRole[]);
+    } catch (e) {
+      return { ok: false, moved: 0, error: (e as Error).message };
+    }
+    const db = await scopedDb();
+    const { data: appts, error: aErr } = await db.from("appointments").select("phone_number,status").limit(5000);
+    if (aErr) return { ok: false, moved: 0, error: aErr.message };
+    const { data: leads, error: lErr } = await db.from("leads").select("id,phone_number,qualification_status").limit(10000);
+    if (lErr) return { ok: false, moved: 0, error: lErr.message };
+    const byPhone = new Map<string, { id: string; qualification_status: string | null }[]>();
+    for (const l of (leads ?? []) as { id: string; phone_number: string | null; qualification_status: string | null }[]) {
+      const k = digits(l.phone_number);
+      if (!k) continue;
+      if (!byPhone.has(k)) byPhone.set(k, []);
+      byPhone.get(k)!.push(l);
+    }
+    let moved = 0;
+    const details: { status: string; stage: string; moved: number }[] = [];
+    for (const rule of data.rules) {
+      const ids = new Set<string>();
+      for (const a of (appts ?? []) as { phone_number: string | null; status: string }[]) {
+        if (a.status !== rule.status) continue;
+        for (const l of byPhone.get(digits(a.phone_number)) ?? []) {
+          if (l.qualification_status !== rule.stage) ids.add(l.id);
+        }
+      }
+      const list = [...ids];
+      for (let i = 0; i < list.length; i += 200) {
+        const { error } = await db
+          .from("leads")
+          .update({ qualification_status: rule.stage } as never)
+          .in("id", list.slice(i, i + 200));
+        if (error) return { ok: false, moved, error: error.message };
+      }
+      moved += list.length;
+      details.push({ status: rule.status, stage: rule.stage, moved: list.length });
+    }
+    return { ok: true, moved, details, error: null };
+  });
+
+/* ------------------------- QUICK SEARCH ------------------------- */
+
+export const quickSearchLeads = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ q: z.string().trim().min(1).max(100) }).parse(d))
+  .handler(async ({ data }) => {
+    if (!(await isAuthed())) return { results: [] };
+    const db = await scopedDb();
+    const term = data.q.replace(/[%,()]/g, " ").trim();
+    const num = digits(term);
+    const ors = [`lead_name.ilike.%${term}%`];
+    if (num.length >= 3) ors.push(`phone_number.ilike.%${num}%`);
+    const { data: rows } = await db
+      .from("leads")
+      .select("id,lead_name,phone_number,qualification_status,updated_at")
+      .or(ors.join(","))
+      .order("updated_at", { ascending: false })
+      .limit(15);
+    return { results: (rows ?? []) as { id: string; lead_name: string | null; phone_number: string | null; qualification_status: string | null }[] };
+  });
 
 /* ----------------------- HUMAN MESSAGING ------------------------ */
 
