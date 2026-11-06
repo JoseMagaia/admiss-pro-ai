@@ -58,7 +58,20 @@ export const PERMISSION_LABELS: Record<string, string> = {
   [ADVANCED_PERMISSION]: "Advanced (Reports & Opportunities)",
 };
 
-export const ALL_PERMISSIONS = [ADVANCED_PERMISSION] as const;
+export const CLEAN_LEADS_PERMISSION = "clean_leads";
+PERMISSION_LABELS[CLEAN_LEADS_PERMISSION] = "Clean up leads (bulk move by booking status)";
+
+export const ALL_PERMISSIONS = [ADVANCED_PERMISSION, CLEAN_LEADS_PERMISSION] as const;
+
+// Admins and super admins can always clean up leads; other users need the
+// "clean_leads" permission granted by an admin.
+export function canCleanLeads(
+  role: AppRole | null | undefined,
+  permissions: string[] | null | undefined,
+): boolean {
+  if (role === "super_admin" || role === "admin") return true;
+  return (permissions ?? []).includes(CLEAN_LEADS_PERMISSION);
+}
 
 // The Advanced area is always available to super admins, and to any user the
 // super admin has granted the "advanced" permission to.

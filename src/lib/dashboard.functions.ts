@@ -1071,45 +1071,81 @@ export const bulkMoveLeadsByBookingStatus = createServerFn({ method: "POST" })
     z.object({ rules: z.array(z.object({ status: z.string().min(1), stage: z.string().min(1) })).min(1).max(20) }).parse(d),
   )
   .handler(async ({ data }) => {
-    try {
-      await guard(["admin", "super_admin"] as AppRole[]);
-    } catch (e) {
-      return { ok: false, moved: 0, error: (e as Error).message };
+    const { getRequestUser } = await import("@/integrations/supabase/role-guard.server");
+    const me = await getRequestUser();
+    if (!me?.role) return { ok: false, moved: 0, alreadyInStage: 0, error: "Not signed in" };
+    if (me.role !== "admin" && me.role !== "super_admin") {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { data: perm } = await supabaseAdmin
+        .from("user_permissions")
+        .select("id")
+        .eq("user_id", me.userId)
+        .eq("permission", "clean_leads")
+        .maybeSingle();
+      if (!perm) return { ok: false, moved: 0, alreadyInStage: 0, error: "You don't have permission to clean up leads. Ask an admin to grant it." };
     }
     const db = await scopedDb();
-    const { data: appts, error: aErr } = await db.from("appointments").select("phone_number,status").limit(5000);
-    if (aErr) return { ok: false, moved: 0, error: aErr.message };
-    const { data: leads, error: lErr } = await db.from("leads").select("id,phone_number,qualification_status").limit(10000);
-    if (lErr) return { ok: false, moved: 0, error: lErr.message };
+    const key = (p: string | null | undefined) => digits(p).slice(-9);
+    const PAGE = 1000;
+    // Load every appointment in the chosen statuses (paginated past the 1000-row cap).
+    const statuses = [...new Set(data.rules.map((r) => r.status))];
+    const appts: { phone_number: string | null; status: string }[] = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data: rows, error } = await db
+        .from("appointments")
+        .select("phone_number,status")
+        .in("status", statuses)
+        .order("id")
+        .range(from, from + PAGE - 1);
+      if (error) return { ok: false, moved: 0, alreadyInStage: 0, error: error.message };
+      appts.push(...((rows ?? []) as typeof appts));
+      if (!rows || rows.length < PAGE) break;
+    }
+    // Load every lead (paginated) and index by last 9 digits of the phone.
     const byPhone = new Map<string, { id: string; qualification_status: string | null }[]>();
-    for (const l of (leads ?? []) as { id: string; phone_number: string | null; qualification_status: string | null }[]) {
-      const k = digits(l.phone_number);
-      if (!k) continue;
-      if (!byPhone.has(k)) byPhone.set(k, []);
-      byPhone.get(k)!.push(l);
+    for (let from = 0; ; from += PAGE) {
+      const { data: rows, error } = await db
+        .from("leads")
+        .select("id,phone_number,qualification_status")
+        .order("id")
+        .range(from, from + PAGE - 1);
+      if (error) return { ok: false, moved: 0, alreadyInStage: 0, error: error.message };
+      for (const l of (rows ?? []) as { id: string; phone_number: string | null; qualification_status: string | null }[]) {
+        const k = key(l.phone_number);
+        if (!k) continue;
+        if (!byPhone.has(k)) byPhone.set(k, []);
+        byPhone.get(k)!.push(l);
+      }
+      if (!rows || rows.length < PAGE) break;
     }
     let moved = 0;
-    const details: { status: string; stage: string; moved: number }[] = [];
+    let alreadyInStage = 0;
+    const details: { status: string; stage: string; moved: number; already: number }[] = [];
     for (const rule of data.rules) {
       const ids = new Set<string>();
-      for (const a of (appts ?? []) as { phone_number: string | null; status: string }[]) {
+      const already = new Set<string>();
+      for (const a of appts) {
         if (a.status !== rule.status) continue;
-        for (const l of byPhone.get(digits(a.phone_number)) ?? []) {
+        const k = key(a.phone_number);
+        if (!k) continue;
+        for (const l of byPhone.get(k) ?? []) {
           if (l.qualification_status !== rule.stage) ids.add(l.id);
+          else already.add(l.id);
         }
       }
+      alreadyInStage += already.size;
       const list = [...ids];
       for (let i = 0; i < list.length; i += 200) {
         const { error } = await db
           .from("leads")
           .update({ qualification_status: rule.stage } as never)
           .in("id", list.slice(i, i + 200));
-        if (error) return { ok: false, moved, error: error.message };
+        if (error) return { ok: false, moved, alreadyInStage, error: error.message };
       }
       moved += list.length;
-      details.push({ status: rule.status, stage: rule.stage, moved: list.length });
+      details.push({ status: rule.status, stage: rule.stage, moved: list.length, already: already.size });
     }
-    return { ok: true, moved, details, error: null };
+    return { ok: true, moved, alreadyInStage, details, error: null };
   });
 
 /* ------------------------- QUICK SEARCH ------------------------- */

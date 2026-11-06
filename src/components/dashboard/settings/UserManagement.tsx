@@ -20,7 +20,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { SettingsCard } from "./SettingsForms";
 import { listUsers, createUser, updateUserRole, deleteUser, setUserPermission, updateUserCredentials } from "@/lib/auth.functions";
-import { ALL_ROLES, ROLE_LABELS, ADVANCED_PERMISSION, type AppRole } from "@/lib/roles";
+import { ALL_ROLES, ROLE_LABELS, ADVANCED_PERMISSION, CLEAN_LEADS_PERMISSION, type AppRole } from "@/lib/roles";
 
 interface UserRow {
   user_id: string;
@@ -174,6 +174,25 @@ export function UserManagement() {
                         }
                       />
                       Advanced
+                    </label>
+                  )}
+                  {u.role === "agent" && (
+                    <label
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                      title="Allows this user to use 'Clean up leads' on Bookings (admins always can)"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={u.permissions?.includes(CLEAN_LEADS_PERMISSION) ?? false}
+                        onChange={(e) =>
+                          changePermission.mutate({
+                            user_id: u.user_id,
+                            permission: CLEAN_LEADS_PERMISSION,
+                            enabled: e.target.checked,
+                          })
+                        }
+                      />
+                      Clean up leads
                     </label>
                   )}
                   <select

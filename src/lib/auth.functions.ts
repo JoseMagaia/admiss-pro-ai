@@ -190,7 +190,7 @@ export const setUserPermission = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { assertRole } = await import("@/integrations/supabase/role-guard.server");
     try {
-      await assertRole(["super_admin"]);
+      await assertRole(data.permission === "clean_leads" ? ["super_admin", "admin"] : ["super_admin"]);
     } catch (e) {
       return { ok: false, error: (e as Error).message };
     }
