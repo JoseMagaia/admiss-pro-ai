@@ -34,7 +34,9 @@ export function BulkStageMover() {
       if (!r.ok) return toast.error(r.error ?? "Could not move leads");
       const already = r.alreadyInStage ?? 0;
       toast.success(
-        `${r.moved} lead${r.moved === 1 ? "" : "s"} moved` + (already ? ` · ${already} already in the target stage` : ""),
+        `${r.moved} lead${r.moved === 1 ? "" : "s"} moved` +
+          (already ? ` · ${already} already in the target stage` : "") +
+          ` · ${r.archived ?? 0} booking${r.archived === 1 ? "" : "s"} cleared from Bookings`,
       );
       qc.invalidateQueries();
       setOpen(false);

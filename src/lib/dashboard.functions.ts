@@ -394,7 +394,7 @@ export const listConversationMessages = createServerFn({ method: "POST" })
 export const listAppointments = createServerFn({ method: "GET" }).handler(async () => {
   if (!(await isAuthed())) return { appointments: [] };
   const db = await scopedDb();
-  const { data } = await db.from("appointments").select("*").order("created_at", { ascending: false }).limit(1000);
+  const { data } = await db.from("appointments").select("*").neq("status", "archived").order("created_at", { ascending: false }).limit(1000);
   return { appointments: data ?? [] };
 });
 
@@ -1089,11 +1089,11 @@ export const bulkMoveLeadsByBookingStatus = createServerFn({ method: "POST" })
     const PAGE = 1000;
     // Load every appointment in the chosen statuses (paginated past the 1000-row cap).
     const statuses = [...new Set(data.rules.map((r) => r.status))];
-    const appts: { phone_number: string | null; status: string }[] = [];
+    const appts: { id: string; phone_number: string | null; status: string }[] = [];
     for (let from = 0; ; from += PAGE) {
       const { data: rows, error } = await db
         .from("appointments")
-        .select("phone_number,status")
+        .select("id,phone_number,status")
         .in("status", statuses)
         .order("id")
         .range(from, from + PAGE - 1);
@@ -1120,6 +1120,7 @@ export const bulkMoveLeadsByBookingStatus = createServerFn({ method: "POST" })
     }
     let moved = 0;
     let alreadyInStage = 0;
+    let archived = 0;
     const details: { status: string; stage: string; moved: number; already: number }[] = [];
     for (const rule of data.rules) {
       const ids = new Set<string>();
@@ -1143,9 +1144,19 @@ export const bulkMoveLeadsByBookingStatus = createServerFn({ method: "POST" })
         if (error) return { ok: false, moved, alreadyInStage, error: error.message };
       }
       moved += list.length;
+      // Remove the processed bookings from the Bookings list (archived, kept for history).
+      const apptIds = appts.filter((a) => a.status === rule.status && key(a.phone_number)).map((a) => a.id);
+      for (let i = 0; i < apptIds.length; i += 200) {
+        const { error } = await db
+          .from("appointments")
+          .update({ status: "archived" } as never)
+          .in("id", apptIds.slice(i, i + 200));
+        if (error) return { ok: false, moved, alreadyInStage, error: error.message };
+      }
+      archived += apptIds.length;
       details.push({ status: rule.status, stage: rule.stage, moved: list.length, already: already.size });
     }
-    return { ok: true, moved, alreadyInStage, details, error: null };
+    return { ok: true, moved, alreadyInStage, archived, details, error: null };
   });
 
 /* ------------------------- QUICK SEARCH ------------------------- */
